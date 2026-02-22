@@ -1,0 +1,957 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal } from 'lucide-react';
+import { User } from './types';
+
+// ── Constants ──────────────────────────────────────────────────────────────────
+const NODE_W   = 215;
+const NODE_H   = 88;
+const PORT_R   = 7;
+const CANVAS_W = 2400;
+const CANVAS_H = 800;
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Type Definitions ───────────────────────────────────────────────────────────
+interface NodeTypeDef {
+  type: string;
+  label: string;
+  icon: string;
+  color: string;
+  category: 'trigger' | 'action';
+  defaultConfig: Record<string, string>;
+}
+
+const NODE_TYPE_DEFS: NodeTypeDef[] = [
+  { type: 'schedule',      label: 'Schedule',      icon: '⏰', color: '#ff9500', category: 'trigger', defaultConfig: { interval: 'Every day at 9:00 AM', timezone: 'UTC+8' } },
+  { type: 'webhook',       label: 'Webhook',        icon: '⚡', color: '#ff7849', category: 'trigger', defaultConfig: { path: '/webhook', method: 'POST' } },
+  { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', format: 'PNG', fullPage: 'true' } },
+  { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipient: 'Page ID', message: 'Daily screenshot report' } },
+  { type: 'data_transform',label: 'Data Transform', icon: '⚙️', color: '#a855f7', category: 'action', defaultConfig: { mode: 'JSON → CSV', filter: '' } },
+  { type: 'email',         label: 'Send Email',     icon: '✉️', color: '#00ffff', category: 'action', defaultConfig: { to: 'recipient@example.com', subject: 'Automated Report' } },
+];
+
+type NodeStatus = 'idle' | 'running' | 'success' | 'error';
+type EditorTab  = 'code' | 'params' | 'output';
+
+interface WFNode {
+  id: string; type: string; label: string; icon: string; color: string;
+  x: number;  y: number;   status: NodeStatus; config: Record<string, string>;
+}
+interface WFEdge { id: string; fromId: string; toId: string; }
+
+// ── Initial workflow ───────────────────────────────────────────────────────────
+const INITIAL_NODES: WFNode[] = [
+  { id: 'n1', type: 'schedule',   label: 'On Schedule', icon: '⏰', color: '#ff9500', x: 60,  y: 120, status: 'idle', config: { interval: 'Every day at 9:00 AM', timezone: 'UTC+8' } },
+  { id: 'n2', type: 'screenshot', label: 'Screenshot',  icon: '🌐', color: '#00cc7a', x: 370, y: 120, status: 'idle', config: { url: 'https://example.com', format: 'PNG', fullPage: 'true' } },
+  { id: 'n3', type: 'facebook',   label: 'Facebook',    icon: '📘', color: '#1877f2', x: 680, y: 120, status: 'idle', config: { recipient: 'Page ID: 12345', message: 'Daily screenshot report' } },
+];
+const INITIAL_EDGES: WFEdge[] = [
+  { id: 'e1', fromId: 'n1', toId: 'n2' },
+  { id: 'e2', fromId: 'n2', toId: 'n3' },
+];
+
+// ── Execution order ────────────────────────────────────────────────────────────
+function getExecutionOrder(nodes: WFNode[], edges: WFEdge[]): string[] {
+  const hasIncoming = new Set(edges.map(e => e.toId));
+  const visited = new Set<string>(); const order: string[] = [];
+  const dfs = (id: string) => {
+    if (visited.has(id)) return; visited.add(id); order.push(id);
+    edges.filter(e => e.fromId === id).forEach(e => dfs(e.toId));
+  };
+  nodes.filter(n => !hasIncoming.has(n.id)).forEach(n => dfs(n.id));
+  nodes.forEach(n => { if (!visited.has(n.id)) dfs(n.id); });
+  return order;
+}
+
+const STATUS_COLOR: Record<NodeStatus, string> = {
+  idle: '#475569', running: '#ffd700', success: '#00cc7a', error: '#ff4d4d',
+};
+
+// ── Code templates per node type ───────────────────────────────────────────────
+function getNodeCode(node: WFNode): string {
+  const c = node.config;
+  switch (node.type) {
+    case 'schedule': return `// ⏰  Schedule Trigger — fires the workflow on a set interval
+// Configured: ${c.interval || 'Every day at 9:00 AM'} (${c.timezone || 'UTC+8'})
+
+const cron = require("node-cron");
+
+// Cron pattern: minute  hour  day  month  weekday
+//                  0      9    *     *       *
+const pattern = "0 9 * * *";
+
+cron.schedule(pattern, async () => {
+  const payload = {
+    triggeredAt : new Date().toISOString(),
+    timezone    : "${c.timezone || 'UTC+8'}",
+    schedule    : "${c.interval || 'Every day at 9:00 AM'}",
+    runId       : crypto.randomUUID(),
+  };
+
+  console.log("[Schedule] Workflow triggered", payload);
+
+  // Emit payload to the next connected node
+  return payload;
+
+}, { timezone: "${c.timezone || 'Asia/Manila'}" });`;
+
+    case 'webhook': return `// ⚡  Webhook Trigger — listens for incoming HTTP requests
+// Endpoint: ${c.method || 'POST'} ${c.path || '/webhook'}
+
+const express = require("express");
+const app     = express();
+app.use(express.json());
+
+// Register the webhook route
+app.${(c.method || 'POST').toLowerCase()}("${c.path || '/webhook'}", async (req, res) => {
+  const payload = {
+    receivedAt : new Date().toISOString(),
+    method     : req.method,
+    headers    : req.headers,
+    body       : req.body,
+    query      : req.query,
+    ip         : req.ip,
+  };
+
+  console.log("[Webhook] Request received:", payload);
+
+  // Acknowledge the request immediately
+  res.status(200).json({ status: "received", runId: crypto.randomUUID() });
+
+  // Emit payload to the next connected node
+  return payload;
+});`;
+
+    case 'screenshot': return `// 🌐  Screenshot Action — captures a page with Puppeteer
+// Target URL : ${c.url || 'https://example.com'}
+// Format     : ${c.format || 'PNG'}
+// Full page  : ${c.fullPage || 'true'}
+
+const puppeteer = require("puppeteer");
+
+async function execute(input) {
+  const browser = await puppeteer.launch({
+    headless : "new",
+    args     : ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 720 });
+
+  // Navigate to target
+  await page.goto("${c.url || 'https://example.com'}", {
+    waitUntil : "networkidle2",
+    timeout   : 30000,
+  });
+
+  // Capture screenshot
+  const buffer = await page.screenshot({
+    type     : "${(c.format || 'PNG').toLowerCase()}",
+    fullPage : ${c.fullPage === 'false' ? 'false' : 'true'},
+    encoding : "base64",
+  });
+
+  await browser.close();
+
+  return {
+    imageBase64 : buffer,
+    format      : "${c.format || 'PNG'}",
+    url         : "${c.url || 'https://example.com'}",
+    capturedAt  : new Date().toISOString(),
+    sizeBytes   : Buffer.byteLength(buffer, "base64"),
+  };
+}`;
+
+    case 'facebook': return `// 📘  Facebook Action — posts a message via the Graph API
+// Recipient : ${c.recipient || 'Page ID'}
+// Message   : "${c.message || 'Daily screenshot report'}"
+
+const axios = require("axios");
+
+async function execute(input) {
+  const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_TOKEN;
+  const RECIPIENT_ID      = "${c.recipient || 'PAGE_ID'}";
+
+  // Build the message payload
+  const payload = {
+    recipient : { id: RECIPIENT_ID },
+    message   : {
+      text        : "${c.message || 'Daily screenshot report'}",
+      // If previous node produced an image, attach it
+      ...(input.imageBase64 && {
+        attachment: {
+          type    : "image",
+          payload : { data: input.imageBase64 },
+        },
+      }),
+    },
+  };
+
+  // Send via Messenger Send API
+  const response = await axios.post(
+    \`https://graph.facebook.com/v18.0/me/messages\`,
+    payload,
+    { params: { access_token: PAGE_ACCESS_TOKEN } }
+  );
+
+  console.log("[Facebook] Message sent:", response.data);
+
+  return {
+    messageId  : response.data.message_id,
+    recipientId: response.data.recipient_id,
+    sentAt     : new Date().toISOString(),
+  };
+}`;
+
+    case 'data_transform': return `// ⚙️  Data Transform — reshapes data between nodes
+// Mode   : ${c.mode || 'JSON → CSV'}
+// Filter : "${c.filter || '(none)'}"
+
+const { parse }    = require("json2csv");
+const { DateTime } = require("luxon");
+
+async function execute(input) {
+  let result = input;
+
+  // ── Step 1: Apply filter expression (if set)
+  ${c.filter ? `const filtered = input.filter(row => ${c.filter});
+  result = filtered;` : `// No filter configured — passing data through unchanged`}
+
+  // ── Step 2: Transform based on mode
+  if ("${c.mode || 'JSON → CSV'}" === "JSON → CSV") {
+    const fields = Object.keys(Array.isArray(result) ? result[0] : result);
+    const csv    = parse(Array.isArray(result) ? result : [result], { fields });
+
+    return {
+      output      : csv,
+      format      : "csv",
+      rowCount    : Array.isArray(result) ? result.length : 1,
+      processedAt : new Date().toISOString(),
+    };
+  }
+
+  // ── Step 3: Pass through for other modes
+  return {
+    output      : result,
+    format      : "json",
+    processedAt : new Date().toISOString(),
+  };
+}`;
+
+    case 'email': return `// ✉️  Send Email Action — delivers an email via SMTP
+// To      : ${c.to || 'recipient@example.com'}
+// Subject : "${c.subject || 'Automated Report'}"
+
+const nodemailer = require("nodemailer");
+
+// Configure SMTP transport (credentials from environment)
+const transporter = nodemailer.createTransport({
+  host   : process.env.SMTP_HOST,
+  port   : 587,
+  secure : false,
+  auth   : {
+    user : process.env.SMTP_USER,
+    pass : process.env.SMTP_PASS,
+  },
+});
+
+async function execute(input) {
+  const mailOptions = {
+    from    : process.env.SMTP_FROM,
+    to      : "${c.to || 'recipient@example.com'}",
+    subject : "${c.subject || 'Automated Report'}",
+    html    : buildEmailBody(input),
+
+    // Attach screenshot if available from previous node
+    ...(input.imageBase64 && {
+      attachments: [{
+        filename    : \`report-\${Date.now()}.${(c.subject || '').toLowerCase().includes('png') ? 'png' : 'png'}\`,
+        content     : input.imageBase64,
+        encoding    : "base64",
+        contentType : "image/png",
+      }],
+    }),
+  };
+
+  const info = await transporter.sendMail(mailOptions);
+  console.log("[Email] Sent:", info.messageId);
+
+  return {
+    messageId : info.messageId,
+    to        : "${c.to || 'recipient@example.com'}",
+    sentAt    : new Date().toISOString(),
+  };
+}`;
+
+    default: return `// Node type: ${node.type}\n// No code template available for this node.`;
+  }
+}
+
+// ── Sample output per node type ────────────────────────────────────────────────
+function getNodeOutput(node: WFNode): string {
+  const t = new Date().toISOString();
+  switch (node.type) {
+    case 'schedule': return JSON.stringify({ triggeredAt: t, timezone: node.config.timezone || 'UTC+8', schedule: node.config.interval, runId: 'a3f8c2d1-...' }, null, 2);
+    case 'webhook':  return JSON.stringify({ receivedAt: t, method: node.config.method || 'POST', body: { event: 'ping', data: {} }, ip: '192.168.1.1' }, null, 2);
+    case 'screenshot': return JSON.stringify({ imageBase64: 'iVBORw0KGgoAAAANSUhEUgA...', format: node.config.format || 'PNG', url: node.config.url, capturedAt: t, sizeBytes: 48320 }, null, 2);
+    case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipient, sentAt: t }, null, 2);
+    case 'data_transform': return JSON.stringify({ output: 'id,name,value\n1,Alpha,100\n2,Beta,200', format: 'csv', rowCount: 2, processedAt: t }, null, 2);
+    case 'email':    return JSON.stringify({ messageId: '<abc123@smtp.example.com>', to: node.config.to, sentAt: t }, null, 2);
+    default:         return '{}';
+  }
+}
+
+// ── Minimal syntax highlighter ─────────────────────────────────────────────────
+function highlightCode(raw: string): string {
+  const escaped = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return escaped
+    // Comments
+    .replace(/(\/\/[^\n]*)/g, '<span style="color:#4a5568;font-style:italic">$1</span>')
+    // Strings (double-quoted)
+    .replace(/("(?:[^"\\]|\\.)*")/g, '<span style="color:#00cc7a">$1</span>')
+    // Strings (single-quoted, not inside already replaced)
+    .replace(/(?<!color:)('(?:[^'\\]|\\.)*')/g, '<span style="color:#00cc7a">$1</span>')
+    // Template literal variables — \`...\` (we can't handle backtick easily, skip)
+    // Keywords
+    .replace(/\b(const|let|var|async|await|function|return|if|else|for|of|in|new|typeof|require|import|from|export|default)\b/g,
+      '<span style="color:#ff9500">$1</span>')
+    // Booleans / null
+    .replace(/\b(true|false|null|undefined)\b/g, '<span style="color:#ff7849">$1</span>')
+    // Numbers
+    .replace(/(?<![#a-fA-F])\b(\d+)\b/g, '<span style="color:#a855f7">$1</span>')
+    // Property access
+    .replace(/\.([a-zA-Z_$][a-zA-Z0-9_$]*)/g, '.<span style="color:#00ffff">$1</span>');
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+interface Props {
+  currentUser: User;
+  onBackToHub: () => void;
+  onLogout: () => void;
+  roleColor: string;
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout, roleColor }: Props) {
+  const [nodes, setNodes]           = useState<WFNode[]>(INITIAL_NODES);
+  const [edges, setEdges]           = useState<WFEdge[]>(INITIAL_EDGES);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [nodeModal, setNodeModal]   = useState<WFNode | null>(null);
+  const [editorTab, setEditorTab]   = useState<EditorTab>('code');
+  const [executing, setExecuting]   = useState(false);
+  const [liveMode, setLiveMode]     = useState(false);
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
+  const [execLog, setExecLog]       = useState<string[]>([]);
+
+  const dragging   = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const dragMoved  = useRef(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Keep modal in sync when node config changes
+  useEffect(() => {
+    if (nodeModal) {
+      const updated = nodes.find(n => n.id === nodeModal.id);
+      if (updated) setNodeModal(updated);
+    }
+  }, [nodes]);
+
+  // ── Global mouse tracking ──────────────────────────────────────────────────
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const wr = wrapperRef.current; if (!wr) return;
+      const rect = wr.getBoundingClientRect();
+      const x = e.clientX - rect.left + wr.scrollLeft;
+      const y = e.clientY - rect.top  + wr.scrollTop;
+      setMousePos({ x, y });
+      if (dragging.current) {
+        dragMoved.current = true;
+        const { nodeId, offX, offY } = dragging.current;
+        setNodes(prev => prev.map(n =>
+          n.id === nodeId ? { ...n, x: Math.max(0, x - offX), y: Math.max(0, y - offY) } : n
+        ));
+      }
+    };
+    const onUp = () => { dragging.current = null; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+  }, []);
+
+  // ── Node interaction ────────────────────────────────────────────────────────
+  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
+    if ((e.target as HTMLElement).closest('[data-port]')) return;
+    e.preventDefault(); e.stopPropagation();
+    const node = nodes.find(n => n.id === nodeId)!;
+    const wr = wrapperRef.current!;
+    const rect = wr.getBoundingClientRect();
+    const mx = e.clientX - rect.left + wr.scrollLeft;
+    const my = e.clientY - rect.top  + wr.scrollTop;
+    dragging.current = { nodeId, offX: mx - node.x, offY: my - node.y };
+    dragMoved.current = false;
+    setSelectedId(nodeId);
+  };
+
+  const handleNodeClick = (e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    if (dragMoved.current) return; // was a drag, not a click
+    const node = nodes.find(n => n.id === nodeId);
+    if (node) { setNodeModal(node); setEditorTab('code'); }
+  };
+
+  const handleOutputPortClick = (e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    setConnectingFrom(prev => prev === nodeId ? null : nodeId);
+  };
+
+  const handleInputPortClick = (e: React.MouseEvent, nodeId: string) => {
+    e.stopPropagation();
+    if (connectingFrom && connectingFrom !== nodeId) {
+      if (!edges.some(ed => ed.fromId === connectingFrom && ed.toId === nodeId)) {
+        setEdges(prev => [...prev, { id: `e-${Date.now()}`, fromId: connectingFrom, toId: nodeId }]);
+      }
+      setConnectingFrom(null);
+    }
+  };
+
+  const handleCanvasClick = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.wf-node')) return;
+    setSelectedId(null); setConnectingFrom(null);
+  };
+
+  const handleDeleteNode = (nodeId: string) => {
+    setNodes(prev => prev.filter(n => n.id !== nodeId));
+    setEdges(prev => prev.filter(ed => ed.fromId !== nodeId && ed.toId !== nodeId));
+    setSelectedId(null); setNodeModal(null);
+  };
+
+  const handleUpdateConfig = (nodeId: string, key: string, value: string) => {
+    setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, config: { ...n.config, [key]: value } } : n));
+  };
+
+  const handleUpdateLabel = (nodeId: string, label: string) => {
+    setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, label } : n));
+  };
+
+  const handleAddNode = (def: NodeTypeDef) => {
+    const id = `n-${Date.now()}`;
+    const wr = wrapperRef.current!;
+    const x = wr.scrollLeft + 150 + Math.random() * 250;
+    const y = wr.scrollTop  + 200 + Math.random() * 150;
+    const newNode: WFNode = { id, type: def.type, label: def.label, icon: def.icon, color: def.color, x, y, status: 'idle', config: { ...def.defaultConfig } };
+    setNodes(prev => [...prev, newNode]);
+    setSelectedId(id); setNodeModal(newNode); setEditorTab('params');
+  };
+
+  // ── Execute ────────────────────────────────────────────────────────────────
+  const handleExecute = async () => {
+    if (executing) return;
+    setExecuting(true); setExecLog([]); setSelectedId(null);
+    setNodes(prev => prev.map(n => ({ ...n, status: 'idle' })));
+    await sleep(250);
+    const order = getExecutionOrder(nodes, edges);
+    const log = (msg: string) => setExecLog(p => [...p, msg]);
+    log('▶  Workflow started');
+    for (const id of order) {
+      const node = nodes.find(n => n.id === id); if (!node) continue;
+      log(`   ⏳ ${node.label}…`);
+      setNodes(prev => prev.map(n => n.id === id ? { ...n, status: 'running' } : n));
+      await sleep(750 + Math.random() * 750);
+      setNodes(prev => prev.map(n => n.id === id ? { ...n, status: 'success' } : n));
+      log(`   ✓  ${node.label} completed`);
+      await sleep(180);
+    }
+    log('✅ Workflow finished');
+    setExecuting(false);
+  };
+
+  const handleReset = () => {
+    setNodes(INITIAL_NODES); setEdges(INITIAL_EDGES);
+    setSelectedId(null); setConnectingFrom(null); setExecLog([]); setNodeModal(null);
+  };
+
+  // ── SVG paths ──────────────────────────────────────────────────────────────
+  const getPath = (fromId: string, toId: string) => {
+    const f = nodes.find(n => n.id === fromId); const t = nodes.find(n => n.id === toId);
+    if (!f || !t) return '';
+    const x1 = f.x + NODE_W; const y1 = f.y + NODE_H / 2;
+    const x2 = t.x;           const y2 = t.y + NODE_H / 2;
+    const cp = Math.max(60, Math.abs(x2 - x1) * 0.42);
+    return `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${x2 - cp} ${y2}, ${x2} ${y2}`;
+  };
+
+  const getTempPath = () => {
+    if (!connectingFrom) return '';
+    const f = nodes.find(n => n.id === connectingFrom); if (!f) return '';
+    const x1 = f.x + NODE_W; const y1 = f.y + NODE_H / 2;
+    const cp = Math.max(50, Math.abs(mousePos.x - x1) * 0.4);
+    return `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${mousePos.x - cp} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`;
+  };
+
+  const triggers = NODE_TYPE_DEFS.filter(d => d.category === 'trigger');
+  const actions  = NODE_TYPE_DEFS.filter(d => d.category === 'action');
+
+  return (
+    <div className="bg-[#0a0510] text-white flex flex-col" style={{ height: '100vh', overflow: 'hidden' }}>
+
+      {/* ── CSS animations ── */}
+      <style>{`
+        @keyframes wf-pulse { 0%,100%{opacity:1;box-shadow:0 0 6px #ffd700,0 0 14px #ffd70080}50%{opacity:.55;box-shadow:0 0 2px #ffd700} }
+        @keyframes wf-dash  { to{stroke-dashoffset:-20} }
+        .wf-running-dot { animation: wf-pulse .75s ease-in-out infinite; }
+        .wf-temp-line   { animation: wf-dash .4s linear infinite; }
+      `}</style>
+
+      {/* ── Header ── */}
+      <header className="shrink-0 border-b border-white/10 px-5 flex items-center gap-3"
+        style={{ height: 52, background: 'rgba(8,4,14,0.97)', backdropFilter: 'blur(16px)' }}>
+        <button onClick={onBackToHub}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-[#ff00ff] transition-all text-xs font-bold shrink-0">
+          ← Hub
+        </button>
+        <div className="w-px h-5 bg-white/10 shrink-0" />
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black"
+            style={{ background: 'linear-gradient(135deg,#ff00ff,#a855f7)', boxShadow: '0 0 12px rgba(255,0,255,.4)' }}>⚡</div>
+          <span className="text-sm font-bold tracking-tight">Workflow Automation</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 border border-white/10 px-1.5 py-0.5 rounded-md">BETA</span>
+        </div>
+        <div className="flex-1" />
+        <button onClick={handleReset}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold">
+          <RotateCcw size={11} /> Reset
+        </button>
+        <button onClick={handleExecute} disabled={executing}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-60"
+          style={{ background: executing ? 'rgba(255,0,255,.25)' : '#ff00ff', boxShadow: executing ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
+          <Play size={12} fill="white" />{executing ? 'Running…' : 'Execute Workflow'}
+        </button>
+        <button onClick={() => setLiveMode(l => !l)}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all"
+          style={{ borderColor: liveMode ? 'rgba(0,204,122,.4)' : 'rgba(255,255,255,.1)', background: liveMode ? 'rgba(0,204,122,.08)' : 'rgba(255,255,255,.03)', color: liveMode ? '#00cc7a' : '#64748b' }}>
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: liveMode ? '#00cc7a' : '#64748b', boxShadow: liveMode ? '0 0 6px #00cc7a' : 'none' }} />
+          {liveMode ? 'Live Mode' : 'Test Mode'}
+        </button>
+        <div className="flex items-center gap-2 pl-2 border-l border-white/10">
+          <div className="w-7 h-7 rounded-full overflow-hidden" style={{ border: `2px solid ${roleColor}` }}>
+            <img src={currentUser.photo || `https://picsum.photos/seed/${currentUser.id}/100/100`} className="w-full h-full object-cover" alt="" />
+          </div>
+          <button onClick={onLogout} className="p-1.5 text-slate-500 hover:text-white transition-colors"><LogOut size={15} /></button>
+        </div>
+      </header>
+
+      {/* ── Body ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Left sidebar */}
+        <aside className="shrink-0 border-r border-white/8 flex flex-col py-4 overflow-y-auto"
+          style={{ width: 172, background: 'rgba(5,2,10,.98)' }}>
+          <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[.22em] text-slate-600">Triggers</p>
+          <div className="flex flex-col gap-0.5 px-2 mb-4">
+            {triggers.map(d => <SidebarItem key={d.type} def={d} onAdd={handleAddNode} />)}
+          </div>
+          <div className="mx-4 border-t border-white/6 mb-4" />
+          <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[.22em] text-slate-600">Actions</p>
+          <div className="flex flex-col gap-0.5 px-2">
+            {actions.map(d => <SidebarItem key={d.type} def={d} onAdd={handleAddNode} />)}
+          </div>
+          <div className="mt-auto px-4 pt-4 border-t border-white/6">
+            <p className="text-[9px] text-slate-600 leading-relaxed">
+              Click a node to <span style={{ color: '#a855f7' }}>view its code</span>. Drag to reposition. Click ● to connect.
+            </p>
+          </div>
+        </aside>
+
+        {/* Canvas wrapper */}
+        <div ref={wrapperRef} className="flex-1 overflow-auto"
+          style={{ cursor: connectingFrom ? 'crosshair' : 'default' }}
+          onClick={handleCanvasClick}>
+          <div style={{ width: CANVAS_W, height: CANVAS_H, position: 'relative',
+            backgroundImage: 'radial-gradient(circle,rgba(255,255,255,.055) 1px,transparent 1px)',
+            backgroundSize: '24px 24px' }}>
+            {/* Ambient glow */}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none',
+              background: 'radial-gradient(ellipse 60% 50% at 30% 35%,rgba(255,0,255,.04) 0%,transparent 70%)' }} />
+
+            {/* SVG connections */}
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}>
+              <defs>
+                {(['Idle','Running','Success'] as const).map(s => (
+                  <marker key={s} id={`arr${s}`} markerWidth="7" markerHeight="7" refX="5.5" refY="3.5" orient="auto">
+                    <path d="M 0 0.5 L 6 3.5 L 0 6.5 z" fill={s==='Running'?'#ffd700':s==='Success'?'#00cc7a':'rgba(255,255,255,.18)'} />
+                  </marker>
+                ))}
+              </defs>
+              {edges.map(edge => {
+                const from = nodes.find(n => n.id === edge.fromId);
+                const to   = nodes.find(n => n.id === edge.toId);
+                if (!from || !to) return null;
+                const isRun = from.status === 'running'; const isOk = from.status === 'success';
+                const col = isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)';
+                const mark = isOk ? 'arrSuccess' : isRun ? 'arrRunning' : 'arrIdle';
+                return (
+                  <path key={edge.id} d={getPath(edge.fromId, edge.toId)}
+                    stroke={col} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
+                    markerEnd={`url(#${mark})`}
+                    style={{ transition: 'stroke .5s,stroke-width .3s' }} />
+                );
+              })}
+              {connectingFrom && getTempPath() && (
+                <path d={getTempPath()} className="wf-temp-line" stroke="#ff00ff" strokeWidth="2" fill="none" strokeDasharray="7 4" />
+              )}
+            </svg>
+
+            {/* Nodes */}
+            {nodes.map(node => (
+              <WFNodeCard key={node.id} node={node}
+                selected={selectedId === node.id}
+                connecting={connectingFrom === node.id}
+                onMouseDown={handleNodeMouseDown}
+                onClick={handleNodeClick}
+                onOutputPortClick={handleOutputPortClick}
+                onInputPortClick={handleInputPortClick} />
+            ))}
+
+            {nodes.length === 0 && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <div className="text-center"><p className="text-5xl mb-4">⚡</p><p className="text-sm font-bold text-slate-500">Click a node type in the sidebar to get started</p></div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Execution log (floating) ── */}
+      {execLog.length > 0 && (
+        <div className="absolute bottom-4 right-4 w-72 rounded-2xl border border-white/10 overflow-hidden z-30"
+          style={{ background: 'rgba(8,4,14,.95)', backdropFilter: 'blur(16px)', boxShadow: '0 8px 40px rgba(0,0,0,.6)' }}
+          onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/8">
+            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: executing ? '#ffd700' : '#00cc7a' }}>
+              {executing ? '⏳ Executing…' : '✓ Complete'}
+            </p>
+            {!executing && <button onClick={() => setExecLog([])} className="p-1 text-slate-600 hover:text-white"><X size={11} /></button>}
+          </div>
+          <div className="p-3 max-h-40 overflow-y-auto">
+            {execLog.map((line, i) => (
+              <p key={i} className="text-[10px] font-mono py-0.5"
+                style={{ color: line.startsWith('✅') ? '#00cc7a' : line.startsWith('   ✓') ? '#94a3b8' : '#e2e8f0' }}>
+                {line}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Node Editor Modal ── */}
+      {nodeModal && (
+        <NodeEditorModal
+          node={nodeModal}
+          tab={editorTab}
+          onTabChange={setEditorTab}
+          onUpdateConfig={handleUpdateConfig}
+          onUpdateLabel={handleUpdateLabel}
+          onDelete={handleDeleteNode}
+          onClose={() => { setNodeModal(null); setSelectedId(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Sidebar Item ───────────────────────────────────────────────────────────────
+function SidebarItem({ def, onAdd }: { def: NodeTypeDef; onAdd: (d: NodeTypeDef) => void }) {
+  return (
+    <button onClick={() => onAdd(def)}
+      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left w-full group"
+      style={{ color: '#94a3b8' }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = def.color + '12'; (e.currentTarget as HTMLElement).style.color = '#e2e8f0'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}>
+      <div className="w-6 h-6 rounded-lg flex items-center justify-center text-xs shrink-0"
+        style={{ background: def.color + '18', border: `1px solid ${def.color}28` }}>{def.icon}</div>
+      <span className="flex-1 truncate">{def.label}</span>
+      <Plus size={10} className="opacity-0 group-hover:opacity-50 shrink-0 transition-opacity" />
+    </button>
+  );
+}
+
+// ── Workflow Node Card ─────────────────────────────────────────────────────────
+interface WFNodeCardProps {
+  node: WFNode; selected: boolean; connecting: boolean;
+  onMouseDown: (e: React.MouseEvent, id: string) => void;
+  onClick: (e: React.MouseEvent, id: string) => void;
+  onOutputPortClick: (e: React.MouseEvent, id: string) => void;
+  onInputPortClick:  (e: React.MouseEvent, id: string) => void;
+}
+
+function WFNodeCard({ node, selected, connecting, onMouseDown, onClick, onOutputPortClick, onInputPortClick }: WFNodeCardProps) {
+  const sc = STATUS_COLOR[node.status];
+  return (
+    <div className="wf-node"
+      style={{ position: 'absolute', left: node.x, top: node.y, width: NODE_W, height: NODE_H, zIndex: selected ? 20 : 5, userSelect: 'none', cursor: 'grab' }}
+      onMouseDown={e => onMouseDown(e, node.id)}
+      onClick={e => onClick(e, node.id)}>
+      {/* Card */}
+      <div style={{
+        width: '100%', height: '100%', position: 'relative',
+        background: selected ? 'rgba(18,8,30,.99)' : 'rgba(10,5,18,.96)',
+        borderRadius: 14,
+        border: `1.5px solid ${selected ? node.color + '90' : 'rgba(255,255,255,.08)'}`,
+        boxShadow: selected ? `0 0 0 2.5px ${node.color}22,0 10px 40px rgba(0,0,0,.7)` : '0 4px 24px rgba(0,0,0,.55)',
+        backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center',
+        gap: 12, padding: '0 16px 0 20px', overflow: 'hidden',
+        transition: 'border-color .2s,box-shadow .25s',
+      }}>
+        {/* Accent stripe */}
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+          background: `linear-gradient(to bottom,${node.color}dd,${node.color}55)`, borderRadius: '14px 0 0 14px' }} />
+        {/* Icon */}
+        <div style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+          background: node.color + '18', border: `1px solid ${node.color}32`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>{node.icon}</div>
+        {/* Text */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: '#f1f5f9', margin: 0, letterSpacing: '-.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
+            <div className={node.status === 'running' ? 'wf-running-dot' : ''}
+              style={{ width: 5, height: 5, borderRadius: '50%', background: sc,
+                boxShadow: node.status === 'success' ? `0 0 5px ${sc}` : undefined, transition: 'background .35s' }} />
+            <span style={{ fontSize: 9, color: sc, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.12em', transition: 'color .35s' }}>{node.status}</span>
+          </div>
+        </div>
+        {/* "View code" hint */}
+        <div style={{ fontSize: 9, color: 'rgba(255,255,255,.18)', fontFamily: 'monospace', flexShrink: 0, letterSpacing: '.05em' }}>{'</>'}</div>
+        {/* Glow */}
+        <div style={{ position: 'absolute', right: -20, bottom: -20, width: 70, height: 70,
+          borderRadius: '50%', background: node.color, filter: 'blur(24px)',
+          opacity: selected ? .16 : node.status === 'running' ? .22 : .06, transition: 'opacity .4s' }} />
+      </div>
+      {/* Input port */}
+      <div data-port="input" onClick={e => onInputPortClick(e, node.id)} title="Drop connection here"
+        style={{ position: 'absolute', left: -(PORT_R + .5), top: NODE_H / 2 - PORT_R,
+          width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#0a0510',
+          border: '2px solid rgba(255,255,255,.18)', cursor: 'pointer', zIndex: 3, transition: 'border-color .15s,transform .15s' }}
+        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor='#ff00ff'; (e.currentTarget as HTMLDivElement).style.transform='scale(1.35)'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor='rgba(255,255,255,.18)'; (e.currentTarget as HTMLDivElement).style.transform='scale(1)'; }} />
+      {/* Output port */}
+      <div data-port="output" onClick={e => onOutputPortClick(e, node.id)} title="Click to connect"
+        style={{ position: 'absolute', right: -(PORT_R + .5), top: NODE_H / 2 - PORT_R,
+          width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
+          background: connecting ? node.color : '#0a0510',
+          border: `2px solid ${connecting ? node.color : selected ? node.color + '80' : 'rgba(255,255,255,.18)'}`,
+          cursor: 'crosshair', zIndex: 3, boxShadow: connecting ? `0 0 12px ${node.color}` : 'none',
+          transition: 'border-color .15s,background .15s,transform .15s,box-shadow .2s' }}
+        onMouseEnter={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1.35)'; d.style.background=node.color; d.style.boxShadow=`0 0 10px ${node.color}80`; }}
+        onMouseLeave={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1)'; d.style.background=connecting?node.color:'#0a0510'; d.style.boxShadow=connecting?`0 0 12px ${node.color}`:'none'; }} />
+    </div>
+  );
+}
+
+// ── Node Editor Modal ──────────────────────────────────────────────────────────
+interface ModalProps {
+  node: WFNode; tab: EditorTab;
+  onTabChange: (t: EditorTab) => void;
+  onUpdateConfig: (id: string, key: string, val: string) => void;
+  onUpdateLabel:  (id: string, label: string) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}
+
+function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel, onDelete, onClose }: ModalProps) {
+  const codeHtml = highlightCode(getNodeCode(node));
+  const outputHtml = highlightCode(getNodeOutput(node));
+
+  const TABS: { id: EditorTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'code',   label: 'Code',       icon: <Code2    size={12} /> },
+    { id: 'params', label: 'Parameters', icon: <Settings2 size={12} /> },
+    { id: 'output', label: 'Output',     icon: <Terminal  size={12} /> },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(5,2,10,.75)', backdropFilter: 'blur(6px)' }}
+      onClick={onClose}>
+      <div
+        className="flex flex-col rounded-3xl overflow-hidden border border-white/10 shadow-2xl"
+        style={{ width: 760, maxHeight: '85vh', background: '#09051a', boxShadow: `0 0 0 1px rgba(255,255,255,.06), 0 40px 120px rgba(0,0,0,.8), 0 0 60px ${node.color}18` }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* Modal header */}
+        <div className="flex items-center gap-4 px-6 py-4 border-b border-white/8 shrink-0"
+          style={{ background: 'rgba(255,255,255,.02)' }}>
+          {/* Left accent */}
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0"
+            style={{ background: node.color + '18', border: `1.5px solid ${node.color}40` }}>{node.icon}</div>
+          <div className="flex-1 min-w-0">
+            <input
+              className="text-sm font-bold bg-transparent outline-none text-white w-full border-b border-transparent hover:border-white/20 focus:border-white/30 transition-colors pb-0.5"
+              value={node.label}
+              onChange={e => onUpdateLabel(node.id, e.target.value)}
+              onClick={e => e.stopPropagation()} />
+            <p className="text-[10px] font-black uppercase tracking-widest mt-1" style={{ color: node.color }}>
+              {node.type.replace(/_/g, ' ')} · {node.category}
+            </p>
+          </div>
+          {/* Status badge */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border shrink-0"
+            style={{ borderColor: STATUS_COLOR[node.status] + '40', background: STATUS_COLOR[node.status] + '12' }}>
+            <div className={node.status === 'running' ? 'wf-running-dot' : ''}
+              style={{ width: 6, height: 6, borderRadius: '50%', background: STATUS_COLOR[node.status] }} />
+            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: STATUS_COLOR[node.status] }}>
+              {node.status}
+            </span>
+          </div>
+          <button onClick={onClose}
+            className="p-2 text-slate-600 hover:text-white hover:bg-white/5 transition-all rounded-xl">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex items-center gap-1 px-6 pt-3 pb-0 shrink-0 border-b border-white/6">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => onTabChange(t.id)}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2"
+              style={{
+                color: tab === t.id ? node.color : '#64748b',
+                borderBottomColor: tab === t.id ? node.color : 'transparent',
+                background: tab === t.id ? node.color + '10' : 'transparent',
+              }}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── CODE TAB ── */}
+        {tab === 'code' && (
+          <div className="flex-1 overflow-auto" style={{ background: '#06030f' }}>
+            {/* Code toolbar */}
+            <div className="flex items-center justify-between px-6 py-2.5 border-b border-white/6 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Node.js</span>
+                <span className="text-[9px] text-slate-700">·</span>
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Read-only</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+                <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
+                <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+              </div>
+            </div>
+            {/* Code body */}
+            <div className="overflow-auto" style={{ maxHeight: 'calc(85vh - 200px)' }}>
+              <table className="w-full border-collapse" style={{ fontFamily: "'JetBrains Mono','Fira Code','Consolas',monospace", fontSize: 12.5, lineHeight: 1.7 }}>
+                <tbody>
+                  {getNodeCode(node).split('\n').map((line, i) => (
+                    <tr key={i} className="group hover:bg-white/[0.02] transition-colors">
+                      <td className="text-right pr-5 pl-5 select-none align-top"
+                        style={{ color: '#2d3748', minWidth: 48, fontSize: 11, paddingTop: 0, paddingBottom: 0, borderRight: '1px solid rgba(255,255,255,.04)' }}>
+                        {i + 1}
+                      </td>
+                      <td className="pl-5 pr-8 align-top" style={{ paddingTop: 0, paddingBottom: 0 }}>
+                        <span dangerouslySetInnerHTML={{ __html: highlightCode(line) || '&nbsp;' }} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── PARAMETERS TAB ── */}
+        {tab === 'params' && (
+          <div className="flex-1 overflow-y-auto p-6">
+            <div className="space-y-5 max-w-lg">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Node Label</label>
+                <input
+                  className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-white outline-none transition-all"
+                  style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }}
+                  value={node.label}
+                  onChange={e => onUpdateLabel(node.id, e.target.value)}
+                  onClick={e => e.stopPropagation()}
+                  onFocus={e => { e.currentTarget.style.borderColor = node.color + '70'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}18`; }}
+                  onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)'; e.currentTarget.style.boxShadow = 'none'; }} />
+              </div>
+              <div className="border-t border-white/6 pt-5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4">Configuration</p>
+                <div className="space-y-4">
+                  {Object.entries(node.config).map(([key, value]) => (
+                    <div key={key}>
+                      <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
+                        {key.replace(/_/g, ' ')}
+                      </label>
+                      <input
+                        type="text" value={value}
+                        onChange={e => onUpdateConfig(node.id, key, e.target.value)}
+                        className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                        style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                        onClick={e => e.stopPropagation()}
+                        onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                        onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── OUTPUT TAB ── */}
+        {tab === 'output' && (
+          <div className="flex-1 overflow-auto" style={{ background: '#06030f' }}>
+            <div className="flex items-center justify-between px-6 py-2.5 border-b border-white/6 shrink-0">
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Sample output · JSON</span>
+              <span className="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md"
+                style={{ background: node.status === 'success' ? '#00cc7a18' : 'rgba(255,255,255,.04)', color: node.status === 'success' ? '#00cc7a' : '#475569' }}>
+                {node.status === 'success' ? '✓ Last run succeeded' : 'Run workflow to see live output'}
+              </span>
+            </div>
+            <div className="overflow-auto" style={{ maxHeight: 'calc(85vh - 200px)' }}>
+              <table className="w-full border-collapse" style={{ fontFamily: "'JetBrains Mono','Fira Code','Consolas',monospace", fontSize: 12.5, lineHeight: 1.7 }}>
+                <tbody>
+                  {getNodeOutput(node).split('\n').map((line, i) => (
+                    <tr key={i} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="text-right pr-5 pl-5 select-none align-top"
+                        style={{ color: '#2d3748', minWidth: 48, fontSize: 11, borderRight: '1px solid rgba(255,255,255,.04)' }}>
+                        {i + 1}
+                      </td>
+                      <td className="pl-5 pr-8 align-top">
+                        <span dangerouslySetInnerHTML={{ __html: highlightCode(line) || '&nbsp;' }} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Modal footer */}
+        <div className="flex items-center justify-between px-6 py-3.5 border-t border-white/8 shrink-0"
+          style={{ background: 'rgba(255,255,255,.01)' }}>
+          <button onClick={() => { if (window.confirm(`Delete node "${node.label}"?`)) onDelete(node.id); }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{ border: '1px solid rgba(255,77,77,.2)', background: 'rgba(255,77,77,.07)', color: '#ff4d4d' }}
+            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,77,77,.15)')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,77,77,.07)')}>
+            <Trash2 size={12} /> Delete Node
+          </button>
+          <button onClick={onClose}
+            className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold text-white transition-all"
+            style={{ background: node.color + 'cc', boxShadow: `0 0 16px ${node.color}40` }}
+            onMouseEnter={e => (e.currentTarget.style.opacity = '.85')}
+            onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
