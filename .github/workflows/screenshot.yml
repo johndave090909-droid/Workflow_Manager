@@ -1,0 +1,69 @@
+name: 📸 Website Screenshot
+
+on:
+  # ── Manual trigger from GitHub website ─────────────────────────────────────
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Website URL to screenshot"
+        required: true
+        default: "https://nidl3r.github.io/PCC-KDS/"
+      filename:
+        description: "Output filename (without .png)"
+        required: false
+        default: "screenshot"
+
+  # ── Scheduled (optional) — runs every day at 9:00 AM UTC ───────────────────
+  # Uncomment the two lines below to enable automatic daily screenshots:
+  # schedule:
+  #   - cron: "0 9 * * *"
+
+jobs:
+  screenshot:
+    name: Take Screenshot
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out the repo so screenshot.py is available
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Install Chrome (latest stable)
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      # 4. Install Selenium (auto-manages ChromeDriver)
+      - name: Install dependencies
+        run: pip install selenium
+
+      # 5. Take the screenshot
+      - name: Take screenshot
+        run: |
+          URL="${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}"
+          FILENAME="${{ github.event.inputs.filename || 'screenshot' }}.png"
+          echo "Screenshotting: $URL"
+          python screenshot.py "$URL" "$FILENAME"
+
+      # 6. Upload the PNG so you can download it from GitHub
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: "screenshot-${{ github.run_number }}"
+          path: "*.png"
+          retention-days: 30        # file stays available for 30 days
+
+      # 7. Print a summary in the Actions log
+      - name: Summary
+        run: |
+          echo "### ✅ Screenshot complete" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**File:** ${{ github.event.inputs.filename || 'screenshot' }}.png" >> $GITHUB_STEP_SUMMARY
+          echo "Download from the **Artifacts** section below ⬇️" >> $GITHUB_STEP_SUMMARY
