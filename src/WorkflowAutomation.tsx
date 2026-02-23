@@ -514,8 +514,11 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       snap => {
         if (snap.exists()) {
           const d = snap.data();
+          // Treat as stale if executing=true but updatedAt is >10 min ago (localhost crashed/closed mid-run)
+          const updatedAt = d.updatedAt ? new Date(d.updatedAt).getTime() : 0;
+          const isStale = d.executing && (Date.now() - updatedAt > 10 * 60 * 1000);
           setRemoteExec({
-            executing:    d.executing     ?? false,
+            executing:    isStale ? false : (d.executing ?? false),
             nodeStatuses: d.nodeStatuses  ?? {},
             nodeLogs:     d.nodeLogs      ?? {},
           });
