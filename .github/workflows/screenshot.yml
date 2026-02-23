@@ -19,7 +19,7 @@ on:
 
   # ── Daily schedule — 7:55 AM Hawaii time (HST = UTC-10, so 17:55 UTC) ──────
   schedule:
-    - cron: "33 7 * * *"
+    - cron: "35 7 * * *"
 
 jobs:
   screenshot:
