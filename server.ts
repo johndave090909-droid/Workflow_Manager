@@ -123,7 +123,16 @@ if (cardCount.count === 0) {
 async function startServer() {
   const app = express();
   app.use(express.json());
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // CORS — allows Firebase-hosted frontend to call this Railway backend
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+    if (req.method === "OPTIONS") { res.sendStatus(204); return; }
+    next();
+  });
 
   // Screenshots directory + static serving
   const screenshotsDir = path.join(__dirname, "screenshots");

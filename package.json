@@ -10,6 +10,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "seed": "npx tsx seed-firebase.ts",
+    "start": "NODE_ENV=production tsx server.ts",
     "deploy": "vite build && firebase deploy"
   },
   "dependencies": {

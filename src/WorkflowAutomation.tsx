@@ -4,6 +4,9 @@ import { collection, getDocs, onSnapshot, orderBy, query } from 'firebase/firest
 import { db as firestoreDb } from './firebase';
 import { User } from './types';
 
+// API base — empty for Railway (same-origin), set VITE_API_BASE for external backend
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || '';
+
 // ── Constants ──────────────────────────────────────────────────────────────────
 const NODE_W   = 215;
 const NODE_H   = 88;
@@ -419,7 +422,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
     // Local screenshots (captured via Python/Selenium on this machine)
     try {
-      const res = await fetch('/api/screenshots');
+      const res = await fetch(API_BASE + '/api/screenshots');
       if (res.ok) {
         const local = await res.json();
         all.push(...local.map((s: any) => ({ ...s, source: 'local' })));
@@ -670,7 +673,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           const selector = node.config.selector?.trim() || '';
           log(id, `📸 Triggering GitHub Actions…`);
           if (selector) log(id, `🎯 Selector: ${selector}`);
-          const r = await fetch('/api/trigger-screenshot', {
+          const r = await fetch(API_BASE + '/api/trigger-screenshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: node.config.url, selector }),
           });
@@ -698,7 +701,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           try {
             log(id, '📘 Sending to Messenger…');
             if (imageUrl) log(id, '🖼 Attaching screenshot');
-            const r = await fetch('/api/send-facebook-message', {
+            const r = await fetch(API_BASE + '/api/send-facebook-message', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ recipientId, message, imageUrl }),
             });
@@ -791,7 +794,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             const sched = nodes.find(n => n.type === 'schedule');
             const fb    = nodes.find(n => n.type === 'facebook');
             const shot  = nodes.find(n => n.type === 'screenshot');
-            fetch('/api/schedule', {
+            fetch(API_BASE + '/api/schedule', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 enabled:       next,
@@ -932,7 +935,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
                   try {
                     const base64 = ev.target?.result as string;
                     const screenshotNode = nodes.find(n => n.type === 'screenshot');
-                    const r = await fetch('/api/screenshots/upload', {
+                    const r = await fetch(API_BASE + '/api/screenshots/upload', {
                       method: 'POST', headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ base64, source_url: screenshotNode?.config?.url || 'GitHub Actions' }),
                     });
@@ -958,7 +961,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
                 if (!url) return;
                 setCapturing(true);
                 try {
-                  const r = await fetch('/api/screenshots/capture', {
+                  const r = await fetch(API_BASE + '/api/screenshots/capture', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url }),
                   });
@@ -1171,7 +1174,7 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
   const handleApplySchedule = async () => {
     setApplying(true); setApplyResult(null);
     try {
-      const r = await fetch('/api/github-schedule', {
+      const r = await fetch(API_BASE + '/api/github-schedule', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           frequency: node.config.frequency || 'daily',
