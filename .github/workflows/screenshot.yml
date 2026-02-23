@@ -15,12 +15,11 @@ on:
       selector:
         description: "CSS selector to capture a specific element (leave blank for full page)"
         required: false
-        default: ""
+        default: "#current-guest-counts"
 
-  # ── Scheduled (optional) — runs every day at 9:00 AM UTC ───────────────────
-  # Uncomment the two lines below to enable automatic daily screenshots:
-  # schedule:
-  #   - cron: "0 9 * * *"
+  # ── Daily schedule — 7:55 AM Hawaii time (HST = UTC-10, so 17:55 UTC) ──────
+  schedule:
+    - cron: "55 17 * * *"
 
 jobs:
   screenshot:
@@ -56,17 +55,16 @@ jobs:
           TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
           FILENAME="${BASE}_${TIMESTAMP}.png"
           echo "SCREENSHOT_FILENAME=${FILENAME}" >> $GITHUB_ENV
-          SELECTOR="${{ github.event.inputs.selector || '' }}"
+          echo "SCREENSHOT_URL=${URL}" >> $GITHUB_ENV
+          SELECTOR="${{ github.event.inputs.selector || '#current-guest-counts' }}"
           echo "Screenshotting: $URL → $FILENAME (selector: '${SELECTOR}')"
           python screenshot.py "$URL" "$FILENAME" "$SELECTOR"
 
-      # 6. Push to Firebase — screenshot appears on the site automatically
+      # 6. Push to Firebase Storage + Firestore, export STORAGE_URL for next step
       - name: Push to Firebase
-        env:
-          SCREENSHOT_URL: ${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}
         run: |
           python3 - <<'PYEOF'
-          import requests, os, sys, json, urllib.parse
+          import requests, os, sys, urllib.parse
           from datetime import datetime, timezone
 
           API_KEY  = "AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg"
@@ -106,8 +104,7 @@ jobs:
               sys.exit(1)
           print("✓ Storage upload OK")
 
-          # Extract the download token Firebase returns in the upload response
-          upload_data = r.json()
+          upload_data   = r.json()
           download_token = upload_data.get("downloadTokens", "")
           storage_url = (
               f"https://firebasestorage.googleapis.com/v0/b/{BUCKET}/o/{encoded}"
@@ -133,21 +130,74 @@ jobs:
           if r.status_code not in (200, 201):
               sys.exit(1)
           print("✓ Firestore write OK")
+
+          # ── 4. Export storage URL so the Facebook step can use it ────────────
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"STORAGE_URL={storage_url}\n")
           print("✓ Synced — screenshot will appear on the site automatically")
           PYEOF
 
-      # 7. Upload the PNG so you can download it from GitHub
-      - name: Upload screenshot
+      # 7. Send Facebook Messenger notification with the screenshot
+      - name: Send Facebook notification
+        env:
+          FB_PAGE_TOKEN: ${{ secrets.FB_PAGE_TOKEN }}
+          RECIPIENT_ID:  ${{ secrets.RECIPIENT_ID }}
+        run: |
+          python3 - <<'PYEOF'
+          import requests, os, sys
+
+          PAGE_TOKEN   = os.environ.get("FB_PAGE_TOKEN", "")
+          RECIPIENT_ID = os.environ.get("RECIPIENT_ID", "")
+          STORAGE_URL  = os.environ.get("STORAGE_URL", "")
+
+          if not PAGE_TOKEN or not RECIPIENT_ID:
+              print("⚠ FB_PAGE_TOKEN or RECIPIENT_ID secret not configured — skipping")
+              sys.exit(0)
+
+          BASE = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_TOKEN}"
+
+          # Send screenshot image attachment
+          if STORAGE_URL:
+              r = requests.post(BASE, json={
+                  "recipient": {"id": RECIPIENT_ID},
+                  "message": {
+                      "attachment": {
+                          "type": "image",
+                          "payload": {"url": STORAGE_URL, "is_reusable": True},
+                      }
+                  },
+              })
+              d = r.json()
+              if "error" in d:
+                  print(f"⚠ Image error: {d['error']['message']}")
+              else:
+                  print(f"✓ Image sent ({d.get('message_id')})")
+
+          # Send caption text
+          r = requests.post(BASE, json={
+              "recipient": {"id": RECIPIENT_ID},
+              "message":   {"text": "Daily screenshot report"},
+          })
+          d = r.json()
+          if "error" in d:
+              print(f"⚠ Text error: {d['error']['message']}")
+          else:
+              print(f"✓ Message sent ({d.get('message_id')})")
+          PYEOF
+
+      # 8. Upload the PNG so you can download it from GitHub
+      - name: Upload screenshot artifact
         uses: actions/upload-artifact@v4
         with:
           name: "screenshot-${{ github.run_number }}"
           path: "*.png"
-          retention-days: 30        # file stays available for 30 days
+          retention-days: 30
 
-      # 8. Print a summary in the Actions log
+      # 9. Print a summary in the Actions log
       - name: Summary
         run: |
           echo "### ✅ Screenshot complete" >> $GITHUB_STEP_SUMMARY
-          echo "**URL:** ${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${SCREENSHOT_URL}" >> $GITHUB_STEP_SUMMARY
           echo "**File:** ${SCREENSHOT_FILENAME}" >> $GITHUB_STEP_SUMMARY
+          echo "**Facebook:** notified ✓" >> $GITHUB_STEP_SUMMARY
           echo "Download from the **Artifacts** section below ⬇️" >> $GITHUB_STEP_SUMMARY
