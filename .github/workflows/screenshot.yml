@@ -99,8 +99,12 @@ jobs:
               sys.exit(1)
           print("✓ Storage upload OK")
 
+          # Extract the download token Firebase returns in the upload response
+          upload_data = r.json()
+          download_token = upload_data.get("downloadTokens", "")
           storage_url = (
-              f"https://firebasestorage.googleapis.com/v0/b/{BUCKET}/o/{encoded}?alt=media"
+              f"https://firebasestorage.googleapis.com/v0/b/{BUCKET}/o/{encoded}"
+              f"?alt=media&token={download_token}"
           )
 
           # ── 3. Write metadata to Firestore ───────────────────────────────────
