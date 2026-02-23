@@ -40,9 +40,9 @@ jobs:
         with:
           chrome-version: stable
 
-      # 4. Install Selenium (auto-manages ChromeDriver)
+      # 4. Install dependencies
       - name: Install dependencies
-        run: pip install selenium
+        run: pip install selenium requests
 
       # 5. Take the screenshot
       - name: Take screenshot
@@ -54,43 +54,76 @@ jobs:
 
       # 6. Push to Firebase — screenshot appears on the site automatically
       - name: Push to Firebase
+        env:
+          SCREENSHOT_URL: ${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}
+          SCREENSHOT_FILENAME: ${{ github.event.inputs.filename || 'screenshot' }}.png
         run: |
-          URL="${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}"
-          FILENAME="${{ github.event.inputs.filename || 'screenshot' }}.png"
-          API_KEY="AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg"
+          python3 - <<'PYEOF'
+          import requests, os, sys, json, urllib.parse
+          from datetime import datetime, timezone
 
-          # URL-encode the storage path for download URL (slashes → %2F)
-          ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('screenshots/$FILENAME'))")
-          # Name for upload query param — keep slashes, but encode spaces/special chars
-          NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('screenshots/$FILENAME', safe='/'))")
-          STORAGE_URL="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/${ENCODED}?alt=media"
+          API_KEY  = "AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg"
+          BUCKET   = "systems-hub.firebasestorage.app"
+          URL      = os.environ["SCREENSHOT_URL"]
+          FILENAME = os.environ["SCREENSHOT_FILENAME"]
 
-          echo "Uploading to Firebase Storage..."
-          STORAGE_STATUS=$(curl -s -o /tmp/storage_out.json -w "%{http_code}" -X POST \
-            "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?name=${NAME}&key=${API_KEY}" \
-            -H "Content-Type: image/png" \
-            --data-binary @"$FILENAME")
-          echo "Storage response (HTTP $STORAGE_STATUS):"
-          cat /tmp/storage_out.json && echo ""
-          if [ "$STORAGE_STATUS" != "200" ]; then
-            echo "❌ Storage upload failed" && exit 1
-          fi
-          echo "✓ Storage upload OK"
+          # ── 1. Get anonymous Firebase ID token ──────────────────────────────
+          r = requests.post(
+              f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}",
+              json={"returnSecureToken": True},
+          )
+          token = r.json().get("idToken")
+          if not token:
+              print(f"Auth failed: {r.text}")
+              sys.exit(1)
+          print("✓ Auth token obtained")
 
-          echo ""
-          echo "Writing metadata to Firestore..."
-          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          FIRESTORE_STATUS=$(curl -s -o /tmp/firestore_out.json -w "%{http_code}" -X POST \
-            "https://firestore.googleapis.com/v1/projects/systems-hub/databases/(default)/documents/screenshots?key=${API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"fields\":{\"url\":{\"stringValue\":\"${URL}\"},\"storage_url\":{\"stringValue\":\"${STORAGE_URL}\"},\"filename\":{\"stringValue\":\"${FILENAME}\"},\"captured_at\":{\"stringValue\":\"${TIMESTAMP}\"},\"source\":{\"stringValue\":\"github-actions\"}}}")
-          echo "Firestore response (HTTP $FIRESTORE_STATUS):"
-          cat /tmp/firestore_out.json && echo ""
-          if [ "$FIRESTORE_STATUS" != "200" ]; then
-            echo "❌ Firestore write failed" && exit 1
-          fi
-          echo "✓ Firestore write OK"
-          echo "✓ Synced to Firebase — screenshot will appear on the site automatically"
+          # ── 2. Upload PNG to Firebase Storage ────────────────────────────────
+          name      = f"screenshots/{FILENAME}"
+          safe_name = urllib.parse.quote(name, safe="/")
+          encoded   = urllib.parse.quote(name)
+
+          with open(FILENAME, "rb") as f:
+              img = f.read()
+
+          r = requests.post(
+              f"https://firebasestorage.googleapis.com/v0/b/{BUCKET}/o?name={safe_name}",
+              data=img,
+              headers={
+                  "Content-Type": "image/png",
+                  "Authorization": f"Bearer {token}",
+              },
+          )
+          print(f"Storage ({r.status_code}): {r.text[:400]}")
+          if r.status_code != 200:
+              sys.exit(1)
+          print("✓ Storage upload OK")
+
+          storage_url = (
+              f"https://firebasestorage.googleapis.com/v0/b/{BUCKET}/o/{encoded}?alt=media"
+          )
+
+          # ── 3. Write metadata to Firestore ───────────────────────────────────
+          ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          r = requests.post(
+              f"https://firestore.googleapis.com/v1/projects/systems-hub/databases/(default)/documents/screenshots?key={API_KEY}",
+              json={
+                  "fields": {
+                      "url":         {"stringValue": URL},
+                      "storage_url": {"stringValue": storage_url},
+                      "filename":    {"stringValue": FILENAME},
+                      "captured_at": {"stringValue": ts},
+                      "source":      {"stringValue": "github-actions"},
+                  }
+              },
+              headers={"Authorization": f"Bearer {token}"},
+          )
+          print(f"Firestore ({r.status_code}): {r.text[:400]}")
+          if r.status_code not in (200, 201):
+              sys.exit(1)
+          print("✓ Firestore write OK")
+          print("✓ Synced — screenshot will appear on the site automatically")
+          PYEOF
 
       # 7. Upload the PNG so you can download it from GitHub
       - name: Upload screenshot
