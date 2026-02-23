@@ -1173,14 +1173,71 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
 
   const handleApplySchedule = async () => {
     setApplying(true); setApplyResult(null);
+
+    const frequency = node.config.frequency || 'daily';
+    const time      = node.config.time      || '09:00';
+    const timezone  = node.config.timezone  || 'Pacific/Honolulu';
+
+    // ── Build UTC cron pattern ────────────────────────────────────────────────
+    const [localH, localM] = time.split(':').map(Number);
+    const now     = new Date();
+    const utcMs   = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+    const localMs = new Date(now.toLocaleString('en-US', { timeZone: timezone })).getTime();
+    const offsetH = Math.round((utcMs - localMs) / 3_600_000);
+    const utcH    = ((localH + offsetH) % 24 + 24) % 24;
+    const cronPat =
+      frequency === 'hourly'  ? '0 * * * *'                  :
+      frequency === 'weekly'  ? `${localM} ${utcH} * * 1`    :
+      frequency === 'monthly' ? `${localM} ${utcH} 1 * *`    :
+                                `${localM} ${utcH} * * *`;    // daily
+    const utcLabel = `${utcH}:${String(localM).padStart(2,'0')} UTC`;
+
+    // ── Try direct GitHub API call first (works on live site) ────────────────
+    const ghToken = (import.meta.env.VITE_GITHUB_TOKEN as string) || '';
+    const OWNER = 'johndave090909-droid';
+    const REPO  = 'Workflow_Manager';
+    const PATH  = '.github/workflows/screenshot.yml';
+    const apiUrl = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${PATH}`;
+    const ghHeaders = {
+      Authorization: `Bearer ${ghToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    };
+
+    if (ghToken) {
+      try {
+        const getR = await fetch(apiUrl, { headers: ghHeaders });
+        const getD = await getR.json() as any;
+        if (!getR.ok) { setApplyResult({ ok: false, msg: `⚠ GitHub: ${getD.message}` }); setApplying(false); return; }
+
+        const currentYaml = atob(getD.content.replace(/\n/g, ''));
+        const updatedYaml = currentYaml.replace(/([ \t]*- cron: ")[^"]+(")/,`$1${cronPat}$2`);
+
+        if (updatedYaml !== currentYaml) {
+          const putR = await fetch(apiUrl, {
+            method: 'PUT', headers: ghHeaders,
+            body: JSON.stringify({
+              message: `chore: set schedule to ${frequency} at ${time} ${timezone}`,
+              content: btoa(updatedYaml),
+              sha: getD.sha,
+            }),
+          });
+          const putD = await putR.json() as any;
+          if (!putR.ok) { setApplyResult({ ok: false, msg: `⚠ GitHub: ${putD.message}` }); setApplying(false); return; }
+        }
+        setApplyResult({ ok: true, msg: `✓ Schedule updated — cron "${cronPat}" (${utcLabel})` });
+        setApplying(false); return;
+      } catch {
+        // fall through to backend
+      }
+    }
+
+    // ── Fallback: call backend (localhost dev) ────────────────────────────────
     try {
       const r = await fetch(API_BASE + '/api/github-schedule', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          frequency: node.config.frequency || 'daily',
-          time:      node.config.time      || '09:00',
-          timezone:  node.config.timezone  || 'Pacific/Honolulu',
-        }),
+        body: JSON.stringify({ frequency, time, timezone }),
       });
       const d = await r.json() as any;
       if (r.ok) {
@@ -1189,7 +1246,7 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
         setApplyResult({ ok: false, msg: `⚠ ${d.error || 'Unknown error'}` });
       }
     } catch {
-      setApplyResult({ ok: false, msg: '⚠ Could not reach server' });
+      setApplyResult({ ok: false, msg: '⚠ No backend or GitHub token — set VITE_GITHUB_TOKEN to use on live site' });
     }
     setApplying(false);
   };
