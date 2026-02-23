@@ -64,20 +64,30 @@ jobs:
           STORAGE_URL="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/${ENCODED}?alt=media"
 
           echo "Uploading to Firebase Storage..."
-          curl -s -X POST \
+          STORAGE_STATUS=$(curl -s -o /tmp/storage_out.json -w "%{http_code}" -X POST \
             "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?uploadType=media&name=${ENCODED}" \
             -H "Content-Type: image/png" \
-            --data-binary @"$FILENAME"
+            --data-binary @"$FILENAME")
+          echo "Storage response (HTTP $STORAGE_STATUS):"
+          cat /tmp/storage_out.json && echo ""
+          if [ "$STORAGE_STATUS" != "200" ]; then
+            echo "❌ Storage upload failed" && exit 1
+          fi
+          echo "✓ Storage upload OK"
 
           echo ""
           echo "Writing metadata to Firestore..."
           TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          curl -s -X POST \
+          FIRESTORE_STATUS=$(curl -s -o /tmp/firestore_out.json -w "%{http_code}" -X POST \
             "https://firestore.googleapis.com/v1/projects/systems-hub/databases/(default)/documents/screenshots?key=${API_KEY}" \
             -H "Content-Type: application/json" \
-            -d "{\"fields\":{\"url\":{\"stringValue\":\"${URL}\"},\"storage_url\":{\"stringValue\":\"${STORAGE_URL}\"},\"filename\":{\"stringValue\":\"${FILENAME}\"},\"captured_at\":{\"stringValue\":\"${TIMESTAMP}\"},\"source\":{\"stringValue\":\"github-actions\"}}}"
-
-          echo ""
+            -d "{\"fields\":{\"url\":{\"stringValue\":\"${URL}\"},\"storage_url\":{\"stringValue\":\"${STORAGE_URL}\"},\"filename\":{\"stringValue\":\"${FILENAME}\"},\"captured_at\":{\"stringValue\":\"${TIMESTAMP}\"},\"source\":{\"stringValue\":\"github-actions\"}}}")
+          echo "Firestore response (HTTP $FIRESTORE_STATUS):"
+          cat /tmp/firestore_out.json && echo ""
+          if [ "$FIRESTORE_STATUS" != "200" ]; then
+            echo "❌ Firestore write failed" && exit 1
+          fi
+          echo "✓ Firestore write OK"
           echo "✓ Synced to Firebase — screenshot will appear on the site automatically"
 
       # 7. Upload the PNG so you can download it from GitHub

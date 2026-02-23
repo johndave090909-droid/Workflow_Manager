@@ -392,7 +392,10 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           source: 'github-actions',
         });
       });
-    } catch {}
+      console.log(`[Screenshots] Firestore: ${snap.docs.length} records`);
+    } catch (err) {
+      console.error('[Screenshots] Firestore fetch failed:', err);
+    }
 
     all.sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
     setScreenshots(all);
@@ -402,7 +405,11 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     fetchScreenshots();
     // Live listener — new GitHub Actions screenshot appears instantly
     const q = query(collection(firestoreDb, 'screenshots'), orderBy('captured_at', 'desc'));
-    const unsub = onSnapshot(q, () => fetchScreenshots());
+    const unsub = onSnapshot(
+      q,
+      () => fetchScreenshots(),
+      (err) => console.error('[Screenshots] Firestore listener error:', err)
+    );
     return () => unsub();
   }, []);
 
