@@ -408,6 +408,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [capturingScreenshot, setCapturing] = useState(false);
   const [nextTriggerIn, setNextTriggerIn] = useState('');
   const [backendAvailable, setBackendAvailable] = useState(true);
+  const [remoteRunning, setRemoteRunning] = useState(false);
+  const [remoteRunMsg, setRemoteRunMsg]   = useState('');
   const [remoteExec, setRemoteExec] = useState<{
     executing: boolean;
     nodeStatuses: Record<string, string>;
@@ -850,13 +852,52 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold">
           <RotateCcw size={11} /> Reset
         </button>
-        <button onClick={handleExecute} disabled={executing || !backendAvailable}
-          title={!backendAvailable ? 'Run from localhost — this view mirrors live execution' : undefined}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: (executing || !backendAvailable) ? 'rgba(255,0,255,.2)' : '#ff00ff', boxShadow: (executing || !backendAvailable) ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
-          <Play size={12} fill="white" />{executing ? 'Running…' : !backendAvailable ? 'Run on localhost' : 'Execute Workflow'}
-        </button>
-        <button onClick={() => {
+        {backendAvailable ? (
+          <button onClick={handleExecute} disabled={executing}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: executing ? 'rgba(255,0,255,.2)' : '#ff00ff', boxShadow: executing ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
+            <Play size={12} fill="white" />{executing ? 'Running…' : 'Execute Workflow'}
+          </button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              disabled={remoteRunning}
+              onClick={async () => {
+                const ghToken = (import.meta.env.VITE_GITHUB_TOKEN as string) || '';
+                if (!ghToken) { setRemoteRunMsg('⚠ No GitHub token'); return; }
+                const shotNode = nodes.find(n => n.type === 'screenshot');
+                setRemoteRunning(true); setRemoteRunMsg('');
+                try {
+                  const r = await fetch(
+                    'https://api.github.com/repos/johndave090909-droid/Workflow_Manager/actions/workflows/screenshot.yml/dispatches',
+                    {
+                      method: 'POST',
+                      headers: { Authorization: `Bearer ${ghToken}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ ref: 'main', inputs: { url: shotNode?.config.url || 'https://nidl3r.github.io/PCC-KDS/', filename: 'manual', selector: shotNode?.config.selector || '#current-guest-counts' } }),
+                    }
+                  );
+                  if (r.status === 204) {
+                    setRemoteRunMsg('✓ Triggered! Screenshot in ~3 min');
+                  } else {
+                    const d = await r.json().catch(() => ({})) as any;
+                    setRemoteRunMsg(`⚠ ${d.message || r.status}`);
+                  }
+                } catch { setRemoteRunMsg('⚠ Could not reach GitHub'); }
+                setRemoteRunning(false);
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: remoteRunning ? 'rgba(255,0,255,.2)' : '#ff00ff', boxShadow: remoteRunning ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
+              <Play size={12} fill="white" />{remoteRunning ? 'Triggering…' : 'Run Now'}
+            </button>
+            {remoteRunMsg && (
+              <span className="text-[10px] font-bold max-w-[160px]"
+                style={{ color: remoteRunMsg.startsWith('✓') ? '#00cc7a' : '#ff7849' }}>
+                {remoteRunMsg}
+              </span>
+            )}
+          </div>
+        )}
+        {backendAvailable && <button onClick={() => {
             const next = !liveMode;
             setLiveMode(next);
             const sched = nodes.find(n => n.type === 'schedule');
@@ -886,7 +927,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
               ⏰ {nextTriggerIn}
             </span>
           )}
-        </button>
+        </button>}
         <div className="flex items-center gap-2 pl-2 border-l border-white/10">
           <div className="w-7 h-7 rounded-full overflow-hidden" style={{ border: `2px solid ${roleColor}` }}>
             <img src={currentUser.photo || `https://picsum.photos/seed/${currentUser.id}/100/100`} className="w-full h-full object-cover" alt="" />
