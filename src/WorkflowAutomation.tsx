@@ -407,6 +407,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [screenshots, setScreenshots]   = useState<ScreenshotRecord[]>([]);
   const [capturingScreenshot, setCapturing] = useState(false);
   const [nextTriggerIn, setNextTriggerIn] = useState('');
+  const [backendAvailable, setBackendAvailable] = useState(true);
   const [remoteExec, setRemoteExec] = useState<{
     executing: boolean;
     nodeStatuses: Record<string, string>;
@@ -430,10 +431,13 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     try {
       const res = await fetch(API_BASE + '/api/screenshots');
       if (res.ok) {
+        setBackendAvailable(true);
         const local = await res.json();
         all.push(...local.map((s: any) => ({ ...s, source: 'local' })));
+      } else {
+        setBackendAvailable(false);
       }
-    } catch {}
+    } catch { setBackendAvailable(false); }
 
     // Firebase screenshots (from GitHub Actions — auto-synced)
     try {
@@ -831,16 +835,23 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             style={{ background: 'linear-gradient(135deg,#ff00ff,#a855f7)', boxShadow: '0 0 12px rgba(255,0,255,.4)' }}>⚡</div>
           <span className="text-sm font-bold tracking-tight">Workflow Automation</span>
           <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 border border-white/10 px-1.5 py-0.5 rounded-md">BETA</span>
+          {!backendAvailable && (
+            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
+              style={{ color: '#ffd700', borderColor: 'rgba(255,215,0,.3)', border: '1px solid' }}>
+              View Only
+            </span>
+          )}
         </div>
         <div className="flex-1" />
         <button onClick={handleReset}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold">
           <RotateCcw size={11} /> Reset
         </button>
-        <button onClick={handleExecute} disabled={executing}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-60"
-          style={{ background: executing ? 'rgba(255,0,255,.25)' : '#ff00ff', boxShadow: executing ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
-          <Play size={12} fill="white" />{executing ? 'Running…' : 'Execute Workflow'}
+        <button onClick={handleExecute} disabled={executing || !backendAvailable}
+          title={!backendAvailable ? 'Run from localhost — this view mirrors live execution' : undefined}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ background: (executing || !backendAvailable) ? 'rgba(255,0,255,.2)' : '#ff00ff', boxShadow: (executing || !backendAvailable) ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
+          <Play size={12} fill="white" />{executing ? 'Running…' : !backendAvailable ? 'Run on localhost' : 'Execute Workflow'}
         </button>
         <button onClick={() => {
             const next = !liveMode;
