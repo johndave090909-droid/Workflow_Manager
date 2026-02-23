@@ -44,19 +44,21 @@ jobs:
       - name: Install dependencies
         run: pip install selenium requests
 
-      # 5. Take the screenshot
+      # 5. Take the screenshot (unique timestamped filename per run)
       - name: Take screenshot
         run: |
           URL="${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}"
-          FILENAME="${{ github.event.inputs.filename || 'screenshot' }}.png"
-          echo "Screenshotting: $URL"
+          BASE="${{ github.event.inputs.filename || 'screenshot' }}"
+          TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+          FILENAME="${BASE}_${TIMESTAMP}.png"
+          echo "SCREENSHOT_FILENAME=${FILENAME}" >> $GITHUB_ENV
+          echo "Screenshotting: $URL → $FILENAME"
           python screenshot.py "$URL" "$FILENAME"
 
       # 6. Push to Firebase — screenshot appears on the site automatically
       - name: Push to Firebase
         env:
           SCREENSHOT_URL: ${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}
-          SCREENSHOT_FILENAME: ${{ github.event.inputs.filename || 'screenshot' }}.png
         run: |
           python3 - <<'PYEOF'
           import requests, os, sys, json, urllib.parse
@@ -142,5 +144,5 @@ jobs:
         run: |
           echo "### ✅ Screenshot complete" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** ${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}" >> $GITHUB_STEP_SUMMARY
-          echo "**File:** ${{ github.event.inputs.filename || 'screenshot' }}.png" >> $GITHUB_STEP_SUMMARY
+          echo "**File:** ${SCREENSHOT_FILENAME}" >> $GITHUB_STEP_SUMMARY
           echo "Download from the **Artifacts** section below ⬇️" >> $GITHUB_STEP_SUMMARY
