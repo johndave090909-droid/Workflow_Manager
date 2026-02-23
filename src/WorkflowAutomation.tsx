@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal, Camera, Upload } from 'lucide-react';
-import { collection, getDocs, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
 import { User } from './types';
 
@@ -407,6 +407,11 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [screenshots, setScreenshots]   = useState<ScreenshotRecord[]>([]);
   const [capturingScreenshot, setCapturing] = useState(false);
   const [nextTriggerIn, setNextTriggerIn] = useState('');
+  const [remoteExec, setRemoteExec] = useState<{
+    executing: boolean;
+    nodeStatuses: Record<string, string>;
+    nodeLogs: Record<string, string[]>;
+  } | null>(null);
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved           = useRef(false);
@@ -416,6 +421,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const handleExecuteRef    = useRef<() => Promise<void>>(async () => {});
   const executingRef        = useRef(false);
   const lastTriggeredMinRef = useRef('');
+  const wasExecutingRef     = useRef(false);
 
   const fetchScreenshots = async () => {
     const all: ScreenshotRecord[] = [];
@@ -474,6 +480,47 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
   // Keep executing ref in sync (used by scheduler to avoid double-fire)
   useEffect(() => { executingRef.current = executing; }, [executing]);
+
+  // Broadcast execution state to Firestore so the live site mirrors it in real-time
+  useEffect(() => {
+    if (executing) {
+      wasExecutingRef.current = true;
+      setDoc(doc(firestoreDb, 'workflow_state', 'live'), {
+        executing: true,
+        nodeStatuses: Object.fromEntries(nodes.map(n => [n.id, n.status ?? 'idle'])),
+        nodeLogs: nodeLog,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => {});
+    } else if (wasExecutingRef.current) {
+      wasExecutingRef.current = false;
+      // Write final state so live site shows completed logs
+      setDoc(doc(firestoreDb, 'workflow_state', 'live'), {
+        executing: false,
+        nodeStatuses: Object.fromEntries(nodes.map(n => [n.id, n.status ?? 'idle'])),
+        nodeLogs: nodeLog,
+        updatedAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
+  }, [executing, nodes, nodeLog]);
+
+  // Subscribe to Firestore execution state so both localhost and live site stay in sync
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(firestoreDb, 'workflow_state', 'live'),
+      snap => {
+        if (snap.exists()) {
+          const d = snap.data();
+          setRemoteExec({
+            executing:    d.executing     ?? false,
+            nodeStatuses: d.nodeStatuses  ?? {},
+            nodeLogs:     d.nodeLogs      ?? {},
+          });
+        }
+      },
+      () => {}
+    );
+    return () => unsub();
+  }, []);
 
   // ── Auto-scheduler: fires the workflow when the schedule node's time is reached ──
   useEffect(() => {
@@ -753,6 +800,13 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const triggers = NODE_TYPE_DEFS.filter(d => d.category === 'trigger');
   const actions  = NODE_TYPE_DEFS.filter(d => d.category === 'action');
 
+  // When not executing locally but Firestore shows a remote execution in progress,
+  // mirror the remote node statuses and logs onto the canvas (read-only)
+  const showRemote  = !executing && (remoteExec?.executing === true);
+  const displayNodes = showRemote
+    ? nodes.map(n => ({ ...n, status: (remoteExec!.nodeStatuses[n.id] ?? n.status) as WFNode['status'] }))
+    : nodes;
+
   return (
     <div className="bg-[#0a0510] text-white flex flex-col" style={{ height: '100vh', overflow: 'hidden' }}>
 
@@ -873,8 +927,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
                 ))}
               </defs>
               {edges.map(edge => {
-                const from = nodes.find(n => n.id === edge.fromId);
-                const to   = nodes.find(n => n.id === edge.toId);
+                const from = displayNodes.find(n => n.id === edge.fromId);
+                const to   = displayNodes.find(n => n.id === edge.toId);
                 if (!from || !to) return null;
                 const isRun = from.status === 'running'; const isOk = from.status === 'success';
                 const col = isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)';
@@ -891,12 +945,25 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
               )}
             </svg>
 
+            {/* Remote execution indicator */}
+            {showRemote && (
+              <div style={{
+                position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+                display: 'flex', alignItems: 'center', gap: 8, zIndex: 20, pointerEvents: 'none',
+                background: 'rgba(5,2,10,.92)', border: '1px solid rgba(255,0,255,.4)',
+                borderRadius: 20, padding: '5px 14px',
+              }}>
+                <div className="wf-running-dot" style={{ width: 7, height: 7, borderRadius: '50%', background: '#ff00ff', boxShadow: '0 0 8px #ff00ff' }} />
+                <span style={{ fontSize: 10, fontWeight: 800, color: '#ff00ff', letterSpacing: '.1em', textTransform: 'uppercase' }}>Live — executing remotely</span>
+              </div>
+            )}
+
             {/* Nodes */}
-            {nodes.map(node => (
+            {displayNodes.map(node => (
               <WFNodeCard key={node.id} node={node}
                 selected={selectedId === node.id}
                 connecting={connectingFrom === node.id}
-                logs={nodeLog[node.id]}
+                logs={showRemote ? (remoteExec?.nodeLogs[node.id] ?? []) : (nodeLog[node.id] ?? [])}
                 onMouseDown={handleNodeMouseDown}
                 onClick={handleNodeClick}
                 onOutputPortClick={handleOutputPortClick}
