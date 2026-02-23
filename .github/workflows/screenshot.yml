@@ -83,7 +83,7 @@ jobs:
           # ── 2. Upload PNG to Firebase Storage ────────────────────────────────
           name      = f"screenshots/{FILENAME}"
           safe_name = urllib.parse.quote(name, safe="/")
-          encoded   = urllib.parse.quote(name)
+          encoded   = urllib.parse.quote(name, safe="")
 
           with open(FILENAME, "rb") as f:
               img = f.read()
