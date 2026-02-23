@@ -12,6 +12,10 @@ on:
         description: "Output filename (without .png)"
         required: false
         default: "screenshot"
+      selector:
+        description: "CSS selector to capture a specific element (leave blank for full page)"
+        required: false
+        default: ""
 
   # ── Scheduled (optional) — runs every day at 9:00 AM UTC ───────────────────
   # Uncomment the two lines below to enable automatic daily screenshots:
@@ -52,8 +56,9 @@ jobs:
           TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
           FILENAME="${BASE}_${TIMESTAMP}.png"
           echo "SCREENSHOT_FILENAME=${FILENAME}" >> $GITHUB_ENV
-          echo "Screenshotting: $URL → $FILENAME"
-          python screenshot.py "$URL" "$FILENAME"
+          SELECTOR="${{ github.event.inputs.selector || '' }}"
+          echo "Screenshotting: $URL → $FILENAME (selector: '${SELECTOR}')"
+          python screenshot.py "$URL" "$FILENAME" "$SELECTOR"
 
       # 6. Push to Firebase — screenshot appears on the site automatically
       - name: Push to Firebase
