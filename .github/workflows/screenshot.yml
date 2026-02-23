@@ -67,7 +67,7 @@ jobs:
 
           echo "Uploading to Firebase Storage..."
           STORAGE_STATUS=$(curl -s -o /tmp/storage_out.json -w "%{http_code}" -X POST \
-            "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?name=${NAME}" \
+            "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?name=${NAME}&key=${API_KEY}" \
             -H "Content-Type: image/png" \
             --data-binary @"$FILENAME")
           echo "Storage response (HTTP $STORAGE_STATUS):"
