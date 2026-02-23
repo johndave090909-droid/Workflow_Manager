@@ -59,13 +59,15 @@ jobs:
           FILENAME="${{ github.event.inputs.filename || 'screenshot' }}.png"
           API_KEY="AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg"
 
-          # URL-encode the storage path (e.g. screenshots/screenshot.png → screenshots%2Fscreenshot.png)
+          # URL-encode the storage path for download URL (slashes → %2F)
           ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('screenshots/$FILENAME'))")
+          # Name for upload query param — keep slashes, but encode spaces/special chars
+          NAME=$(python3 -c "import urllib.parse; print(urllib.parse.quote('screenshots/$FILENAME', safe='/'))")
           STORAGE_URL="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/${ENCODED}?alt=media"
 
           echo "Uploading to Firebase Storage..."
           STORAGE_STATUS=$(curl -s -o /tmp/storage_out.json -w "%{http_code}" -X POST \
-            "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?uploadType=media&name=${ENCODED}" \
+            "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?name=${NAME}" \
             -H "Content-Type: image/png" \
             --data-binary @"$FILENAME")
           echo "Storage response (HTTP $STORAGE_STATUS):"
