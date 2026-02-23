@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
@@ -5,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { execFile } from "child_process";
 import fs from "fs";
+import cron from "node-cron";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -398,6 +400,283 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Screenshot failed" });
     }
+  });
+
+  // Trigger GitHub Actions screenshot workflow
+  app.post("/api/trigger-screenshot", async (req, res) => {
+    const { url, filename, selector } = req.body;
+    const ghToken = process.env.GITHUB_TOKEN;
+    if (!ghToken) { res.status(500).json({ error: "GITHUB_TOKEN not configured in .env" }); return; }
+    try {
+      const response = await fetch(
+        "https://api.github.com/repos/johndave090909-droid/Workflow_Manager/actions/workflows/screenshot.yml/dispatches",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${ghToken}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ref: "main",
+            inputs: {
+              url: url || "https://nidl3r.github.io/PCC-KDS/",
+              filename: filename || "screenshot",
+              selector: selector || "",
+            },
+          }),
+        }
+      );
+      if (response.status === 204) {
+        res.json({ success: true, message: "GitHub Actions workflow triggered" });
+      } else {
+        const body = await response.text();
+        res.status(response.status).json({ error: body });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Facebook Messenger
+  app.post("/api/send-facebook-message", async (req, res) => {
+    const { recipientId, message, imageUrl } = req.body;
+    const pageToken = process.env.FB_PAGE_TOKEN;
+    if (!pageToken) { res.status(500).json({ error: "FB_PAGE_TOKEN not configured in .env" }); return; }
+    if (!recipientId) { res.status(400).json({ error: "recipientId required" }); return; }
+    const base = `https://graph.facebook.com/v19.0/me/messages?access_token=${pageToken}`;
+    try {
+      // 1. Send image attachment if a screenshot URL is available
+      if (imageUrl) {
+        const imgResp = await fetch(base, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipient: { id: recipientId },
+            message: { attachment: { type: "image", payload: { url: imageUrl, is_reusable: true } } },
+          }),
+        });
+        const imgData = await imgResp.json() as any;
+        if (imgData.error) { res.status(400).json({ error: imgData.error.message }); return; }
+      }
+      // 2. Send caption text
+      if (message) {
+        const txtResp = await fetch(base, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recipient: { id: recipientId }, message: { text: message } }),
+        });
+        const txtData = await txtResp.json() as any;
+        if (txtData.error) { res.status(400).json({ error: txtData.error.message }); return; }
+        res.json({ success: true, messageId: txtData.message_id }); return;
+      }
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Update GitHub Actions schedule ─────────────────────────────────────────
+  app.put("/api/github-schedule", async (req, res) => {
+    const { frequency, time, timezone } = req.body;
+    const ghToken = process.env.GITHUB_TOKEN;
+    if (!ghToken) { res.status(500).json({ error: "GITHUB_TOKEN not set" }); return; }
+
+    // Convert local time → UTC (GitHub Actions cron is always UTC)
+    const [localH, localM] = (time || "09:00").split(":").map(Number);
+    const now = new Date();
+    const utcMs   = new Date(now.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+    const localMs = new Date(now.toLocaleString("en-US", { timeZone: timezone || "Pacific/Honolulu" })).getTime();
+    const offsetH = Math.round((utcMs - localMs) / 3_600_000);
+    const utcH = ((localH + offsetH) % 24 + 24) % 24;
+
+    const cronPat =
+      frequency === "hourly"  ? "0 * * * *"               :
+      frequency === "weekly"  ? `${localM} ${utcH} * * 1` :
+      frequency === "monthly" ? `${localM} ${utcH} 1 * *` :
+                                `${localM} ${utcH} * * *`;  // daily
+
+    // Fetch current file + sha from GitHub
+    const OWNER  = "johndave090909-droid";
+    const REPO   = "Workflow_Manager";
+    const PATH   = ".github/workflows/screenshot.yml";
+    const apiUrl = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${PATH}`;
+    const ghHeaders = {
+      Authorization: `Bearer ${ghToken}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+    };
+
+    try {
+      const getR = await fetch(apiUrl, { headers: ghHeaders });
+      const getD = await getR.json() as any;
+      if (!getR.ok) { res.status(500).json({ error: getD.message }); return; }
+
+      const currentYaml = Buffer.from(getD.content, "base64").toString("utf8");
+      const sha = getD.sha;
+
+      // Replace only the cron line, preserving surrounding indentation
+      const updatedYaml = currentYaml.replace(
+        /([ \t]*- cron: ")[^"]+(")/,
+        `$1${cronPat}$2`
+      );
+
+      if (updatedYaml === currentYaml) {
+        res.json({ success: true, message: "Schedule already set to this value", cronPat });
+        return;
+      }
+
+      // Commit the change back to GitHub
+      const mmStr = String(localM).padStart(2, "0");
+      const putR = await fetch(apiUrl, {
+        method: "PUT",
+        headers: ghHeaders,
+        body: JSON.stringify({
+          message: `chore: set schedule to ${frequency} at ${time} ${timezone} → cron "${cronPat}" UTC`,
+          content: Buffer.from(updatedYaml).toString("base64"),
+          sha,
+        }),
+      });
+      const putD = await putR.json() as any;
+      if (!putR.ok) { res.status(500).json({ error: putD.message }); return; }
+
+      console.log(`[Schedule] GitHub Actions cron updated → "${cronPat}"`);
+      res.json({
+        success: true,
+        cronPat,
+        utcLabel: `${utcH}:${mmStr} UTC`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Server-side scheduler ────────────────────────────────────────────────────
+  // Holds the current active cron task so we can destroy and recreate it on update.
+  let activeTask: ReturnType<typeof cron.schedule> | null = null;
+
+  // Runs the full workflow: screenshot → wait → facebook message.
+  // Called by the cron job (server-side, works even when browser is closed).
+  async function runScheduledWorkflow(cfg: {
+    screenshotUrl: string; selector: string;
+    recipientId: string; message: string;
+  }) {
+    const ghToken = process.env.GITHUB_TOKEN;
+    const fbToken = process.env.FB_PAGE_TOKEN;
+    console.log(`[Scheduler] Workflow triggered at ${new Date().toISOString()}`);
+
+    // 1. Trigger GitHub Actions screenshot
+    if (ghToken) {
+      try {
+        const r = await fetch(
+          "https://api.github.com/repos/johndave090909-droid/Workflow_Manager/actions/workflows/screenshot.yml/dispatches",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${ghToken}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ref: "main",
+              inputs: { url: cfg.screenshotUrl, filename: "scheduled", selector: cfg.selector },
+            }),
+          }
+        );
+        console.log(`[Scheduler] GitHub Actions triggered (${r.status})`);
+      } catch (e) {
+        console.error("[Scheduler] GitHub Actions trigger failed:", e);
+      }
+    }
+
+    // 2. Wait ~4 min for GitHub Actions to complete and upload to Firebase
+    await new Promise(r => setTimeout(r, 4 * 60 * 1000));
+
+    // 3. Fetch latest screenshot URL from Firestore REST API
+    let storageUrl = "";
+    try {
+      const FB_API_KEY = "AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg";
+      // Get anonymous Firebase token
+      const authR = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FB_API_KEY}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ returnSecureToken: true }) }
+      );
+      const { idToken } = await authR.json() as any;
+
+      // Query Firestore for most recent screenshot
+      const fsR = await fetch(
+        `https://firestore.googleapis.com/v1/projects/systems-hub/databases/(default)/documents/screenshots?pageSize=1&orderBy=captured_at+desc`,
+        { headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      const fsData = await fsR.json() as any;
+      storageUrl = fsData.documents?.[0]?.fields?.storage_url?.stringValue ?? "";
+      console.log(`[Scheduler] Latest screenshot URL: ${storageUrl ? "found" : "not found"}`);
+    } catch (e) {
+      console.error("[Scheduler] Firestore fetch failed:", e);
+    }
+
+    // 4. Send Facebook message
+    if (fbToken && cfg.recipientId) {
+      const base = `https://graph.facebook.com/v19.0/me/messages?access_token=${fbToken}`;
+      try {
+        if (storageUrl) {
+          await fetch(base, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipient: { id: cfg.recipientId },
+              message: { attachment: { type: "image", payload: { url: storageUrl, is_reusable: true } } },
+            }),
+          });
+        }
+        if (cfg.message) {
+          await fetch(base, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recipient: { id: cfg.recipientId }, message: { text: cfg.message } }),
+          });
+        }
+        console.log("[Scheduler] Facebook message sent");
+      } catch (e) {
+        console.error("[Scheduler] Facebook send failed:", e);
+      }
+    }
+  }
+
+  // Endpoint: frontend calls this when Live Mode is toggled on/off or schedule changes.
+  app.post("/api/schedule", (req, res) => {
+    const { enabled, frequency, time, timezone, screenshotUrl, selector, recipientId, message } = req.body;
+
+    // Tear down existing job
+    if (activeTask) { activeTask.stop(); activeTask = null; }
+
+    if (!enabled) {
+      console.log("[Scheduler] Disabled");
+      res.json({ active: false });
+      return;
+    }
+
+    // Build cron pattern from frequency + time
+    const [hh, mm] = (time || "09:00").split(":").map(Number);
+    const pattern =
+      frequency === "hourly"  ? "0 * * * *"       :
+      frequency === "weekly"  ? `${mm} ${hh} * * 1` :
+      frequency === "monthly" ? `${mm} ${hh} 1 * *` :
+                                `${mm} ${hh} * * *`;  // daily (default)
+
+    const tz = timezone || "Pacific/Honolulu";
+    if (!cron.validate(pattern)) {
+      res.status(400).json({ error: "Invalid cron pattern" });
+      return;
+    }
+
+    activeTask = cron.schedule(pattern, () => {
+      runScheduledWorkflow({ screenshotUrl, selector, recipientId, message });
+    }, { timezone: tz });
+
+    console.log(`[Scheduler] Active — pattern: "${pattern}", tz: ${tz}`);
+    res.json({ active: true, pattern, timezone: tz });
   });
 
   // Vite middleware for development

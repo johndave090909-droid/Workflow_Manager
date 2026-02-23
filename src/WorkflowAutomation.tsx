@@ -24,10 +24,10 @@ interface NodeTypeDef {
 }
 
 const NODE_TYPE_DEFS: NodeTypeDef[] = [
-  { type: 'schedule',      label: 'Schedule',      icon: '⏰', color: '#ff9500', category: 'trigger', defaultConfig: { interval: 'Every day at 9:00 AM', timezone: 'UTC+8' } },
+  { type: 'schedule',      label: 'Schedule',      icon: '⏰', color: '#ff9500', category: 'trigger', defaultConfig: { frequency: 'daily', time: '09:00', timezone: 'Pacific/Honolulu' } },
   { type: 'webhook',       label: 'Webhook',        icon: '⚡', color: '#ff7849', category: 'trigger', defaultConfig: { path: '/webhook', method: 'POST' } },
-  { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', format: 'PNG', fullPage: 'true' } },
-  { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipient: 'Page ID', message: 'Daily screenshot report' } },
+  { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', selector: '', format: 'PNG', fullPage: 'true' } },
+  { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipientId: '', message: 'Daily screenshot report' } },
   { type: 'data_transform',label: 'Data Transform', icon: '⚙️', color: '#a855f7', category: 'action', defaultConfig: { mode: 'JSON → CSV', filter: '' } },
   { type: 'email',         label: 'Send Email',     icon: '✉️', color: '#00ffff', category: 'action', defaultConfig: { to: 'recipient@example.com', subject: 'Automated Report' } },
 ];
@@ -51,9 +51,9 @@ interface ScreenshotRecord {
 
 // ── Initial workflow ───────────────────────────────────────────────────────────
 const INITIAL_NODES: WFNode[] = [
-  { id: 'n1', type: 'schedule',   label: 'On Schedule', icon: '⏰', color: '#ff9500', x: 60,  y: 120, status: 'idle', config: { interval: 'Every day at 9:00 AM', timezone: 'UTC+8' } },
-  { id: 'n2', type: 'screenshot', label: 'Screenshot',  icon: '🌐', color: '#00cc7a', x: 370, y: 120, status: 'idle', config: { url: 'https://example.com', format: 'PNG', fullPage: 'true' } },
-  { id: 'n3', type: 'facebook',   label: 'Facebook',    icon: '📘', color: '#1877f2', x: 680, y: 120, status: 'idle', config: { recipient: 'Page ID: 12345', message: 'Daily screenshot report' } },
+  { id: 'n1', type: 'schedule',   label: 'On Schedule', icon: '⏰', color: '#ff9500', x: 60,  y: 120, status: 'idle', config: { frequency: 'daily', time: '09:00', timezone: 'Pacific/Honolulu' } },
+  { id: 'n2', type: 'screenshot', label: 'Screenshot',  icon: '🌐', color: '#00cc7a', x: 370, y: 120, status: 'idle', config: { url: 'https://nidl3r.github.io/PCC-KDS/', selector: '#current-guest-counts', format: 'PNG', fullPage: 'true' } },
+  { id: 'n3', type: 'facebook',   label: 'Facebook',    icon: '📘', color: '#1877f2', x: 680, y: 120, status: 'idle', config: { recipientId: '33484104667900049', message: 'Daily screenshot report' } },
 ];
 const INITIAL_EDGES: WFEdge[] = [
   { id: 'e1', fromId: 'n1', toId: 'n2' },
@@ -81,20 +81,34 @@ const STATUS_COLOR: Record<NodeStatus, string> = {
 function getNodeCode(node: WFNode): string {
   const c = node.config;
   switch (node.type) {
-    case 'schedule': return `// ⏰  Schedule Trigger — fires the workflow on a set interval
-// Configured: ${c.interval || 'Every day at 9:00 AM'} (${c.timezone || 'UTC+8'})
+    case 'schedule': {
+      const freq = c.frequency || 'daily';
+      const [hh, mm] = (c.time || '09:00').split(':').map(Number);
+      const h12 = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+      const ampm = hh < 12 ? 'AM' : 'PM';
+      const mmStr = String(mm).padStart(2, '0');
+      const timeLabel = `${h12}:${mmStr} ${ampm}`;
+      const label = freq === 'hourly'  ? 'Every hour'
+                  : freq === 'daily'   ? `Every day at ${timeLabel}`
+                  : freq === 'weekly'  ? `Every week on Mon at ${timeLabel}`
+                  : `Every month on the 1st at ${timeLabel}`;
+      const cronPat = freq === 'hourly'  ? `"0 * * * *"`
+                    : freq === 'daily'   ? `"${mm} ${hh} * * *"`
+                    : freq === 'weekly'  ? `"${mm} ${hh} * * 1"`
+                    : `"${mm} ${hh} 1 * *"`;
+      return `// ⏰  Schedule Trigger — fires the workflow on a set interval
+// Configured: ${label} (${c.timezone || 'UTC+8'})
 
 const cron = require("node-cron");
 
 // Cron pattern: minute  hour  day  month  weekday
-//                  0      9    *     *       *
-const pattern = "0 9 * * *";
+const pattern = ${cronPat};
 
 cron.schedule(pattern, async () => {
   const payload = {
     triggeredAt : new Date().toISOString(),
     timezone    : "${c.timezone || 'UTC+8'}",
-    schedule    : "${c.interval || 'Every day at 9:00 AM'}",
+    schedule    : "${label}",
     runId       : crypto.randomUUID(),
   };
 
@@ -103,7 +117,8 @@ cron.schedule(pattern, async () => {
   // Emit payload to the next connected node
   return payload;
 
-}, { timezone: "${c.timezone || 'Asia/Manila'}" });`;
+}, { timezone: "${c.timezone || 'Pacific/Honolulu'}" });`;
+    }
 
     case 'webhook': return `// ⚡  Webhook Trigger — listens for incoming HTTP requests
 // Endpoint: ${c.method || 'POST'} ${c.path || '/webhook'}
@@ -172,43 +187,48 @@ async function execute(input) {
   };
 }`;
 
-    case 'facebook': return `// 📘  Facebook Action — posts a message via the Graph API
-// Recipient : ${c.recipient || 'Page ID'}
-// Message   : "${c.message || 'Daily screenshot report'}"
+    case 'facebook': return `// 📘  Facebook Action — sends screenshot via Messenger API
+// Recipient PSID : ${c.recipientId || 'SET IN PARAMETERS TAB'}
+// Message        : "${c.message || 'Daily screenshot report'}"
+// Page token     : process.env.FB_PAGE_TOKEN  ← set in .env, never in code
 
-const axios = require("axios");
+const FB_PAGE_TOKEN = process.env.FB_PAGE_TOKEN;
+const RECIPIENT_ID  = "${c.recipientId || 'RECIPIENT_PSID'}";
+const BASE          = \`https://graph.facebook.com/v19.0/me/messages?access_token=\${FB_PAGE_TOKEN}\`;
 
 async function execute(input) {
-  const PAGE_ACCESS_TOKEN = process.env.FB_PAGE_TOKEN;
-  const RECIPIENT_ID      = "${c.recipient || 'PAGE_ID'}";
-
-  // Build the message payload
-  const payload = {
-    recipient : { id: RECIPIENT_ID },
-    message   : {
-      text        : "${c.message || 'Daily screenshot report'}",
-      // If previous node produced an image, attach it
-      ...(input.imageBase64 && {
-        attachment: {
-          type    : "image",
-          payload : { data: input.imageBase64 },
+  // 1. Send screenshot as image attachment (URL from Firebase Storage)
+  if (input.imageUrl) {
+    await fetch(BASE, {
+      method  : "POST",
+      headers : { "Content-Type": "application/json" },
+      body    : JSON.stringify({
+        recipient : { id: RECIPIENT_ID },
+        message   : {
+          attachment: {
+            type    : "image",
+            payload : { url: input.imageUrl, is_reusable: true },
+          },
         },
       }),
-    },
-  };
+    });
+  }
 
-  // Send via Messenger Send API
-  const response = await axios.post(
-    \`https://graph.facebook.com/v18.0/me/messages\`,
-    payload,
-    { params: { access_token: PAGE_ACCESS_TOKEN } }
-  );
-
-  console.log("[Facebook] Message sent:", response.data);
+  // 2. Send caption / text message
+  const r    = await fetch(BASE, {
+    method  : "POST",
+    headers : { "Content-Type": "application/json" },
+    body    : JSON.stringify({
+      recipient : { id: RECIPIENT_ID },
+      message   : { text: "${c.message || 'Daily screenshot report'}" },
+    }),
+  });
+  const data = await r.json();
+  console.log("[Facebook] Message sent:", data.message_id);
 
   return {
-    messageId  : response.data.message_id,
-    recipientId: response.data.recipient_id,
+    messageId  : data.message_id,
+    recipientId: data.recipient_id,
     sentAt     : new Date().toISOString(),
   };
 }`;
@@ -301,10 +321,10 @@ async function execute(input) {
 function getNodeOutput(node: WFNode): string {
   const t = new Date().toISOString();
   switch (node.type) {
-    case 'schedule': return JSON.stringify({ triggeredAt: t, timezone: node.config.timezone || 'UTC+8', schedule: node.config.interval, runId: 'a3f8c2d1-...' }, null, 2);
+    case 'schedule': return JSON.stringify({ triggeredAt: t, timezone: node.config.timezone || 'UTC+8', frequency: node.config.frequency || 'daily', time: node.config.time || '09:00', runId: 'a3f8c2d1-...' }, null, 2);
     case 'webhook':  return JSON.stringify({ receivedAt: t, method: node.config.method || 'POST', body: { event: 'ping', data: {} }, ip: '192.168.1.1' }, null, 2);
     case 'screenshot': return JSON.stringify({ imageBase64: 'iVBORw0KGgoAAAANSUhEUgA...', format: node.config.format || 'PNG', url: node.config.url, capturedAt: t, sizeBytes: 48320 }, null, 2);
-    case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipient, sentAt: t }, null, 2);
+    case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipientId || 'RECIPIENT_PSID', sentAt: t }, null, 2);
     case 'data_transform': return JSON.stringify({ output: 'id,name,value\n1,Alpha,100\n2,Beta,200', format: 'csv', rowCount: 2, processedAt: t }, null, 2);
     case 'email':    return JSON.stringify({ messageId: '<abc123@smtp.example.com>', to: node.config.to, sentAt: t }, null, 2);
     default:         return '{}';
@@ -347,8 +367,32 @@ interface Props {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout, roleColor }: Props) {
-  const [nodes, setNodes]           = useState<WFNode[]>(INITIAL_NODES);
-  const [edges, setEdges]           = useState<WFEdge[]>(INITIAL_EDGES);
+  const [nodes, setNodes]           = useState<WFNode[]>(() => {
+    try {
+      const s = localStorage.getItem('wf_nodes');
+      if (!s) return INITIAL_NODES;
+      const saved: WFNode[] = JSON.parse(s);
+      // Merge saved config with current defaults so new fields (e.g. selector) appear automatically
+      return saved.map(node => {
+        const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
+        if (!def) return node;
+        const merged = { ...def.defaultConfig, ...node.config };
+        // For known node IDs: if a field is empty after merging but INITIAL_NODES has a non-empty
+        // value for it, use the INITIAL_NODES value. This handles cases where a new pre-configured
+        // field (like selector) was added after the user already saved their node config.
+        const initial = INITIAL_NODES.find(n => n.id === node.id);
+        if (initial) {
+          for (const [k, v] of Object.entries(initial.config)) {
+            if (v !== '' && merged[k] === '') merged[k] = v;
+          }
+        }
+        return { ...node, config: merged };
+      });
+    } catch { return INITIAL_NODES; }
+  });
+  const [edges, setEdges]           = useState<WFEdge[]>(() => {
+    try { const s = localStorage.getItem('wf_edges'); return s ? JSON.parse(s) : INITIAL_EDGES; } catch { return INITIAL_EDGES; }
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nodeModal, setNodeModal]   = useState<WFNode | null>(null);
   const [editorTab, setEditorTab]   = useState<EditorTab>('code');
@@ -356,14 +400,19 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [liveMode, setLiveMode]     = useState(false);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
-  const [execLog, setExecLog]           = useState<string[]>([]);
+  const [nodeLog, setNodeLog]           = useState<Record<string, string[]>>({});
   const [screenshots, setScreenshots]   = useState<ScreenshotRecord[]>([]);
   const [capturingScreenshot, setCapturing] = useState(false);
+  const [nextTriggerIn, setNextTriggerIn] = useState('');
 
-  const dragging     = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
-  const dragMoved    = useRef(false);
-  const wrapperRef   = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const dragMoved           = useRef(false);
+  const wrapperRef          = useRef<HTMLDivElement>(null);
+  const fileInputRef        = useRef<HTMLInputElement>(null);
+  const screenshotsRef      = useRef<ScreenshotRecord[]>([]);
+  const handleExecuteRef    = useRef<() => Promise<void>>(async () => {});
+  const executingRef        = useRef(false);
+  const lastTriggeredMinRef = useRef('');
 
   const fetchScreenshots = async () => {
     const all: ScreenshotRecord[] = [];
@@ -412,6 +461,87 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     );
     return () => unsub();
   }, []);
+
+  // Persist node positions and edges to localStorage
+  useEffect(() => { try { localStorage.setItem('wf_nodes', JSON.stringify(nodes)); } catch {} }, [nodes]);
+  useEffect(() => { try { localStorage.setItem('wf_edges', JSON.stringify(edges)); } catch {} }, [edges]);
+
+  // Keep screenshotsRef in sync so handleExecute can read latest count without stale closures
+  useEffect(() => { screenshotsRef.current = screenshots; }, [screenshots]);
+
+  // Keep executing ref in sync (used by scheduler to avoid double-fire)
+  useEffect(() => { executingRef.current = executing; }, [executing]);
+
+  // ── Auto-scheduler: fires the workflow when the schedule node's time is reached ──
+  useEffect(() => {
+    if (!liveMode) return;
+    const scheduleNode = nodes.find(n => n.type === 'schedule');
+    if (!scheduleNode) return;
+
+    const check = () => {
+      if (executingRef.current) return;
+      const freq = scheduleNode.config.frequency || 'daily';
+      const [hh, mm] = (scheduleNode.config.time || '09:00').split(':').map(Number);
+      const now = new Date();
+      const H = now.getHours(), M = now.getMinutes();
+
+      let match = false;
+      if      (freq === 'hourly')   match = M === 0;
+      else if (freq === 'daily')    match = H === hh && M === mm;
+      else if (freq === 'weekly')   match = now.getDay() === 1 && H === hh && M === mm;
+      else if (freq === 'monthly')  match = now.getDate() === 1 && H === hh && M === mm;
+
+      // Use a "date + H:M" key to fire at most once per matching minute
+      const key = `${now.toDateString()}_${H}_${M}`;
+      if (match && lastTriggeredMinRef.current !== key) {
+        lastTriggeredMinRef.current = key;
+        handleExecuteRef.current();
+      }
+    };
+
+    check(); // Check immediately in case we just enabled live mode at the right moment
+    const id = setInterval(check, 15_000); // Re-check every 15 s for responsiveness
+    return () => clearInterval(id);
+  }, [liveMode, nodes]);
+
+  // Countdown label — updates every 5 s so the header shows "fires in Xm Ys"
+  useEffect(() => {
+    const scheduleNode = nodes.find(n => n.type === 'schedule');
+    if (!liveMode || !scheduleNode) { setNextTriggerIn(''); return; }
+
+    const compute = () => {
+      const freq = scheduleNode.config.frequency || 'daily';
+      const [hh, mm] = (scheduleNode.config.time || '09:00').split(':').map(Number);
+      const now = new Date();
+      let next = new Date(now);
+
+      if (freq === 'hourly') {
+        next.setMinutes(0, 0, 0);
+        if (next <= now) next = new Date(next.getTime() + 3_600_000);
+      } else if (freq === 'daily') {
+        next.setHours(hh, mm, 0, 0);
+        if (next <= now) next = new Date(next.getTime() + 86_400_000);
+      } else if (freq === 'weekly') {
+        const daysUntilMon = (1 - now.getDay() + 7) % 7 || 7;
+        next.setDate(now.getDate() + daysUntilMon);
+        next.setHours(hh, mm, 0, 0);
+        if (next <= now) next = new Date(next.getTime() + 7 * 86_400_000);
+      } else {
+        next.setDate(1); next.setHours(hh, mm, 0, 0);
+        if (next <= now) { next.setMonth(next.getMonth() + 1); next.setDate(1); }
+      }
+
+      const diff = Math.max(0, Math.round((next.getTime() - now.getTime()) / 1000));
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      setNextTriggerIn(h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`);
+    };
+
+    compute();
+    const id = setInterval(compute, 5_000);
+    return () => clearInterval(id);
+  }, [liveMode, nodes]);
 
   // Keep modal in sync when node config changes
   useEffect(() => {
@@ -508,43 +638,95 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     setSelectedId(id); setNodeModal(newNode); setEditorTab('params');
   };
 
+  // Polls screenshotsRef until a new screenshot arrives (count > prevCount) or times out
+  const waitForNewScreenshot = (prevCount: number, timeoutMs = 120_000): Promise<boolean> =>
+    new Promise(resolve => {
+      const start = Date.now();
+      const check = setInterval(() => {
+        if (screenshotsRef.current.length > prevCount) {
+          clearInterval(check); resolve(true);
+        } else if (Date.now() - start > timeoutMs) {
+          clearInterval(check); resolve(false);
+        }
+      }, 2000);
+    });
+
   // ── Execute ────────────────────────────────────────────────────────────────
   const handleExecute = async () => {
     if (executing) return;
-    setExecuting(true); setExecLog([]); setSelectedId(null);
+    setExecuting(true); setNodeLog({}); setSelectedId(null);
     setNodes(prev => prev.map(n => ({ ...n, status: 'idle' })));
     await sleep(250);
     const order = getExecutionOrder(nodes, edges);
-    const log = (msg: string) => setExecLog(p => [...p, msg]);
-    log('▶  Workflow started');
+    const log = (nodeId: string, msg: string) =>
+      setNodeLog(prev => ({ ...prev, [nodeId]: [...(prev[nodeId] ?? []), msg] }));
     for (const id of order) {
       const node = nodes.find(n => n.id === id); if (!node) continue;
-      log(`   ⏳ ${node.label}…`);
+      log(id, '⏳ Running…');
       setNodes(prev => prev.map(n => n.id === id ? { ...n, status: 'running' } : n));
       if (node.type === 'screenshot' && node.config.url) {
+        const prevCount = screenshotsRef.current.length;
         try {
-          log(`   📸 Capturing ${node.config.url}…`);
-          const r = await fetch('/api/screenshots/capture', {
+          const selector = node.config.selector?.trim() || '';
+          log(id, `📸 Triggering GitHub Actions…`);
+          if (selector) log(id, `🎯 Selector: ${selector}`);
+          const r = await fetch('/api/trigger-screenshot', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: node.config.url }),
+            body: JSON.stringify({ url: node.config.url, selector }),
           });
-          if (r.ok) { await fetchScreenshots(); log(`   ✓  Screenshot saved`); }
-          else log(`   ⚠  Capture failed — check Python/Selenium is installed`);
-        } catch { log(`   ⚠  Capture error`); }
+          if (r.ok) {
+            log(id, '⏳ Waiting for screenshot…');
+            const arrived = await waitForNewScreenshot(prevCount, 120_000);
+            if (arrived) {
+              log(id, '📥 Screenshot received');
+            } else {
+              log(id, '⚠ Timed out — check Actions');
+            }
+          } else {
+            const err = await r.json().catch(() => ({}));
+            log(id, `⚠ Trigger failed: ${err.error || r.status}`);
+          }
+        } catch { log(id, '⚠ Couldn\'t reach GitHub'); }
+      } else if (node.type === 'facebook') {
+        const latestShot  = screenshotsRef.current[0];
+        const imageUrl    = latestShot?.storage_url || '';
+        const recipientId = node.config.recipientId?.trim() || '';
+        const message     = node.config.message?.trim() || '';
+        if (!recipientId) {
+          log(id, '⚠ No Recipient PSID set');
+        } else {
+          try {
+            log(id, '📘 Sending to Messenger…');
+            if (imageUrl) log(id, '🖼 Attaching screenshot');
+            const r = await fetch('/api/send-facebook-message', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ recipientId, message, imageUrl }),
+            });
+            const data = await r.json() as any;
+            if (r.ok) {
+              log(id, '✓ Message sent');
+            } else {
+              log(id, `⚠ ${data.error || r.status}`);
+            }
+          } catch { log(id, '⚠ Couldn\'t reach Facebook'); }
+        }
       } else {
         await sleep(750 + Math.random() * 750);
       }
       setNodes(prev => prev.map(n => n.id === id ? { ...n, status: 'success' } : n));
-      log(`   ✓  ${node.label} completed`);
+      log(id, '✓ Done');
       await sleep(180);
     }
-    log('✅ Workflow finished');
     setExecuting(false);
   };
 
+  // Always keep the ref pointing to the latest handleExecute (avoids stale closure in scheduler)
+  useEffect(() => { handleExecuteRef.current = handleExecute; });
+
   const handleReset = () => {
+    localStorage.removeItem('wf_nodes'); localStorage.removeItem('wf_edges');
     setNodes(INITIAL_NODES); setEdges(INITIAL_EDGES);
-    setSelectedId(null); setConnectingFrom(null); setExecLog([]); setNodeModal(null);
+    setSelectedId(null); setConnectingFrom(null); setNodeLog({}); setNodeModal(null);
   };
 
   // ── SVG paths ──────────────────────────────────────────────────────────────
@@ -603,11 +785,36 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           style={{ background: executing ? 'rgba(255,0,255,.25)' : '#ff00ff', boxShadow: executing ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
           <Play size={12} fill="white" />{executing ? 'Running…' : 'Execute Workflow'}
         </button>
-        <button onClick={() => setLiveMode(l => !l)}
+        <button onClick={() => {
+            const next = !liveMode;
+            setLiveMode(next);
+            const sched = nodes.find(n => n.type === 'schedule');
+            const fb    = nodes.find(n => n.type === 'facebook');
+            const shot  = nodes.find(n => n.type === 'screenshot');
+            fetch('/api/schedule', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                enabled:       next,
+                frequency:     sched?.config.frequency  || 'daily',
+                time:          sched?.config.time        || '09:00',
+                timezone:      sched?.config.timezone    || 'Pacific/Honolulu',
+                screenshotUrl: shot?.config.url          || '',
+                selector:      shot?.config.selector     || '',
+                recipientId:   fb?.config.recipientId    || '',
+                message:       fb?.config.message        || '',
+              }),
+            }).catch(() => {});
+          }}
           className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all"
           style={{ borderColor: liveMode ? 'rgba(0,204,122,.4)' : 'rgba(255,255,255,.1)', background: liveMode ? 'rgba(0,204,122,.08)' : 'rgba(255,255,255,.03)', color: liveMode ? '#00cc7a' : '#64748b' }}>
           <div className="w-1.5 h-1.5 rounded-full" style={{ background: liveMode ? '#00cc7a' : '#64748b', boxShadow: liveMode ? '0 0 6px #00cc7a' : 'none' }} />
-          {liveMode ? 'Live Mode' : 'Test Mode'}
+          {liveMode ? 'Live' : 'Test Mode'}
+          {liveMode && nextTriggerIn && (
+            <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md"
+              style={{ background: 'rgba(0,204,122,.15)', color: '#00cc7a', border: '1px solid rgba(0,204,122,.25)' }}>
+              ⏰ {nextTriggerIn}
+            </span>
+          )}
         </button>
         <div className="flex items-center gap-2 pl-2 border-l border-white/10">
           <div className="w-7 h-7 rounded-full overflow-hidden" style={{ border: `2px solid ${roleColor}` }}>
@@ -686,6 +893,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
               <WFNodeCard key={node.id} node={node}
                 selected={selectedId === node.id}
                 connecting={connectingFrom === node.id}
+                logs={nodeLog[node.id]}
                 onMouseDown={handleNodeMouseDown}
                 onClick={handleNodeClick}
                 onOutputPortClick={handleOutputPortClick}
@@ -702,7 +910,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
         {/* ── Screenshots Panel ── */}
         <div className="shrink-0 border-t border-white/10 flex flex-col"
-          style={{ height: 240, background: 'rgba(5,2,10,.98)' }}>
+          style={{ height: 260, background: 'rgba(5,2,10,.98)' }}>
           {/* Panel header */}
           <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/6 shrink-0">
             <Camera size={13} style={{ color: '#00cc7a' }} />
@@ -766,17 +974,17 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             </button>
           </div>
           {/* Screenshots list */}
-          <div className="flex-1 overflow-y-hidden overflow-x-auto">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
             {screenshots.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <p className="text-xs text-slate-600">No screenshots yet — execute the workflow or click "Take Screenshot".</p>
               </div>
             ) : (
-              <div className="flex gap-3 px-5 py-3 h-full items-start">
+              <div className="grid gap-3 px-5 py-3" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 {screenshots.map(shot => (
                   <div key={shot.id}
-                    className="shrink-0 flex flex-col rounded-2xl overflow-hidden border border-white/8 group cursor-pointer hover:border-white/20 transition-all"
-                    style={{ width: 175, background: 'rgba(10,5,18,.9)' }}
+                    className="flex flex-col rounded-2xl overflow-hidden border border-white/8 group cursor-pointer hover:border-white/20 transition-all"
+                    style={{ background: 'rgba(10,5,18,.9)' }}
                     onClick={() => window.open(shot.storage_url || `/screenshots/${shot.filename}`, '_blank')}>
                     <div className="relative overflow-hidden bg-slate-900" style={{ height: 108 }}>
                       <img src={shot.storage_url || `/screenshots/${shot.filename}`} alt={shot.url}
@@ -811,27 +1019,6 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
         </div>{/* end right column */}
       </div>
 
-      {/* ── Execution log (floating) ── */}
-      {execLog.length > 0 && (
-        <div className="absolute bottom-4 right-4 w-72 rounded-2xl border border-white/10 overflow-hidden z-30"
-          style={{ background: 'rgba(8,4,14,.95)', backdropFilter: 'blur(16px)', boxShadow: '0 8px 40px rgba(0,0,0,.6)' }}
-          onClick={e => e.stopPropagation()}>
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/8">
-            <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: executing ? '#ffd700' : '#00cc7a' }}>
-              {executing ? '⏳ Executing…' : '✓ Complete'}
-            </p>
-            {!executing && <button onClick={() => setExecLog([])} className="p-1 text-slate-600 hover:text-white"><X size={11} /></button>}
-          </div>
-          <div className="p-3 max-h-40 overflow-y-auto">
-            {execLog.map((line, i) => (
-              <p key={i} className="text-[10px] font-mono py-0.5"
-                style={{ color: line.startsWith('✅') ? '#00cc7a' : line.startsWith('   ✓') ? '#94a3b8' : '#e2e8f0' }}>
-                {line}
-              </p>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Node Editor Modal ── */}
       {nodeModal && (
@@ -868,13 +1055,14 @@ function SidebarItem({ def, onAdd }: { def: NodeTypeDef; onAdd: (d: NodeTypeDef)
 // ── Workflow Node Card ─────────────────────────────────────────────────────────
 interface WFNodeCardProps {
   node: WFNode; selected: boolean; connecting: boolean;
+  logs?: string[];
   onMouseDown: (e: React.MouseEvent, id: string) => void;
   onClick: (e: React.MouseEvent, id: string) => void;
   onOutputPortClick: (e: React.MouseEvent, id: string) => void;
   onInputPortClick:  (e: React.MouseEvent, id: string) => void;
 }
 
-function WFNodeCard({ node, selected, connecting, onMouseDown, onClick, onOutputPortClick, onInputPortClick }: WFNodeCardProps) {
+function WFNodeCard({ node, selected, connecting, logs, onMouseDown, onClick, onOutputPortClick, onInputPortClick }: WFNodeCardProps) {
   const sc = STATUS_COLOR[node.status];
   return (
     <div className="wf-node"
@@ -933,6 +1121,33 @@ function WFNodeCard({ node, selected, connecting, onMouseDown, onClick, onOutput
           transition: 'border-color .15s,background .15s,transform .15s,box-shadow .2s' }}
         onMouseEnter={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1.35)'; d.style.background=node.color; d.style.boxShadow=`0 0 10px ${node.color}80`; }}
         onMouseLeave={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1)'; d.style.background=connecting?node.color:'#0a0510'; d.style.boxShadow=connecting?`0 0 12px ${node.color}`:'none'; }} />
+      {/* Per-node execution log — appears below node, moves with drag */}
+      {logs && logs.length > 0 && (
+        <div style={{
+          position: 'absolute', top: NODE_H + 7, left: 0, width: NODE_W,
+          background: 'rgba(5,2,10,.97)',
+          border: `1px solid ${node.color}28`,
+          borderRadius: 9, padding: '5px 10px', zIndex: 10, pointerEvents: 'none',
+        }}>
+          {/* Notch connecting bubble to node */}
+          <div style={{
+            position: 'absolute', top: -5, left: NODE_W / 2 - 5,
+            borderLeft: '5px solid transparent', borderRight: '5px solid transparent',
+            borderBottom: `5px solid ${node.color}28`,
+          }} />
+          {logs.map((line, i) => (
+            <p key={i} style={{
+              fontSize: 9, fontFamily: 'monospace', margin: 0, lineHeight: '1.75',
+              color: line.startsWith('✓') ? '#00cc7a'
+                   : line.startsWith('⚠') ? '#ff7849'
+                   : line.startsWith('⏳') ? '#ffd700'
+                   : line.startsWith('📥') ? '#00cc7a'
+                   : '#94a3b8',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>{line}</p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -950,6 +1165,31 @@ interface ModalProps {
 function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel, onDelete, onClose }: ModalProps) {
   const codeHtml = highlightCode(getNodeCode(node));
   const outputHtml = highlightCode(getNodeOutput(node));
+  const [applying, setApplying]       = useState(false);
+  const [applyResult, setApplyResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleApplySchedule = async () => {
+    setApplying(true); setApplyResult(null);
+    try {
+      const r = await fetch('/api/github-schedule', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          frequency: node.config.frequency || 'daily',
+          time:      node.config.time      || '09:00',
+          timezone:  node.config.timezone  || 'Pacific/Honolulu',
+        }),
+      });
+      const d = await r.json() as any;
+      if (r.ok) {
+        setApplyResult({ ok: true, msg: `✓ Schedule updated — cron "${d.cronPat}" (${d.utcLabel})` });
+      } else {
+        setApplyResult({ ok: false, msg: `⚠ ${d.error || 'Unknown error'}` });
+      }
+    } catch {
+      setApplyResult({ ok: false, msg: '⚠ Could not reach server' });
+    }
+    setApplying(false);
+  };
 
   const TABS: { id: EditorTab; label: string; icon: React.ReactNode }[] = [
     { id: 'code',   label: 'Code',       icon: <Code2    size={12} /> },
@@ -1068,21 +1308,101 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
               <div className="border-t border-white/6 pt-5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4">Configuration</p>
                 <div className="space-y-4">
-                  {Object.entries(node.config).map(([key, value]) => (
-                    <div key={key}>
-                      <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
-                        {key.replace(/_/g, ' ')}
-                      </label>
-                      <input
-                        type="text" value={value}
-                        onChange={e => onUpdateConfig(node.id, key, e.target.value)}
-                        className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
-                        style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
-                        onClick={e => e.stopPropagation()}
-                        onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
-                        onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
-                    </div>
-                  ))}
+                  {node.type === 'schedule' ? (
+                    <>
+                      {/* Frequency pills */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Frequency</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {(['hourly','daily','weekly','monthly'] as const).map(freq => {
+                            const active = (node.config.frequency || 'daily') === freq;
+                            return (
+                              <button key={freq} onClick={e => { e.stopPropagation(); onUpdateConfig(node.id, 'frequency', freq); }}
+                                className="py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                                style={{
+                                  background: active ? node.color + '22' : 'rgba(255,255,255,.04)',
+                                  border: `1px solid ${active ? node.color + '60' : 'rgba(255,255,255,.08)'}`,
+                                  color: active ? node.color : '#64748b',
+                                  boxShadow: active ? `0 0 10px ${node.color}20` : 'none',
+                                }}>
+                                {freq}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {/* Time picker — hidden for hourly */}
+                      {node.config.frequency !== 'hourly' && (
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Time</label>
+                          <input
+                            type="time" value={node.config.time || '09:00'}
+                            onChange={e => onUpdateConfig(node.id, 'time', e.target.value)}
+                            className="rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                            style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', colorScheme: 'dark', width: '100%' }}
+                            onClick={e => e.stopPropagation()}
+                            onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                            onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                        </div>
+                      )}
+                      {/* Timezone */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Timezone</label>
+                        <input
+                          type="text" value={node.config.timezone || 'Pacific/Honolulu'}
+                          onChange={e => onUpdateConfig(node.id, 'timezone', e.target.value)}
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      {/* Apply to GitHub */}
+                      <div className="pt-2 border-t border-white/6">
+                        <p className="text-[10px] text-slate-600 mb-3">
+                          This updates the GitHub Actions workflow directly — no server or browser needs to be running.
+                        </p>
+                        <button
+                          onClick={e => { e.stopPropagation(); handleApplySchedule(); }}
+                          disabled={applying}
+                          className="w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                          style={{
+                            background: applying ? 'rgba(255,149,0,.15)' : 'rgba(255,149,0,.2)',
+                            border: `1px solid ${node.color}50`,
+                            color: node.color,
+                            boxShadow: applying ? 'none' : `0 0 16px ${node.color}20`,
+                          }}>
+                          {applying ? '⏳ Pushing to GitHub…' : '🚀 Apply Schedule to GitHub'}
+                        </button>
+                        {applyResult && (
+                          <p className="mt-2 text-[10px] font-mono px-3 py-2 rounded-lg"
+                            style={{
+                              background: applyResult.ok ? 'rgba(0,204,122,.08)' : 'rgba(255,77,77,.08)',
+                              color: applyResult.ok ? '#00cc7a' : '#ff7849',
+                              border: `1px solid ${applyResult.ok ? '#00cc7a30' : '#ff4d4d30'}`,
+                            }}>
+                            {applyResult.msg}
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    Object.entries(node.config).map(([key, value]) => (
+                      <div key={key}>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">
+                          {key.replace(/_/g, ' ')}
+                        </label>
+                        <input
+                          type="text" value={value}
+                          onChange={e => onUpdateConfig(node.id, key, e.target.value)}
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
