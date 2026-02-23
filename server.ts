@@ -3,6 +3,8 @@ import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import { execFile } from "child_process";
+import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,6 +70,13 @@ db.exec(`
     PRIMARY KEY (user_id, project_id)
   );
 
+  CREATE TABLE IF NOT EXISTS screenshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    captured_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS system_cards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -113,6 +122,11 @@ async function startServer() {
   const app = express();
   app.use(express.json());
   const PORT = 3000;
+
+  // Screenshots directory + static serving
+  const screenshotsDir = path.join(__dirname, "screenshots");
+  if (!fs.existsSync(screenshotsDir)) fs.mkdirSync(screenshotsDir, { recursive: true });
+  app.use("/screenshots", express.static(screenshotsDir));
 
   // API Routes
   app.get("/api/users", (req, res) => {
@@ -344,6 +358,46 @@ async function startServer() {
   app.delete("/api/system-cards/:id", (req, res) => {
     db.prepare("DELETE FROM system_cards WHERE id = ?").run(req.params.id);
     res.json({ success: true });
+  });
+
+  // Screenshots API
+  app.get("/api/screenshots", (req, res) => {
+    const shots = db.prepare("SELECT * FROM screenshots ORDER BY id DESC LIMIT 50").all();
+    res.json(shots);
+  });
+
+  app.post("/api/screenshots/upload", (req, res) => {
+    const { base64, source_url } = req.body;
+    if (!base64) { res.status(400).json({ error: "base64 required" }); return; }
+    const filename = `shot-${Date.now()}.png`;
+    const filepath = path.join(__dirname, "screenshots", filename);
+    try {
+      const data = base64.replace(/^data:image\/\w+;base64,/, "");
+      fs.writeFileSync(filepath, Buffer.from(data, "base64"));
+      const r = db.prepare("INSERT INTO screenshots (url, filename) VALUES (?, ?)").run(source_url || "uploaded", filename);
+      res.json({ id: r.lastInsertRowid, url: source_url || "uploaded", filename, captured_at: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/screenshots/capture", async (req, res) => {
+    const { url } = req.body;
+    if (!url) { res.status(400).json({ error: "URL required" }); return; }
+    const filename = `shot-${Date.now()}.png`;
+    const filepath = path.join(__dirname, "screenshots", filename);
+    const scriptPath = path.join(__dirname, "screenshot.py");
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile("python", [scriptPath, url, filepath], { timeout: 60000 }, (err) => {
+          if (err) reject(err); else resolve();
+        });
+      });
+      const r = db.prepare("INSERT INTO screenshots (url, filename) VALUES (?, ?)").run(url, filename);
+      res.json({ id: r.lastInsertRowid, url, filename, captured_at: new Date().toISOString() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Screenshot failed" });
+    }
   });
 
   // Vite middleware for development

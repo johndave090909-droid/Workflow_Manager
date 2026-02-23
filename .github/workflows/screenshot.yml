@@ -52,7 +52,35 @@ jobs:
           echo "Screenshotting: $URL"
           python screenshot.py "$URL" "$FILENAME"
 
-      # 6. Upload the PNG so you can download it from GitHub
+      # 6. Push to Firebase — screenshot appears on the site automatically
+      - name: Push to Firebase
+        run: |
+          URL="${{ github.event.inputs.url || 'https://nidl3r.github.io/PCC-KDS/' }}"
+          FILENAME="${{ github.event.inputs.filename || 'screenshot' }}.png"
+          API_KEY="AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg"
+
+          # URL-encode the storage path (e.g. screenshots/screenshot.png → screenshots%2Fscreenshot.png)
+          ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('screenshots/$FILENAME'))")
+          STORAGE_URL="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/${ENCODED}?alt=media"
+
+          echo "Uploading to Firebase Storage..."
+          curl -s -X POST \
+            "https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o?uploadType=media&name=${ENCODED}" \
+            -H "Content-Type: image/png" \
+            --data-binary @"$FILENAME"
+
+          echo ""
+          echo "Writing metadata to Firestore..."
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          curl -s -X POST \
+            "https://firestore.googleapis.com/v1/projects/systems-hub/databases/(default)/documents/screenshots?key=${API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"fields\":{\"url\":{\"stringValue\":\"${URL}\"},\"storage_url\":{\"stringValue\":\"${STORAGE_URL}\"},\"filename\":{\"stringValue\":\"${FILENAME}\"},\"captured_at\":{\"stringValue\":\"${TIMESTAMP}\"},\"source\":{\"stringValue\":\"github-actions\"}}}"
+
+          echo ""
+          echo "✓ Synced to Firebase — screenshot will appear on the site automatically"
+
+      # 7. Upload the PNG so you can download it from GitHub
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
         with:
@@ -60,7 +88,7 @@ jobs:
           path: "*.png"
           retention-days: 30        # file stays available for 30 days
 
-      # 7. Print a summary in the Actions log
+      # 8. Print a summary in the Actions log
       - name: Summary
         run: |
           echo "### ✅ Screenshot complete" >> $GITHUB_STEP_SUMMARY

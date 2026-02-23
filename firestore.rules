@@ -2,8 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Any signed-in user can read/write all documents
-    // Tighten these rules before deploying to production
+    // Screenshots collection: open read/write so GitHub Actions can push records
+    match /screenshots/{doc} {
+      allow read, write: if true;
+    }
+
+    // Everything else requires a signed-in user
     match /{document=**} {
       allow read, write: if request.auth != null;
     }

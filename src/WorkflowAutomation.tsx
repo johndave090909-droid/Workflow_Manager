@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal } from 'lucide-react';
+import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal, Camera, Upload } from 'lucide-react';
+import { collection, getDocs, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { db as firestoreDb } from './firebase';
 import { User } from './types';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -38,6 +40,14 @@ interface WFNode {
   x: number;  y: number;   status: NodeStatus; config: Record<string, string>;
 }
 interface WFEdge { id: string; fromId: string; toId: string; }
+interface ScreenshotRecord {
+  id: number | string;
+  url: string;
+  filename: string;
+  captured_at: string;
+  storage_url?: string;
+  source?: string;
+}
 
 // ── Initial workflow ───────────────────────────────────────────────────────────
 const INITIAL_NODES: WFNode[] = [
@@ -346,11 +356,55 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [liveMode, setLiveMode]     = useState(false);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
-  const [execLog, setExecLog]       = useState<string[]>([]);
+  const [execLog, setExecLog]           = useState<string[]>([]);
+  const [screenshots, setScreenshots]   = useState<ScreenshotRecord[]>([]);
+  const [capturingScreenshot, setCapturing] = useState(false);
 
-  const dragging   = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
-  const dragMoved  = useRef(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const dragging     = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const dragMoved    = useRef(false);
+  const wrapperRef   = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchScreenshots = async () => {
+    const all: ScreenshotRecord[] = [];
+
+    // Local screenshots (captured via Python/Selenium on this machine)
+    try {
+      const res = await fetch('/api/screenshots');
+      if (res.ok) {
+        const local = await res.json();
+        all.push(...local.map((s: any) => ({ ...s, source: 'local' })));
+      }
+    } catch {}
+
+    // Firebase screenshots (from GitHub Actions — auto-synced)
+    try {
+      const q = query(collection(firestoreDb, 'screenshots'), orderBy('captured_at', 'desc'));
+      const snap = await getDocs(q);
+      snap.docs.forEach(doc => {
+        const d = doc.data();
+        all.push({
+          id: doc.id,
+          url: d.url || '',
+          filename: d.filename || '',
+          captured_at: d.captured_at || new Date().toISOString(),
+          storage_url: d.storage_url,
+          source: 'github-actions',
+        });
+      });
+    } catch {}
+
+    all.sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
+    setScreenshots(all);
+  };
+
+  useEffect(() => {
+    fetchScreenshots();
+    // Live listener — new GitHub Actions screenshot appears instantly
+    const q = query(collection(firestoreDb, 'screenshots'), orderBy('captured_at', 'desc'));
+    const unsub = onSnapshot(q, () => fetchScreenshots());
+    return () => unsub();
+  }, []);
 
   // Keep modal in sync when node config changes
   useEffect(() => {
@@ -460,7 +514,19 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       const node = nodes.find(n => n.id === id); if (!node) continue;
       log(`   ⏳ ${node.label}…`);
       setNodes(prev => prev.map(n => n.id === id ? { ...n, status: 'running' } : n));
-      await sleep(750 + Math.random() * 750);
+      if (node.type === 'screenshot' && node.config.url) {
+        try {
+          log(`   📸 Capturing ${node.config.url}…`);
+          const r = await fetch('/api/screenshots/capture', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: node.config.url }),
+          });
+          if (r.ok) { await fetchScreenshots(); log(`   ✓  Screenshot saved`); }
+          else log(`   ⚠  Capture failed — check Python/Selenium is installed`);
+        } catch { log(`   ⚠  Capture error`); }
+      } else {
+        await sleep(750 + Math.random() * 750);
+      }
       setNodes(prev => prev.map(n => n.id === id ? { ...n, status: 'success' } : n));
       log(`   ✓  ${node.label} completed`);
       await sleep(180);
@@ -566,9 +632,12 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           </div>
         </aside>
 
+        {/* Right column: canvas + screenshots */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+
         {/* Canvas wrapper */}
         <div ref={wrapperRef} className="flex-1 overflow-auto"
-          style={{ cursor: connectingFrom ? 'crosshair' : 'default' }}
+          style={{ cursor: connectingFrom ? 'crosshair' : 'default', minHeight: 0 }}
           onClick={handleCanvasClick}>
           <div style={{ width: CANVAS_W, height: CANVAS_H, position: 'relative',
             backgroundImage: 'radial-gradient(circle,rgba(255,255,255,.055) 1px,transparent 1px)',
@@ -622,7 +691,117 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
               </div>
             )}
           </div>
-        </div>
+        </div>{/* end canvas wrapper */}
+
+        {/* ── Screenshots Panel ── */}
+        <div className="shrink-0 border-t border-white/10 flex flex-col"
+          style={{ height: 240, background: 'rgba(5,2,10,.98)' }}>
+          {/* Panel header */}
+          <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/6 shrink-0">
+            <Camera size={13} style={{ color: '#00cc7a' }} />
+            <span className="text-xs font-bold text-white">Screenshot History</span>
+            {screenshots.length > 0 && (
+              <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md"
+                style={{ background: '#00cc7a18', color: '#00cc7a', border: '1px solid #00cc7a30' }}>
+                {screenshots.length}
+              </span>
+            )}
+            <div className="flex-1" />
+            {/* Hidden file input for upload */}
+            <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,image/*" className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]; if (!file) return;
+                setCapturing(true);
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                  try {
+                    const base64 = ev.target?.result as string;
+                    const screenshotNode = nodes.find(n => n.type === 'screenshot');
+                    const r = await fetch('/api/screenshots/upload', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ base64, source_url: screenshotNode?.config?.url || 'GitHub Actions' }),
+                    });
+                    if (r.ok) await fetchScreenshots();
+                  } catch {}
+                  setCapturing(false);
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={capturingScreenshot}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.12)', color: '#94a3b8' }}>
+              <Upload size={11} />
+              Upload PNG
+            </button>
+            <button
+              onClick={async () => {
+                const screenshotNode = nodes.find(n => n.type === 'screenshot');
+                const url = screenshotNode?.config?.url || window.prompt('Enter URL to screenshot:') || '';
+                if (!url) return;
+                setCapturing(true);
+                try {
+                  const r = await fetch('/api/screenshots/capture', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url }),
+                  });
+                  if (r.ok) await fetchScreenshots();
+                } catch {}
+                setCapturing(false);
+              }}
+              disabled={capturingScreenshot}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+              style={{ background: 'rgba(0,204,122,.1)', border: '1px solid rgba(0,204,122,.25)', color: '#00cc7a' }}>
+              <Camera size={11} />
+              {capturingScreenshot ? 'Capturing…' : 'Take Screenshot'}
+            </button>
+          </div>
+          {/* Screenshots list */}
+          <div className="flex-1 overflow-y-hidden overflow-x-auto">
+            {screenshots.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-xs text-slate-600">No screenshots yet — execute the workflow or click "Take Screenshot".</p>
+              </div>
+            ) : (
+              <div className="flex gap-3 px-5 py-3 h-full items-start">
+                {screenshots.map(shot => (
+                  <div key={shot.id}
+                    className="shrink-0 flex flex-col rounded-2xl overflow-hidden border border-white/8 group cursor-pointer hover:border-white/20 transition-all"
+                    style={{ width: 175, background: 'rgba(10,5,18,.9)' }}
+                    onClick={() => window.open(shot.storage_url || `/screenshots/${shot.filename}`, '_blank')}>
+                    <div className="relative overflow-hidden bg-slate-900" style={{ height: 108 }}>
+                      <img src={shot.storage_url || `/screenshots/${shot.filename}`} alt={shot.url}
+                        className="w-full h-full object-cover object-top" />
+                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                        style={{ background: 'rgba(0,0,0,.55)' }}>
+                        <span className="text-[10px] font-black text-white tracking-widest uppercase">Open ↗</span>
+                      </div>
+                    </div>
+                    <div className="px-3 py-2">
+                      <p className="text-[10px] font-bold text-slate-300 truncate" title={shot.url}>
+                        {shot.url.replace(/^https?:\/\//, '')}
+                      </p>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="text-[9px] text-slate-600">
+                          {new Date(shot.captured_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          {' · '}{new Date(shot.captured_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        {shot.source === 'github-actions' && (
+                          <span className="text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded"
+                            style={{ background: 'rgba(255,149,0,.12)', color: '#ff9500' }}>GH</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>{/* end screenshots panel */}
+
+        </div>{/* end right column */}
       </div>
 
       {/* ── Execution log (floating) ── */}
