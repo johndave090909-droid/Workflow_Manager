@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ClipboardList, AlertCircle, CheckCircle2, Clock, Calendar,
-  ArrowUpRight, Target, Zap, Search, Plus, LogOut, GripVertical
+  ArrowUpRight, Target, Zap, Search, Plus, LogOut, GripVertical, X, EyeOff,
+  Home, Settings2 as SettingsIcon, Menu
 } from 'lucide-react';
 import { Draggable } from '@fullcalendar/interaction';
 import { motion, AnimatePresence } from 'motion/react';
@@ -68,12 +69,25 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [unreadCounts,    setUnreadCounts]    = useState<Record<string, number>>({});
+  const [showViewOnlyToast, setShowViewOnlyToast] = useState(false);
+  const [showAllProjects,   setShowAllProjects]   = useState(false);
   const tableBodyRef = useRef<HTMLTableSectionElement>(null);
 
   // Resolve current user's permissions from the /roles collection
   const userRoleDef    = roles.find(r => r.name === currentUser?.role);
-  const perms: RolePermissions = userRoleDef?.permissions
+  const basePerms: RolePermissions = userRoleDef?.permissions
     ?? { ...DEFAULT_PERMISSIONS, ...LEGACY_PERMS[currentUser?.role ?? ''] };
+
+  // Apply view-only restrictions from system cards (IT Admins are exempt)
+  const isViewOnlyCard = (link: string) =>
+    !basePerms.access_it_admin &&
+    systemCards.some(c => c.link === link && c.link_type === 'internal' && (c.is_view_only ?? false));
+
+  const trackerViewOnly = isViewOnlyCard('tracker');
+  const perms: RolePermissions = trackerViewOnly
+    ? { ...basePerms, edit_projects: false, create_projects: false }
+    : basePerms;
+
   const userRoleColor  = userRoleDef?.color
     ?? (currentUser?.role === 'Director' ? '#ff00ff' : currentUser?.role === 'IT Admin' ? '#a855f7' : '#00ffff');
 
@@ -126,6 +140,20 @@ export default function App() {
     });
     return () => draggable.destroy();
   }, [perms.edit_projects, loading, currentView]);
+
+  // ── Show view-only toast when entering a restricted system ─────
+  useEffect(() => {
+    const isViewOnly =
+      (currentView === 'workflow' && isViewOnlyCard('workflow')) ||
+      (currentView === 'tracker'  && trackerViewOnly);
+    if (isViewOnly) {
+      setShowViewOnlyToast(true);
+      const t = setTimeout(() => setShowViewOnlyToast(false), 7000);
+      return () => clearTimeout(t);
+    } else {
+      setShowViewOnlyToast(false);
+    }
+  }, [currentView, systemCards]);
 
   // ── Data fetchers ──────────────────────────────────────────────
   const fetchData = async () => {
@@ -245,9 +273,11 @@ export default function App() {
 
   // ── Derived data ───────────────────────────────────────────────
   const visibleProjects = useMemo(() => {
-    if (!perms.view_all_projects && currentUser) return projects.filter(p => p.account_lead_id === currentUser.id);
+    // Directors always see everything; others see all if they toggled "All Projects"
+    if (perms.view_all_projects || showAllProjects) return projects;
+    if (currentUser) return projects.filter(p => p.account_lead_id === currentUser.id);
     return projects;
-  }, [projects, perms.view_all_projects, currentUser]);
+  }, [projects, perms.view_all_projects, showAllProjects, currentUser]);
 
   const filteredProjects = useMemo(() => {
     if (selectedOwnerId === null) return visibleProjects;
@@ -301,39 +331,50 @@ export default function App() {
   if (!currentUser) return <LoginScreen />;
 
   if (currentView === 'hub') return (
-    <SystemHub
-      currentUser={currentUser}
-      systemCards={systemCards.filter(c => c.is_active)}
-      onNavigate={v => setCurrentView(v)}
-      onLogout={handleLogout}
-      permissions={perms}
-      roleColor={userRoleColor}
-      projects={visibleProjects}
-    />
+    <>
+      <SystemHub
+        currentUser={currentUser}
+        systemCards={systemCards.filter(c => c.is_active)}
+        onNavigate={v => setCurrentView(v)}
+        onLogout={handleLogout}
+        permissions={perms}
+        roleColor={userRoleColor}
+        projects={visibleProjects}
+      />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+    </>
   );
 
   if (currentView === 'workflow') return (
-    <WorkflowAutomation
-      currentUser={currentUser}
-      onBackToHub={() => setCurrentView('hub')}
-      onLogout={handleLogout}
-      roleColor={userRoleColor}
-    />
+    <>
+      <WorkflowAutomation
+        currentUser={currentUser}
+        onBackToHub={() => setCurrentView('hub')}
+        onLogout={handleLogout}
+        roleColor={userRoleColor}
+        viewOnly={isViewOnlyCard('workflow')}
+      />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
+    </>
   );
 
   if (currentView === 'it-admin') {
     if (!perms.access_it_admin) { setCurrentView('hub'); return null; }
     return (
-      <SystemAdminPanel
-        currentUser={currentUser}
-        onBackToHub={() => setCurrentView('hub')}
-        onCardsChanged={fetchSystemCards}
-        onUsersChanged={fetchData}
-        onRolesChanged={fetchRoles}
-        onLogout={handleLogout}
-        permissions={perms}
-        roleColor={userRoleColor}
-      />
+      <>
+        <SystemAdminPanel
+          currentUser={currentUser}
+          onBackToHub={() => setCurrentView('hub')}
+          onCardsChanged={fetchSystemCards}
+          onUsersChanged={fetchData}
+          onRolesChanged={fetchRoles}
+          onLogout={handleLogout}
+          permissions={perms}
+          roleColor={userRoleColor}
+        />
+        <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      </>
     );
   }
 
@@ -345,35 +386,65 @@ export default function App() {
 
   // ── Tracker view ───────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0a0510] text-white font-sans selection:bg-[#ff00ff]/30">
-      <header className="h-16 border-b border-white/10 px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
-        <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-[#0a0510] text-white font-sans selection:bg-[#ff00ff]/30 pb-nav md:pb-0">
+      <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          {/* Hub link — hidden on mobile (use bottom nav instead) */}
           <button
             onClick={() => setCurrentView('hub')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#ff00ff]/30 text-slate-400 hover:text-[#ff00ff] transition-all text-xs font-bold"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#ff00ff]/30 text-slate-400 hover:text-[#ff00ff] transition-all text-xs font-bold shrink-0"
           >
             ← Hub
           </button>
-          <div className="w-10 h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20">W</div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)]">Workflow Manager</h1>
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20 shrink-0">W</div>
+          <h1 className="font-display text-lg sm:text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] truncate">Workflow Manager</h1>
+
+          {/* View scope toggle — shown for non-Directors, text hidden on very small screens */}
+          {!perms.view_all_projects && (
+            <div className="hidden xs:flex sm:flex items-center gap-1 p-1 rounded-xl border border-white/10 bg-white/5 shrink-0">
+              <button
+                onClick={() => { setShowAllProjects(false); setSelectedOwnerId(null); }}
+                className={cn(
+                  'px-2 sm:px-3 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all',
+                  !showAllProjects ? 'bg-[#ff00ff] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                )}
+              >
+                <span className="hidden sm:inline">My Projects</span>
+                <span className="sm:hidden">Mine</span>
+              </button>
+              <button
+                onClick={() => setShowAllProjects(true)}
+                className={cn(
+                  'px-2 sm:px-3 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all',
+                  showAllProjects ? 'bg-[#00ffff] text-[#0a0510] shadow-sm' : 'text-slate-400 hover:text-white'
+                )}
+              >
+                <span className="hidden sm:inline">All Projects</span>
+                <span className="sm:hidden">All</span>
+              </button>
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+        <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+          {/* Date — hidden on mobile */}
+          <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
             <Calendar size={16} className="text-[#00ffff]" />
             <span className="text-sm font-medium text-slate-300">{format(new Date(), 'EEEE, MMMM do yyyy')}</span>
           </div>
           {perms.create_projects && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 hover:opacity-90 transition-opacity rounded-full text-sm font-bold text-white shadow-lg"
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 hover:opacity-90 transition-opacity rounded-full text-sm font-bold text-white shadow-lg min-h-[40px]"
               style={{ backgroundColor: userRoleColor, boxShadow: `0 4px 15px ${userRoleColor}33` }}
             >
               <Plus size={16} />
-              Create Project
+              <span className="hidden sm:inline">Create Project</span>
             </button>
           )}
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-full p-0.5" style={{ border: `2px solid ${userRoleColor}` }}>
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full p-0.5 shrink-0" style={{ border: `2px solid ${userRoleColor}` }}>
               <img
                 src={currentUser.photo || `https://picsum.photos/seed/${currentUser.id}/100/100`}
                 className="w-full h-full rounded-full object-cover"
@@ -386,7 +457,7 @@ export default function App() {
                 {currentUser.role}
               </p>
             </div>
-            <button onClick={handleLogout} title="Logout" className="ml-1 p-2 text-slate-500 hover:text-white transition-colors">
+            <button onClick={handleLogout} title="Logout" className="ml-1 p-2 text-slate-500 hover:text-white transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center">
               <LogOut size={16} />
             </button>
           </div>
@@ -410,17 +481,18 @@ export default function App() {
           onClose={() => setSelectedProject(null)}
           onUpdated={() => { fetchData(); setSelectedProject(null); }}
           onMarkRead={() => currentUser && fetchUnreadCounts(currentUser.id, projects)}
+          viewOnly={trackerViewOnly}
         />
       )}
 
-      <main className="p-8 max-w-[1600px] mx-auto space-y-8">
+      <main className="p-4 sm:p-8 max-w-[1600px] mx-auto space-y-6 sm:space-y-8">
         {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
           <KPICard label="Total Projects"    value={stats.total}      icon={<ClipboardList className="text-[#00ffff]" />} />
           <KPICard label="Completed"         value={stats.completed}  icon={<CheckCircle2  className="text-[#00ffff]" />} />
           <KPICard label="Onboarding"        value={stats.onboarding} icon={<Zap           className="text-[#ffd700]" />} />
           <KPICard label="Overdue"           value={stats.overdue}    icon={<AlertCircle   className="text-[#ff4d4d]" />} critical={stats.overdue > 0} />
-          <div className="glass-card p-6 rounded-3xl flex items-center justify-between group overflow-hidden relative col-span-2 lg:col-span-1">
+          <div className="glass-card p-4 sm:p-6 rounded-3xl flex items-center justify-between group overflow-hidden relative col-span-2 sm:col-span-2 lg:col-span-1">
             <div className="relative z-10">
               <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Overall Completion</p>
               <p className="text-5xl font-display font-bold text-[#00ffff]">{stats.completionRate}%</p>
@@ -517,25 +589,25 @@ export default function App() {
 
         {/* Master Account Table */}
         <div className="glass-card rounded-[2rem] overflow-hidden border border-white/10">
-          <div className="p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="p-4 sm:p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6">
             <div>
-              <h2 className="text-2xl font-display font-bold text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] mb-1">Master Account Table</h2>
-              <p className="text-sm text-slate-400">Manage and track all project lifecycles across accounts.</p>
+              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] mb-1">Master Account Table</h2>
+              <p className="text-xs sm:text-sm text-slate-400">Manage and track all project lifecycles across accounts.</p>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="relative">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 sm:flex-none">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
                 <input
                   type="text"
                   placeholder="Search projects..."
-                  className="bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-[#ff00ff] outline-none transition-all w-64"
+                  className="bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-[#ff00ff] outline-none transition-all w-full sm:w-64"
                 />
               </div>
-              {perms.view_all_projects && assignableUsers.length > 0 && (
-                <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl p-1">
+              {(perms.view_all_projects || showAllProjects) && assignableUsers.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
                   <button
                     onClick={() => setSelectedOwnerId(null)}
-                    className={cn('px-4 py-1.5 rounded-lg text-xs font-bold transition-all', selectedOwnerId === null ? 'bg-[#ff00ff] text-white' : 'text-slate-400 hover:text-white')}
+                    className={cn('px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-all', selectedOwnerId === null ? 'bg-[#ff00ff] text-white' : 'text-slate-400 hover:text-white')}
                   >
                     ALL
                   </button>
@@ -543,7 +615,7 @@ export default function App() {
                     <button
                       key={user.id}
                       onClick={() => setSelectedOwnerId(user.id)}
-                      className={cn('px-4 py-1.5 rounded-lg text-xs font-bold transition-all', selectedOwnerId === user.id ? 'bg-[#00ffff] text-[#0a0510]' : 'text-slate-400 hover:text-white')}
+                      className={cn('px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-all', selectedOwnerId === user.id ? 'bg-[#00ffff] text-[#0a0510]' : 'text-slate-400 hover:text-white')}
                     >
                       {user.name.split(' ')[0].toUpperCase()}
                     </button>
@@ -557,7 +629,52 @@ export default function App() {
             <p className="text-[10px] text-slate-600 italic px-8 pb-3">⠿ Drag any row onto the calendar below to set its due date</p>
           )}
 
-          <div className="overflow-x-auto">
+          {/* ── Mobile card list (< md) ── */}
+          <div className="md:hidden divide-y divide-white/5">
+            {filteredProjects.length === 0 && (
+              <p className="p-6 text-sm text-slate-500 text-center">No projects found.</p>
+            )}
+            {filteredProjects.map(p => {
+              const daysLeft = p.end_date ? differenceInDays(parseISO(p.end_date), new Date()) : null;
+              const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done';
+              return (
+                <div key={p.id} className="p-4 flex items-start gap-3 active:bg-white/5 cursor-pointer" onClick={() => setSelectedProject(p)}>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: DEPT_COLORS[p.department] }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-sm font-bold truncate">{p.name}</p>
+                      {(unreadCounts[p.id] ?? 0) > 0 && (
+                        <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ff00ff] text-white text-[9px] font-black flex items-center justify-center animate-pulse">
+                          {unreadCounts[p.id]}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 mb-1.5">{p.account_lead_name} · {p.department}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={cn('text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border', STATUS_COLORS[p.status])}>
+                        {p.status}
+                      </span>
+                      {p.end_date && (
+                        <span className={cn('text-xs font-mono font-bold', isOverdue ? 'text-[#ff4d4d]' : 'text-slate-400')}>
+                          {format(parseISO(p.end_date), 'MMM dd')}
+                          {daysLeft !== null && (
+                            <span className={cn('ml-1', daysLeft < 0 ? 'text-[#ff4d4d]' : daysLeft < 3 ? 'text-[#ffd700]' : 'text-slate-600')}>
+                              ({daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`})
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {p.is_priority_focus && <span className="text-xs">⭐</span>}
+                      {p.is_time_critical && <span className="text-xs">⚠️</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Desktop table (≥ md) ── */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.2em] font-black">
@@ -637,10 +754,104 @@ export default function App() {
                 })}
               </tbody>
             </table>
-          </div>
+          </div>{/* end desktop table */}
         </div>
       </main>
     </div>
+  );
+}
+
+// ── Bottom Navigation Bar (mobile only) ───────────────────────────────────────
+function BottomNav({ current, onNavigate, perms, roleColor }: {
+  current: AppView; onNavigate: (v: AppView) => void;
+  perms: RolePermissions; roleColor: string;
+}) {
+  const items = [
+    { view: 'hub'      as AppView, icon: <Home size={20} />,         label: 'Hub',      always: true },
+    { view: 'tracker'  as AppView, icon: <ClipboardList size={20} />, label: 'Tracker',  always: false, show: perms.access_tracker },
+    { view: 'workflow' as AppView, icon: <Zap size={20} />,           label: 'Workflow', always: false, show: true },
+    { view: 'it-admin' as AppView, icon: <SettingsIcon size={20} />,  label: 'Admin',    always: false, show: perms.access_it_admin },
+  ].filter(i => i.always || i.show);
+
+  return (
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bottom-nav-safe"
+      style={{ background: 'rgba(9,5,26,.97)', borderTop: '1px solid rgba(255,255,255,.08)', backdropFilter: 'blur(12px)' }}>
+      <div className="flex items-stretch">
+        {items.map(item => {
+          const active = current === item.view;
+          return (
+            <button
+              key={item.view}
+              onClick={() => onNavigate(item.view)}
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-all min-h-[56px]"
+              style={{ color: active ? roleColor : 'rgba(148,163,184,.6)' }}>
+              <div style={{ filter: active ? `drop-shadow(0 0 6px ${roleColor})` : 'none', transition: 'filter .2s' }}>
+                {item.icon}
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-wider">{item.label}</span>
+              {active && (
+                <div className="absolute bottom-0 h-0.5 w-8 rounded-full" style={{ background: roleColor, boxShadow: `0 0 8px ${roleColor}` }} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+// ── View-Only Toast ────────────────────────────────────────────────────────────
+function ViewOnlyToast({ show, onClose }: { show: boolean; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div
+          key="view-only-toast-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{    opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center pointer-events-none"
+          style={{ background: 'rgba(5,2,10,.55)', backdropFilter: 'blur(4px)' }}>
+          <motion.div
+            key="view-only-toast"
+            initial={{ opacity: 0, scale: 0.92, y: 16 }}
+            animate={{ opacity: 1, scale: 1,    y: 0  }}
+            exit={{    opacity: 0, scale: 0.92, y: 16  }}
+            transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+            className="pointer-events-auto flex flex-col items-center gap-4 px-8 py-7 rounded-3xl border shadow-2xl"
+            style={{
+              width: 'min(420px, calc(100vw - 2rem))',
+              background: 'linear-gradient(135deg, #110924 0%, #0d071e 100%)',
+              borderColor: 'rgba(255,149,0,.45)',
+              boxShadow: '0 0 0 1px rgba(255,149,0,.12), 0 0 60px rgba(255,149,0,.2), 0 30px 80px rgba(0,0,0,.8)',
+            }}>
+            {/* Icon */}
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              style={{ background: 'rgba(255,149,0,.15)', border: '1.5px solid rgba(255,149,0,.35)', boxShadow: '0 0 24px rgba(255,149,0,.2)' }}>
+              <EyeOff size={22} style={{ color: '#ff9500' }} />
+            </div>
+            {/* Text */}
+            <div className="text-center">
+              <p className="text-sm font-black uppercase tracking-widest mb-2" style={{ color: '#ff9500' }}>
+                View Only Mode
+              </p>
+              <p className="text-sm text-slate-400 leading-relaxed">
+                Some features are hidden and you cannot make any changes in this system.
+              </p>
+            </div>
+            {/* Dismiss button */}
+            <button onClick={onClose}
+              className="mt-1 px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+              style={{ background: 'rgba(255,149,0,.15)', border: '1px solid rgba(255,149,0,.35)', color: '#ff9500' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,149,0,.25)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,149,0,.15)')}>
+              Got it
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

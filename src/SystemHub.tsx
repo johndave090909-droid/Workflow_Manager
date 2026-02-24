@@ -114,13 +114,13 @@ export default function SystemHub({
     <div className="min-h-screen bg-[#0a0510] text-white flex flex-col">
 
       {/* ── Header ── */}
-      <header className="h-16 border-b border-white/10 px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
+      <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20">W</div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)]">Workflow Manager</h1>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+          <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
             <Calendar size={16} className="text-[#00ffff]" />
             <span className="text-sm font-medium text-slate-300">{format(new Date(), 'EEEE, MMMM do yyyy')}</span>
           </div>
@@ -143,12 +143,30 @@ export default function SystemHub({
         </div>
       </header>
 
+      {/* ── Mobile section tabs (visible only on mobile) ── */}
+      <div className="md:hidden flex border-b border-white/10 bg-[#0a0510]/80 backdrop-blur-md sticky top-16 z-40">
+        {NAV_ITEMS.map(item => {
+          const active = activeSection === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveSection(item.id)}
+              className="flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors touch-target"
+              style={{ color: active ? roleColor : '#64748b', borderBottom: active ? `2px solid ${roleColor}` : '2px solid transparent' }}
+            >
+              <span className="text-base leading-none">{item.emoji}</span>
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── Body: sidebar + content ── */}
       <div className="flex flex-1">
 
         {/* Sidebar */}
         <aside
-          className="w-56 shrink-0 border-r border-white/8 sticky top-16 h-[calc(100vh-4rem)] flex flex-col py-6 overflow-y-auto"
+          className="hidden md:flex w-56 shrink-0 border-r border-white/8 sticky top-16 h-[calc(100vh-4rem)] flex-col py-6 overflow-y-auto"
           style={{ background: 'rgba(6,3,11,0.95)' }}
         >
           {/* User block */}
@@ -203,19 +221,19 @@ export default function SystemHub({
         </aside>
 
         {/* ── Main content ── */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto pb-nav md:pb-0">
 
           {/* HOME */}
           {activeSection === 'home' && (
             <>
-              <div className="py-16 text-center px-8">
+              <div className="py-8 sm:py-16 text-center px-4 sm:px-8">
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3">System Hub</p>
                 <h2 className="text-4xl font-bold text-white mb-3">
                   Welcome back, <span style={{ color: roleColor }}>{firstName}</span>
                 </h2>
                 <p className="text-sm text-slate-400">Select a system to get started.</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto px-8 pb-24">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto px-4 sm:px-8 pb-16 sm:pb-24">
                 {systemCards.map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
@@ -235,7 +253,7 @@ export default function SystemHub({
 
           {/* DELIVERABLES */}
           {activeSection === 'deliverables' && (
-            <div className="p-8 max-w-5xl mx-auto">
+            <div className="p-4 sm:p-8 max-w-5xl mx-auto">
               <div className="mb-8">
                 <h2 className="text-2xl font-bold text-white mb-1">Deliverables</h2>
                 <p className="text-sm text-slate-400">All files uploaded across projects.</p>
@@ -304,7 +322,7 @@ export default function SystemHub({
       {permissions.access_it_admin && (
         <button
           onClick={() => onNavigate('it-admin')}
-          className="fixed bottom-8 right-8 flex items-center gap-2 px-5 py-3 rounded-2xl text-white font-bold text-sm z-40 transition-opacity hover:opacity-90"
+          className="fixed bottom-[calc(5rem+var(--sab))] md:bottom-8 right-4 md:right-8 flex items-center gap-2 px-5 py-3 rounded-2xl text-white font-bold text-sm z-40 transition-opacity hover:opacity-90"
           style={{ backgroundColor: '#a855f7', boxShadow: '0 0 24px rgba(168,85,247,0.4)' }}
         >
           ⚙ Manage Systems
@@ -363,14 +381,14 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
   return (
     <button
       onClick={handleClick}
-      className="glass-card rounded-3xl p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+      className="glass-card rounded-3xl p-5 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
     >
       <div
         className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300"
         style={{ backgroundColor: card.color_accent }}
       />
       <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center mb-6 relative z-10 overflow-hidden"
+        className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-4 sm:mb-6 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}
       >
         {card.icon.startsWith('http') || card.icon.startsWith('data:')
@@ -382,10 +400,15 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
         {card.title}
       </h3>
       <p className="text-sm text-slate-400 leading-relaxed relative z-10">{card.description}</p>
-      <div className="mt-6 flex items-center gap-1.5 relative z-10">
+      <div className="mt-6 flex items-center gap-2 relative z-10">
         <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">
           {card.link_type === 'external' ? '↗ External' : '→ Open'}
         </span>
+        {card.is_view_only && (
+          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">
+            View Only
+          </span>
+        )}
       </div>
     </button>
   );

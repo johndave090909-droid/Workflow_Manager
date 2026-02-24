@@ -38,11 +38,11 @@ const PERMISSION_LABELS: { key: keyof RolePermissions; label: string; desc: stri
 
 const EMPTY_CARD_FORM = {
   title: '', description: '', icon: '', color_accent: '#00ffff',
-  link: '', link_type: 'external' as 'internal' | 'external', is_active: true, sort_order: 0,
+  link: '', link_type: 'external' as 'internal' | 'external', is_active: true, is_view_only: false, sort_order: 0,
 };
 const EMPTY_USER_FORM = {
   name: '', role: '' as string,
-  email: '', password: '', photo: '',
+  email: '', password: '', newPassword: '', photo: '',
 };
 
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
@@ -170,7 +170,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const openAddCard = () => { setEditingCard(null); setCardForm({ ...EMPTY_CARD_FORM }); setCardFormError(''); setShowCardForm(true); };
   const openEditCard = (card: SystemCard) => {
     setEditingCard(card);
-    setCardForm({ title: card.title, description: card.description, icon: card.icon, color_accent: card.color_accent, link: card.link, link_type: card.link_type, is_active: card.is_active, sort_order: card.sort_order });
+    setCardForm({ title: card.title, description: card.description, icon: card.icon, color_accent: card.color_accent, link: card.link, link_type: card.link_type, is_active: card.is_active, is_view_only: card.is_view_only ?? false, sort_order: card.sort_order });
     setCardFormError(''); setShowCardForm(true);
   };
 
@@ -195,6 +195,11 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     fetchCards(); onCardsChanged();
   };
 
+  const handleToggleViewOnly = async (card: SystemCard) => {
+    await updateDoc(doc(db, 'system_cards', card.id), { is_view_only: !(card.is_view_only ?? false) });
+    fetchCards(); onCardsChanged();
+  };
+
   const handleDeleteCard = async (card: SystemCard) => {
     if (!window.confirm(`Delete "${card.title}"? This cannot be undone.`)) return;
     await deleteDoc(doc(db, 'system_cards', card.id));
@@ -204,7 +209,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   // ── User handlers ──────────────────────────────────────────────
   const openEditUser = (user: User) => {
     setEditingUser(user);
-    setUserForm({ name: user.name, role: user.role as string, email: user.email || '', password: '', photo: user.photo || '' });
+    setUserForm({ name: user.name, role: user.role as string, email: user.email || '', password: '', newPassword: '', photo: user.photo || '' });
     setUserFormError(''); setShowUserForm(true);
   };
 
@@ -219,15 +224,39 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     if (!editingUser && !userForm.email.trim()) { setUserFormError('Email is required for new users.'); return; }
     if (!editingUser && !userForm.password.trim()) { setUserFormError('Password is required for new users.'); return; }
 
+    if (editingUser && userForm.newPassword && userForm.newPassword.length < 6) {
+      setUserFormError('New password must be at least 6 characters.'); return;
+    }
+
     setUserSubmitting(true); setUserFormError('');
     try {
       if (editingUser) {
+        // Update Firestore profile
         await updateDoc(doc(db, 'users', editingUser.id), {
           name:  userForm.name.trim(),
           role:  userForm.role,
           email: userForm.email.trim(),
           photo: userForm.photo.trim() || null,
         });
+
+        // Sync email and/or password to Firebase Auth via backend
+        const emailChanged  = userForm.email.trim() !== (editingUser.email || '');
+        const hasNewPassword = userForm.newPassword.trim().length > 0;
+        if (emailChanged || hasNewPassword) {
+          const payload: Record<string, string> = { uid: editingUser.id };
+          if (emailChanged)   payload.email    = userForm.email.trim();
+          if (hasNewPassword) payload.password = userForm.newPassword.trim();
+          const resp = await fetch('/api/admin/update-user-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!resp.ok) {
+            const data = await resp.json();
+            setUserFormError(data.error ?? 'Failed to update login credentials.');
+            setUserSubmitting(false); return;
+          }
+        }
       } else {
         // Create Firebase Auth account via a secondary app (no current session disruption)
         const secondaryApp  = initializeApp(firebaseConfig, `create-${Date.now()}`);
@@ -311,14 +340,14 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   return (
     <div className="min-h-screen bg-[#0a0510] text-white">
       {/* Header */}
-      <header className="h-16 border-b border-white/10 px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
-        <div className="flex items-center gap-4">
+      <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
+        <div className="flex items-center gap-2 sm:gap-4">
           <button onClick={onBackToHub} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-[#a855f7]/30 text-slate-400 hover:text-[#a855f7] transition-all text-xs font-bold">← Hub</button>
-          <div className="w-10 h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20">W</div>
-          <h1 className="font-display text-xl font-bold tracking-tight" style={{ color: '#a855f7' }}>System Administration</h1>
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20">W</div>
+          <h1 className="font-display text-base sm:text-xl font-bold tracking-tight" style={{ color: '#a855f7' }}>System Administration</h1>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
+          <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">
             <Calendar size={16} className="text-[#00ffff]" />
             <span className="text-sm font-medium text-slate-300">{format(new Date(), 'EEEE, MMMM do yyyy')}</span>
           </div>
@@ -335,7 +364,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
         </div>
       </header>
 
-      <div className="p-8 max-w-5xl mx-auto space-y-12">
+      <div className="p-4 sm:p-8 max-w-5xl mx-auto space-y-12 pb-nav md:pb-8">
 
         {/* ── System Cards ── */}
         <div className="space-y-6">
@@ -356,33 +385,44 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.15em] font-black border-b border-white/5">
-                      <th className="px-6 py-4">Order</th><th className="px-6 py-4">Icon</th><th className="px-6 py-4">Title</th>
-                      <th className="px-6 py-4">Description</th><th className="px-6 py-4">Type</th><th className="px-6 py-4">Active</th><th className="px-6 py-4">Actions</th>
+                      <th className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">Order</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Icon</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Title</th>
+                      <th className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">Description</th>
+                      <th className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4">Type</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Active</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">View Only</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {cards.map(card => (
                       <tr key={card.id} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="px-6 py-4"><span className="text-xs font-mono text-slate-500">{card.sort_order}</span></td>
-                        <td className="px-6 py-4">
-                          <div className="w-9 h-9 rounded-xl flex items-center justify-center overflow-hidden" style={{ backgroundColor: card.color_accent + '25', border: `1px solid ${card.color_accent}40` }}>
+                        <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4"><span className="text-xs font-mono text-slate-500">{card.sort_order}</span></td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center overflow-hidden" style={{ backgroundColor: card.color_accent + '25', border: `1px solid ${card.color_accent}40` }}>
                             {isUrl(card.icon)
-                              ? <img src={card.icon} className="w-6 h-6 object-contain" alt={card.title} />
-                              : <span className="text-lg">{card.icon}</span>
+                              ? <img src={card.icon} className="w-5 h-5 sm:w-6 sm:h-6 object-contain" alt={card.title} />
+                              : <span className="text-base sm:text-lg">{card.icon}</span>
                             }
                           </div>
                         </td>
-                        <td className="px-6 py-4"><span className="text-sm font-bold text-white">{card.title}</span></td>
-                        <td className="px-6 py-4 max-w-[220px]"><span className="text-xs text-slate-400 truncate block">{card.description}</span></td>
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4"><span className="text-sm font-bold text-white">{card.title}</span></td>
+                        <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4 max-w-[180px]"><span className="text-xs text-slate-400 truncate block">{card.description}</span></td>
+                        <td className="hidden md:table-cell px-3 sm:px-6 py-3 sm:py-4">
                           <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${card.link_type === 'internal' ? 'text-[#00ffff] border-[#00ffff]/30 bg-[#00ffff]/10' : 'text-slate-400 border-slate-400/20 bg-slate-400/5'}`}>{card.link_type}</span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
                           <button onClick={() => handleToggle(card)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${card.is_active ? 'bg-[#a855f7]' : 'bg-white/10'}`}>
                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow ${card.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
                           </button>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <button onClick={() => handleToggleViewOnly(card)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${card.is_view_only ? 'bg-[#ffd700]' : 'bg-white/10'}`}>
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow ${card.is_view_only ? 'translate-x-6' : 'translate-x-1'}`} />
+                          </button>
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex items-center gap-2">
                             <button onClick={() => openEditCard(card)} className="p-1.5 text-slate-500 hover:text-[#a855f7] transition-colors rounded-lg hover:bg-[#a855f7]/10"><Edit2 size={14} /></button>
                             <button onClick={() => handleDeleteCard(card)} className="p-1.5 text-slate-500 hover:text-[#ff4d4d] transition-colors rounded-lg hover:bg-[#ff4d4d]/10"><Trash2 size={14} /></button>
@@ -390,7 +430,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                         </td>
                       </tr>
                     ))}
-                    {cards.length === 0 && <tr><td colSpan={7} className="text-center py-16 text-slate-600 italic text-sm">No systems yet. Click "Add System" to create one.</td></tr>}
+                    {cards.length === 0 && <tr><td colSpan={8} className="text-center py-16 text-slate-600 italic text-sm">No systems yet. Click "Add System" to create one.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -417,25 +457,25 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.15em] font-black border-b border-white/5">
-                      <th className="px-6 py-4">Role Name</th>
-                      <th className="px-6 py-4">Color</th>
-                      <th className="px-6 py-4">Permissions</th>
-                      <th className="px-6 py-4">Actions</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Role Name</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Color</th>
+                      <th className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">Permissions</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {roles.map(role => (
                       <tr key={role.id} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
                           <span className="text-sm font-bold" style={{ color: role.color }}>{role.name}</span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex items-center gap-2">
                             <div className="w-5 h-5 rounded-full border border-white/20 flex-shrink-0" style={{ backgroundColor: role.color }} />
-                            <span className="text-xs font-mono text-slate-500">{role.color}</span>
+                            <span className="hidden sm:inline text-xs font-mono text-slate-500">{role.color}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex flex-wrap gap-1">
                             {PERMISSION_LABELS.filter(p => role.permissions[p.key]).map(p => (
                               <span key={p.key} className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-white/10 bg-white/5 text-slate-400">
@@ -447,7 +487,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex items-center gap-2">
                             <button onClick={() => openEditRole(role)} className="p-1.5 text-slate-500 hover:text-[#a855f7] transition-colors rounded-lg hover:bg-[#a855f7]/10"><Edit2 size={14} /></button>
                             <button onClick={() => handleDeleteRole(role)} className="p-1.5 text-slate-500 hover:text-[#ff4d4d] transition-colors rounded-lg hover:bg-[#ff4d4d]/10"><Trash2 size={14} /></button>
@@ -482,31 +522,39 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.15em] font-black border-b border-white/5">
-                      <th className="px-6 py-4">Photo</th><th className="px-6 py-4">Name</th><th className="px-6 py-4">Email</th><th className="px-6 py-4">Role</th><th className="px-6 py-4">Actions</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Photo</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Name</th>
+                      <th className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">Email</th>
+                      <th className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">Role</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {users.map(user => (
                       <tr key={user.id} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="w-9 h-9 rounded-full overflow-hidden" style={{ border: `2px solid ${getRoleColor(user.role)}40` }}>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden" style={{ border: `2px solid ${getRoleColor(user.role)}40` }}>
                             <img src={user.photo || `https://picsum.photos/seed/${user.id}/100/100`} className="w-full h-full object-cover" alt={user.name} />
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white">{user.name}</span>
-                            {user.id === currentUser.id && <span className="text-[9px] font-black uppercase tracking-widest text-[#a855f7] bg-[#a855f7]/10 border border-[#a855f7]/30 px-1.5 py-0.5 rounded-full">You</span>}
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-white">{user.name}</span>
+                              {user.id === currentUser.id && <span className="text-[9px] font-black uppercase tracking-widest text-[#a855f7] bg-[#a855f7]/10 border border-[#a855f7]/30 px-1.5 py-0.5 rounded-full">You</span>}
+                            </div>
+                            {/* Show role inline on mobile since role column is hidden */}
+                            <span className="sm:hidden text-[9px] font-black uppercase tracking-widest" style={{ color: getRoleColor(user.role) }}>{user.role}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4"><span className="text-xs text-slate-400">{user.email}</span></td>
-                        <td className="px-6 py-4">
+                        <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4"><span className="text-xs text-slate-400">{user.email}</span></td>
+                        <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">
                           <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border"
                             style={{ color: getRoleColor(user.role), borderColor: getRoleColor(user.role) + '40', backgroundColor: getRoleColor(user.role) + '12' }}>
                             {user.role}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
                           <div className="flex items-center gap-2">
                             <button onClick={() => openEditUser(user)} className="p-1.5 text-slate-500 hover:text-[#a855f7] transition-colors rounded-lg hover:bg-[#a855f7]/10"><Edit2 size={14} /></button>
                             <button onClick={() => handleDeleteUser(user)} disabled={user.id === currentUser.id}
@@ -528,14 +576,14 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
       {showCardForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowCardForm(false)}>
           <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-lg shadow-2xl" style={{ boxShadow: '0 0 60px rgba(168,85,247,0.15)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-8 py-6 border-b border-white/5">
+            <div className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6 border-b border-white/5">
               <h3 className="text-lg font-bold text-white">{editingCard ? 'Edit System' : 'Add New System'}</h3>
               <button onClick={() => setShowCardForm(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
             </div>
-            <div className="px-8 py-6 space-y-5 max-h-[70vh] overflow-y-auto">
+            <div className="px-4 sm:px-8 py-4 sm:py-6 space-y-5 max-h-[70vh] overflow-y-auto">
               <div><label className={labelCls}>Title</label><input type="text" className={inputCls} placeholder="e.g. Project Tracker" value={cardForm.title} onChange={e => setCardForm(f => ({ ...f, title: e.target.value }))} /></div>
               <div><label className={labelCls}>Description</label><textarea rows={3} className={inputCls + ' resize-none'} placeholder="Brief description…" value={cardForm.description} onChange={e => setCardForm(f => ({ ...f, description: e.target.value }))} /></div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Icon field — emoji or uploaded image */}
                 <div>
                   <label className={labelCls}>Icon</label>
@@ -582,7 +630,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 </div>
               </div>
               <div><label className={labelCls}>Link</label><input type="text" className={inputCls} placeholder="URL or internal key (e.g. tracker)" value={cardForm.link} onChange={e => setCardForm(f => ({ ...f, link: e.target.value }))} /></div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className={labelCls}>Link Type</label>
                   <select className={inputCls} value={cardForm.link_type} onChange={e => setCardForm(f => ({ ...f, link_type: e.target.value as 'internal' | 'external' }))}>
@@ -601,9 +649,22 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                   <span className="text-sm text-slate-300 font-medium">Active — visible on the hub</span>
                 </button>
               </div>
+              <div>
+                <label className={labelCls}>Access Mode</label>
+                <button type="button" onClick={() => setCardForm(f => ({ ...f, is_view_only: !f.is_view_only }))}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border transition-all ${cardForm.is_view_only ? 'border-[#ffd700]/40 bg-[#ffd700]/10' : 'border-white/10 bg-white/5'}`}>
+                  <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${cardForm.is_view_only ? 'bg-[#ffd700] border-[#ffd700]' : 'border-white/20'}`}>
+                    {cardForm.is_view_only && <Check size={11} className="text-[#0a0510]" />}
+                  </div>
+                  <div>
+                    <span className="text-sm text-slate-300 font-medium">View Only — others can open but not edit</span>
+                    <p className="text-[10px] text-slate-500 leading-tight">IT Admins are always exempt from this restriction.</p>
+                  </div>
+                </button>
+              </div>
               {cardFormError && <p className="text-[11px] text-[#ff4d4d] font-semibold">{cardFormError}</p>}
             </div>
-            <div className="flex gap-3 px-8 py-5 border-t border-white/5">
+            <div className="flex gap-3 px-4 sm:px-8 py-4 sm:py-5 border-t border-white/5">
               <button onClick={() => setShowCardForm(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-sm font-bold">Cancel</button>
               <button onClick={handleCardSubmit} disabled={cardSubmitting} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
                 {cardSubmitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : editingCard ? 'Save Changes' : 'Create System'}
@@ -617,11 +678,11 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
       {showRoleForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowRoleForm(false)}>
           <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-lg shadow-2xl" style={{ boxShadow: '0 0 60px rgba(168,85,247,0.15)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-8 py-6 border-b border-white/5">
+            <div className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6 border-b border-white/5">
               <h3 className="text-lg font-bold text-white">{editingRole ? 'Edit Role' : 'Add New Role'}</h3>
               <button onClick={() => setShowRoleForm(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
             </div>
-            <div className="px-8 py-6 space-y-5 max-h-[75vh] overflow-y-auto">
+            <div className="px-4 sm:px-8 py-4 sm:py-6 space-y-5 max-h-[75vh] overflow-y-auto">
               {/* Name */}
               <div>
                 <label className={labelCls}>Role Name</label>
@@ -659,7 +720,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               </div>
               {roleFormError && <p className="text-[11px] text-[#ff4d4d] font-semibold">{roleFormError}</p>}
             </div>
-            <div className="flex gap-3 px-8 py-5 border-t border-white/5">
+            <div className="flex gap-3 px-4 sm:px-8 py-4 sm:py-5 border-t border-white/5">
               <button onClick={() => setShowRoleForm(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-sm font-bold">Cancel</button>
               <button onClick={handleRoleSubmit} disabled={roleSubmitting} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
                 {roleSubmitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : editingRole ? 'Save Changes' : 'Create Role'}
@@ -673,11 +734,11 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
       {showUserForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowUserForm(false)}>
           <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl" style={{ boxShadow: '0 0 60px rgba(168,85,247,0.15)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-8 py-6 border-b border-white/5">
+            <div className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6 border-b border-white/5">
               <h3 className="text-lg font-bold text-white">{editingUser ? 'Edit User' : 'Add New User'}</h3>
               <button onClick={() => setShowUserForm(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
             </div>
-            <div className="px-8 py-6 space-y-5 max-h-[75vh] overflow-y-auto">
+            <div className="px-4 sm:px-8 py-4 sm:py-6 space-y-5 max-h-[75vh] overflow-y-auto">
               {/* Photo upload */}
               <div className="flex flex-col items-center gap-2">
                 <div className="relative">
@@ -725,21 +786,27 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 <label className={labelCls}>Email</label>
                 <input type="email" className={inputCls} placeholder="user@company.com" value={userForm.email} onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))} />
                 {editingUser && (
-                  <p className="text-[10px] text-slate-600 mt-1 italic">Updates the profile email. To change the login email, use Firebase Console.</p>
+                  <p className="text-[10px] text-slate-500 mt-1">This email is used as the login credential.</p>
                 )}
               </div>
 
-              {/* Password only for new users */}
-              {!editingUser && (
+              {/* Password: required for new users, optional (change) for existing */}
+              {!editingUser ? (
                 <div>
                   <label className={labelCls}>Password</label>
                   <input type="password" className={inputCls} placeholder="Min. 6 characters" value={userForm.password} onChange={e => setUserForm(f => ({ ...f, password: e.target.value }))} />
+                </div>
+              ) : (
+                <div>
+                  <label className={labelCls}>New Password</label>
+                  <input type="password" className={inputCls} placeholder="Leave blank to keep current" value={userForm.newPassword} onChange={e => setUserForm(f => ({ ...f, newPassword: e.target.value }))} />
+                  <p className="text-[10px] text-slate-600 mt-1">Only fill this in if you want to change the password.</p>
                 </div>
               )}
 
               {userFormError && <p className="text-[11px] text-[#ff4d4d] font-semibold">{userFormError}</p>}
             </div>
-            <div className="flex gap-3 px-8 py-5 border-t border-white/5">
+            <div className="flex gap-3 px-4 sm:px-8 py-4 sm:py-5 border-t border-white/5">
               <button onClick={() => setShowUserForm(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-sm font-bold">Cancel</button>
               <button onClick={handleUserSubmit} disabled={userSubmitting} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
                 {userSubmitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : editingUser ? 'Save Changes' : 'Create User'}

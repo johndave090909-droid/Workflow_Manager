@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal, Camera, Upload } from 'lucide-react';
+import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal, Camera, Upload, StickyNote, ChevronDown, ChevronUp } from 'lucide-react';
 import { collection, doc, getDocs, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
 import { User } from './types';
@@ -32,7 +32,7 @@ const NODE_TYPE_DEFS: NodeTypeDef[] = [
   { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', selector: '', format: 'PNG', fullPage: 'true' } },
   { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipientId: '', message: 'Daily screenshot report' } },
   { type: 'data_transform',label: 'Data Transform', icon: '⚙️', color: '#a855f7', category: 'action', defaultConfig: { mode: 'JSON → CSV', filter: '' } },
-  { type: 'email',         label: 'Send Email',     icon: '✉️', color: '#00ffff', category: 'action', defaultConfig: { to: 'recipient@example.com', subject: 'Automated Report' } },
+  { type: 'email',         label: 'Send Email',     icon: '✉️', color: '#00ffff', category: 'action', defaultConfig: { to: '', cc: '', subject: 'Automated Report', body: '<p>This is an automated report from <strong>Workflow Manager</strong>.</p>', attachScreenshot: 'true' } },
 ];
 
 type NodeStatus = 'idle' | 'running' | 'success' | 'error';
@@ -43,6 +43,28 @@ interface WFNode {
   x: number;  y: number;   status: NodeStatus; config: Record<string, string>;
 }
 interface WFEdge { id: string; fromId: string; toId: string; }
+
+interface WFNote {
+  id: string;
+  x: number; y: number;
+  w: number; h: number;
+  title: string;
+  body: string;
+  color: string;      // key into NOTE_COLORS
+  minimized: boolean;
+  pinned: boolean;
+  createdAt: string;  // ISO string
+}
+
+const NOTE_COLORS: Record<string, { bg: string; border: string; accent: string; text: string }> = {
+  yellow: { bg: 'rgba(255,213,0,.07)',   border: 'rgba(255,213,0,.4)',   accent: '#ffd500', text: '#ffe566' },
+  cyan:   { bg: 'rgba(0,255,255,.06)',   border: 'rgba(0,255,255,.35)',  accent: '#00ffff', text: '#67f7f7' },
+  purple: { bg: 'rgba(168,85,247,.08)',  border: 'rgba(168,85,247,.4)',  accent: '#a855f7', text: '#c084fc' },
+  green:  { bg: 'rgba(0,204,122,.07)',   border: 'rgba(0,204,122,.35)',  accent: '#00cc7a', text: '#34d990' },
+  pink:   { bg: 'rgba(255,0,255,.06)',   border: 'rgba(255,0,255,.35)',  accent: '#ff00ff', text: '#ff67ff' },
+  slate:  { bg: 'rgba(148,163,184,.05)', border: 'rgba(148,163,184,.25)',accent: '#94a3b8', text: '#cbd5e1' },
+};
+const NOTE_COLOR_KEYS = ['yellow', 'cyan', 'purple', 'green', 'pink', 'slate'] as const;
 interface ScreenshotRecord {
   id: number | string;
   url: string;
@@ -200,12 +222,20 @@ const RECIPIENT_ID  = "${c.recipientId || 'RECIPIENT_PSID'}";
 const BASE          = \`https://graph.facebook.com/v19.0/me/messages?access_token=\${FB_PAGE_TOKEN}\`;
 
 async function execute(input) {
+  // messaging_type + tag bypass the 24-hour messaging window.
+  // CONFIRMED_EVENT_UPDATE is approved for scheduled operational reports.
+  const TAG_PAYLOAD = {
+    messaging_type: "MESSAGE_TAG",
+    tag           : "CONFIRMED_EVENT_UPDATE",
+  };
+
   // 1. Send screenshot as image attachment (URL from Firebase Storage)
   if (input.imageUrl) {
     await fetch(BASE, {
       method  : "POST",
       headers : { "Content-Type": "application/json" },
       body    : JSON.stringify({
+        ...TAG_PAYLOAD,
         recipient : { id: RECIPIENT_ID },
         message   : {
           attachment: {
@@ -222,6 +252,7 @@ async function execute(input) {
     method  : "POST",
     headers : { "Content-Type": "application/json" },
     body    : JSON.stringify({
+      ...TAG_PAYLOAD,
       recipient : { id: RECIPIENT_ID },
       message   : { text: "${c.message || 'Daily screenshot report'}" },
     }),
@@ -272,46 +303,39 @@ async function execute(input) {
 }`;
 
     case 'email': return `// ✉️  Send Email Action — delivers an email via SMTP
-// To      : ${c.to || 'recipient@example.com'}
-// Subject : "${c.subject || 'Automated Report'}"
-
-const nodemailer = require("nodemailer");
-
-// Configure SMTP transport (credentials from environment)
-const transporter = nodemailer.createTransport({
-  host   : process.env.SMTP_HOST,
-  port   : 587,
-  secure : false,
-  auth   : {
-    user : process.env.SMTP_USER,
-    pass : process.env.SMTP_PASS,
-  },
-});
+// To              : ${c.to || 'SET IN PARAMETERS TAB'}
+// CC              : ${c.cc || '(none)'}
+// Subject         : "${c.subject || 'Automated Report'}"
+// Attach screenshot: ${c.attachScreenshot === 'true' ? 'yes — embeds screenshot from previous node' : 'no'}
+//
+// SMTP credentials come from environment variables:
+//   SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_FROM
+// Set these in your .env file. For Gmail, use an App Password.
 
 async function execute(input) {
-  const mailOptions = {
-    from    : process.env.SMTP_FROM,
-    to      : "${c.to || 'recipient@example.com'}",
-    subject : "${c.subject || 'Automated Report'}",
-    html    : buildEmailBody(input),
-
-    // Attach screenshot if available from previous node
-    ...(input.imageBase64 && {
-      attachments: [{
-        filename    : \`report-\${Date.now()}.${(c.subject || '').toLowerCase().includes('png') ? 'png' : 'png'}\`,
-        content     : input.imageBase64,
-        encoding    : "base64",
-        contentType : "image/png",
-      }],
+  // Call the Workflow Manager backend which handles SMTP via nodemailer
+  const response = await fetch("/api/send-email", {
+    method  : "POST",
+    headers : { "Content-Type": "application/json" },
+    body    : JSON.stringify({
+      to              : "${c.to || ''}",
+      cc              : "${c.cc || ''}",
+      subject         : "${c.subject || 'Automated Report'}",
+      body            : \`${c.body || '<p>This is an automated report from <strong>Workflow Manager</strong>.</p>'}\`,
+      attachScreenshot: "${c.attachScreenshot || 'true'}",
+      imageUrl        : input.imageUrl || "",   // from Screenshot node
     }),
-  };
+  });
 
-  const info = await transporter.sendMail(mailOptions);
-  console.log("[Email] Sent:", info.messageId);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Email send failed");
 
+  console.log("[Email] Sent:", data.messageId);
   return {
-    messageId : info.messageId,
-    to        : "${c.to || 'recipient@example.com'}",
+    messageId : data.messageId,
+    to        : "${c.to || ''}",
+    cc        : "${c.cc || ''}",
+    subject   : "${c.subject || 'Automated Report'}",
     sentAt    : new Date().toISOString(),
   };
 }`;
@@ -366,10 +390,11 @@ interface Props {
   onBackToHub: () => void;
   onLogout: () => void;
   roleColor: string;
+  viewOnly?: boolean;
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout, roleColor }: Props) {
+export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout, roleColor, viewOnly = false }: Props) {
   const [nodes, setNodes]           = useState<WFNode[]>(() => {
     try {
       const s = localStorage.getItem('wf_nodes');
@@ -396,6 +421,9 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [edges, setEdges]           = useState<WFEdge[]>(() => {
     try { const s = localStorage.getItem('wf_edges'); return s ? JSON.parse(s) : INITIAL_EDGES; } catch { return INITIAL_EDGES; }
   });
+  const [notes, setNotes]           = useState<WFNote[]>(() => {
+    try { return JSON.parse(localStorage.getItem('wf_notes') || '[]'); } catch { return []; }
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [nodeModal, setNodeModal]   = useState<WFNode | null>(null);
   const [editorTab, setEditorTab]   = useState<EditorTab>('code');
@@ -418,6 +446,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved           = useRef(false);
+  const draggingNote        = useRef<{ noteId: string; offX: number; offY: number } | null>(null);
+  const resizingNote        = useRef<{ noteId: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
   const wrapperRef          = useRef<HTMLDivElement>(null);
   const fileInputRef        = useRef<HTMLInputElement>(null);
   const screenshotsRef      = useRef<ScreenshotRecord[]>([]);
@@ -480,6 +510,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   // Persist node positions and edges to localStorage
   useEffect(() => { try { localStorage.setItem('wf_nodes', JSON.stringify(nodes)); } catch {} }, [nodes]);
   useEffect(() => { try { localStorage.setItem('wf_edges', JSON.stringify(edges)); } catch {} }, [edges]);
+  useEffect(() => { try { localStorage.setItem('wf_notes', JSON.stringify(notes)); } catch {} }, [notes]);
 
   // Keep screenshotsRef in sync so handleExecute can read latest count without stale closures
   useEffect(() => { screenshotsRef.current = screenshots; }, [screenshots]);
@@ -625,8 +656,22 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           n.id === nodeId ? { ...n, x: Math.max(0, x - offX), y: Math.max(0, y - offY) } : n
         ));
       }
+      if (draggingNote.current) {
+        const { noteId, offX, offY } = draggingNote.current;
+        setNotes(prev => prev.map(n =>
+          n.id === noteId ? { ...n, x: Math.max(0, x - offX), y: Math.max(0, y - offY) } : n
+        ));
+      }
+      if (resizingNote.current) {
+        const { noteId, startX, startY, startW, startH } = resizingNote.current;
+        const dw = e.clientX - startX;
+        const dh = e.clientY - startY;
+        setNotes(prev => prev.map(n =>
+          n.id === noteId ? { ...n, w: Math.max(180, startW + dw), h: Math.max(100, startH + dh) } : n
+        ));
+      }
     };
-    const onUp = () => { dragging.current = null; };
+    const onUp = () => { dragging.current = null; draggingNote.current = null; resizingNote.current = null; };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
@@ -634,6 +679,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
   // ── Node interaction ────────────────────────────────────────────────────────
   const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
+    if (viewOnly) return;
     if ((e.target as HTMLElement).closest('[data-port]')) return;
     e.preventDefault(); e.stopPropagation();
     const node = nodes.find(n => n.id === nodeId)!;
@@ -654,11 +700,13 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   };
 
   const handleOutputPortClick = (e: React.MouseEvent, nodeId: string) => {
+    if (viewOnly) return;
     e.stopPropagation();
     setConnectingFrom(prev => prev === nodeId ? null : nodeId);
   };
 
   const handleInputPortClick = (e: React.MouseEvent, nodeId: string) => {
+    if (viewOnly) return;
     e.stopPropagation();
     if (connectingFrom && connectingFrom !== nodeId) {
       if (!edges.some(ed => ed.fromId === connectingFrom && ed.toId === nodeId)) {
@@ -670,7 +718,44 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
   const handleCanvasClick = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('.wf-node')) return;
+    if ((e.target as HTMLElement).closest('.wf-note')) return;
     setSelectedId(null); setConnectingFrom(null);
+  };
+
+  // ── Note handlers ──────────────────────────────────────────────────────────
+  const handleAddNote = () => {
+    const wr = wrapperRef.current!;
+    const cx = wr.scrollLeft + wr.clientWidth  / 2 - 110;
+    const cy = wr.scrollTop  + wr.clientHeight / 2 - 80;
+    const note: WFNote = {
+      id: `note-${Date.now()}`, x: cx, y: cy, w: 220, h: 160,
+      title: 'New Note', body: '', color: 'yellow',
+      minimized: false, pinned: false, createdAt: new Date().toISOString(),
+    };
+    setNotes(prev => [...prev, note]);
+  };
+
+  const updateNote = (id: string, patch: Partial<WFNote>) =>
+    setNotes(prev => prev.map(n => n.id === id ? { ...n, ...patch } : n));
+
+  const deleteNote = (id: string) =>
+    setNotes(prev => prev.filter(n => n.id !== id));
+
+  const handleNoteDragMouseDown = (e: React.MouseEvent, note: WFNote) => {
+    if (viewOnly || note.pinned) return;
+    if ((e.target as HTMLElement).closest('input, textarea, button')) return;
+    e.preventDefault(); e.stopPropagation();
+    const wr = wrapperRef.current!;
+    const rect = wr.getBoundingClientRect();
+    const mx = e.clientX - rect.left + wr.scrollLeft;
+    const my = e.clientY - rect.top  + wr.scrollTop;
+    draggingNote.current = { noteId: note.id, offX: mx - note.x, offY: my - note.y };
+  };
+
+  const handleNoteResizeMouseDown = (e: React.MouseEvent, note: WFNote) => {
+    if (viewOnly) return;
+    e.preventDefault(); e.stopPropagation();
+    resizingNote.current = { noteId: note.id, startX: e.clientX, startY: e.clientY, startW: note.w, startH: note.h };
   };
 
   const handleDeleteNode = (nodeId: string) => {
@@ -769,6 +854,33 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             }
           } catch { log(id, '⚠ Couldn\'t reach Facebook'); }
         }
+      } else if (node.type === 'email') {
+        const to      = node.config.to?.trim() || '';
+        const subject = node.config.subject?.trim() || 'Automated Report';
+        const body    = node.config.body?.trim() || '';
+        const cc      = node.config.cc?.trim() || '';
+        const attachScreenshot = node.config.attachScreenshot || 'true';
+        const latestShot = screenshotsRef.current[0];
+        const imageUrl   = latestShot?.storage_url || '';
+
+        if (!to) {
+          log(id, '⚠ No recipient (To) set');
+        } else {
+          try {
+            log(id, `✉️ Sending email to ${to}…`);
+            if (attachScreenshot === 'true' && imageUrl) log(id, '🖼 Embedding screenshot');
+            const r = await fetch(API_BASE + '/api/send-email', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ to, subject, body, cc, attachScreenshot, imageUrl }),
+            });
+            const data = await r.json() as any;
+            if (r.ok) {
+              log(id, `✓ Email sent (${data.messageId || 'ok'})`);
+            } else {
+              log(id, `⚠ ${data.error || r.status}`);
+            }
+          } catch { log(id, '⚠ Couldn\'t reach email server'); }
+        }
       } else {
         await sleep(750 + Math.random() * 750);
       }
@@ -840,7 +952,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             style={{ background: 'linear-gradient(135deg,#ff00ff,#a855f7)', boxShadow: '0 0 12px rgba(255,0,255,.4)' }}>⚡</div>
           <span className="text-sm font-bold tracking-tight">Workflow Automation</span>
           <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 border border-white/10 px-1.5 py-0.5 rounded-md">BETA</span>
-          {!backendAvailable && (
+          {(!backendAvailable || viewOnly) && (
             <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
               style={{ color: '#ffd700', borderColor: 'rgba(255,215,0,.3)', border: '1px solid' }}>
               View Only
@@ -848,17 +960,17 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           )}
         </div>
         <div className="flex-1" />
-        <button onClick={handleReset}
+        {!viewOnly && <button onClick={handleReset}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold">
           <RotateCcw size={11} /> Reset
-        </button>
-        {backendAvailable ? (
+        </button>}
+        {!viewOnly && backendAvailable ? (
           <button onClick={handleExecute} disabled={executing}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: executing ? 'rgba(255,0,255,.2)' : '#ff00ff', boxShadow: executing ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
             <Play size={12} fill="white" />{executing ? 'Running…' : 'Execute Workflow'}
           </button>
-        ) : (
+        ) : !viewOnly ? (
           <div className="flex items-center gap-2">
             <button
               disabled={remoteRunning}
@@ -896,8 +1008,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
               </span>
             )}
           </div>
-        )}
-        {backendAvailable && <button onClick={() => {
+        ) : null}
+        {!viewOnly && backendAvailable && <button onClick={() => {
             const next = !liveMode;
             setLiveMode(next);
             const sched = nodes.find(n => n.type === 'schedule');
@@ -939,7 +1051,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Left sidebar */}
+        {/* Left sidebar — hidden in view-only mode */}
+        {!viewOnly && (
         <aside className="shrink-0 border-r border-white/8 flex flex-col py-4 overflow-y-auto"
           style={{ width: 172, background: 'rgba(5,2,10,.98)' }}>
           <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[.22em] text-slate-600">Triggers</p>
@@ -951,12 +1064,25 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           <div className="flex flex-col gap-0.5 px-2">
             {actions.map(d => <SidebarItem key={d.type} def={d} onAdd={handleAddNode} />)}
           </div>
+          <div className="mx-4 border-t border-white/6 mt-4 pt-3">
+            <p className="px-0 mb-2 text-[9px] font-black uppercase tracking-[.22em] text-slate-600">Notes</p>
+            <button
+              onClick={handleAddNote}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded-xl text-xs font-semibold transition-all text-left"
+              style={{ color: '#ffd500', background: 'rgba(255,213,0,.07)', border: '1px solid rgba(255,213,0,.2)' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,213,0,.14)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,213,0,.07)'; }}>
+              <StickyNote size={13} />
+              Add Note
+            </button>
+          </div>
           <div className="mt-auto px-4 pt-4 border-t border-white/6">
             <p className="text-[9px] text-slate-600 leading-relaxed">
               Click a node to <span style={{ color: '#a855f7' }}>view its code</span>. Drag to reposition. Click ● to connect.
             </p>
           </div>
         </aside>
+        )}
 
         {/* Right column: canvas + screenshots */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -1012,6 +1138,18 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
                 <span style={{ fontSize: 10, fontWeight: 800, color: '#ff00ff', letterSpacing: '.1em', textTransform: 'uppercase' }}>Live — executing remotely</span>
               </div>
             )}
+
+            {/* Notes */}
+            {notes.map(note => (
+              <NoteCard
+                key={note.id}
+                note={note}
+                viewOnly={viewOnly}
+                onUpdate={patch => updateNote(note.id, patch)}
+                onDelete={() => deleteNote(note.id)}
+                onDragMouseDown={e => handleNoteDragMouseDown(e, note)}
+                onResizeMouseDown={e => handleNoteResizeMouseDown(e, note)} />
+            ))}
 
             {/* Nodes */}
             {displayNodes.map(node => (
@@ -1155,6 +1293,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           onUpdateLabel={handleUpdateLabel}
           onDelete={handleDeleteNode}
           onClose={() => { setNodeModal(null); setSelectedId(null); }}
+          viewOnly={viewOnly}
         />
       )}
     </div>
@@ -1284,10 +1423,11 @@ interface ModalProps {
   onUpdateConfig: (id: string, key: string, val: string) => void;
   onUpdateLabel:  (id: string, label: string) => void;
   onDelete: (id: string) => void;
+  viewOnly?: boolean;
   onClose: () => void;
 }
 
-function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel, onDelete, onClose }: ModalProps) {
+function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel, onDelete, onClose, viewOnly = false }: ModalProps) {
   const codeHtml = highlightCode(getNodeCode(node));
   const outputHtml = highlightCode(getNodeOutput(node));
   const [applying, setApplying]       = useState(false);
@@ -1397,10 +1537,12 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
             style={{ background: node.color + '18', border: `1.5px solid ${node.color}40` }}>{node.icon}</div>
           <div className="flex-1 min-w-0">
             <input
-              className="text-sm font-bold bg-transparent outline-none text-white w-full border-b border-transparent hover:border-white/20 focus:border-white/30 transition-colors pb-0.5"
+              className="text-sm font-bold bg-transparent outline-none text-white w-full border-b border-transparent hover:border-white/20 focus:border-white/30 transition-colors pb-0.5 disabled:cursor-default disabled:hover:border-transparent"
               value={node.label}
               onChange={e => onUpdateLabel(node.id, e.target.value)}
-              onClick={e => e.stopPropagation()} />
+              onClick={e => e.stopPropagation()}
+              readOnly={viewOnly}
+              disabled={viewOnly} />
             <p className="text-[10px] font-black uppercase tracking-widest mt-1" style={{ color: node.color }}>
               {node.type.replace(/_/g, ' ')} · {node.category}
             </p>
@@ -1479,12 +1621,14 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Node Label</label>
                 <input
-                  className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-white outline-none transition-all"
+                  className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
                   style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }}
                   value={node.label}
                   onChange={e => onUpdateLabel(node.id, e.target.value)}
                   onClick={e => e.stopPropagation()}
-                  onFocus={e => { e.currentTarget.style.borderColor = node.color + '70'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}18`; }}
+                  readOnly={viewOnly}
+                  disabled={viewOnly}
+                  onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '70'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}18`; } }}
                   onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)'; e.currentTarget.style.boxShadow = 'none'; }} />
               </div>
               <div className="border-t border-white/6 pt-5">
@@ -1499,13 +1643,15 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                           {(['hourly','daily','weekly','monthly'] as const).map(freq => {
                             const active = (node.config.frequency || 'daily') === freq;
                             return (
-                              <button key={freq} onClick={e => { e.stopPropagation(); onUpdateConfig(node.id, 'frequency', freq); }}
-                                className="py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all"
+                              <button key={freq} onClick={e => { e.stopPropagation(); if (!viewOnly) onUpdateConfig(node.id, 'frequency', freq); }}
+                                disabled={viewOnly}
+                                className="py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:cursor-default"
                                 style={{
                                   background: active ? node.color + '22' : 'rgba(255,255,255,.04)',
                                   border: `1px solid ${active ? node.color + '60' : 'rgba(255,255,255,.08)'}`,
                                   color: active ? node.color : '#64748b',
                                   boxShadow: active ? `0 0 10px ${node.color}20` : 'none',
+                                  opacity: viewOnly && !active ? 0.4 : 1,
                                 }}>
                                 {freq}
                               </button>
@@ -1520,10 +1666,12 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                           <input
                             type="time" value={node.config.time || '09:00'}
                             onChange={e => onUpdateConfig(node.id, 'time', e.target.value)}
-                            className="rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                            className="rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
                             style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', colorScheme: 'dark', width: '100%' }}
                             onClick={e => e.stopPropagation()}
-                            onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                            readOnly={viewOnly}
+                            disabled={viewOnly}
+                            onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
                             onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
                         </div>
                       )}
@@ -1533,39 +1681,138 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                         <input
                           type="text" value={node.config.timezone || 'Pacific/Honolulu'}
                           onChange={e => onUpdateConfig(node.id, 'timezone', e.target.value)}
-                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
                           style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
                           onClick={e => e.stopPropagation()}
-                          onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                          readOnly={viewOnly}
+                          disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
                           onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
                       </div>
                       {/* Apply to GitHub */}
-                      <div className="pt-2 border-t border-white/6">
-                        <p className="text-[10px] text-slate-600 mb-3">
-                          This updates the GitHub Actions workflow directly — no server or browser needs to be running.
-                        </p>
-                        <button
-                          onClick={e => { e.stopPropagation(); handleApplySchedule(); }}
-                          disabled={applying}
-                          className="w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
-                          style={{
-                            background: applying ? 'rgba(255,149,0,.15)' : 'rgba(255,149,0,.2)',
-                            border: `1px solid ${node.color}50`,
-                            color: node.color,
-                            boxShadow: applying ? 'none' : `0 0 16px ${node.color}20`,
-                          }}>
-                          {applying ? '⏳ Pushing to GitHub…' : '🚀 Apply Schedule to GitHub'}
-                        </button>
-                        {applyResult && (
-                          <p className="mt-2 text-[10px] font-mono px-3 py-2 rounded-lg"
-                            style={{
-                              background: applyResult.ok ? 'rgba(0,204,122,.08)' : 'rgba(255,77,77,.08)',
-                              color: applyResult.ok ? '#00cc7a' : '#ff7849',
-                              border: `1px solid ${applyResult.ok ? '#00cc7a30' : '#ff4d4d30'}`,
-                            }}>
-                            {applyResult.msg}
+                      {!viewOnly && (
+                        <div className="pt-2 border-t border-white/6">
+                          <p className="text-[10px] text-slate-600 mb-3">
+                            This updates the GitHub Actions workflow directly — no server or browser needs to be running.
                           </p>
-                        )}
+                          <button
+                            onClick={e => { e.stopPropagation(); handleApplySchedule(); }}
+                            disabled={applying}
+                            className="w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                            style={{
+                              background: applying ? 'rgba(255,149,0,.15)' : 'rgba(255,149,0,.2)',
+                              border: `1px solid ${node.color}50`,
+                              color: node.color,
+                              boxShadow: applying ? 'none' : `0 0 16px ${node.color}20`,
+                            }}>
+                            {applying ? '⏳ Pushing to GitHub…' : '🚀 Apply Schedule to GitHub'}
+                          </button>
+                          {applyResult && (
+                            <p className="mt-2 text-[10px] font-mono px-3 py-2 rounded-lg"
+                              style={{
+                                background: applyResult.ok ? 'rgba(0,204,122,.08)' : 'rgba(255,77,77,.08)',
+                                color: applyResult.ok ? '#00cc7a' : '#ff7849',
+                                border: `1px solid ${applyResult.ok ? '#00cc7a30' : '#ff4d4d30'}`,
+                              }}>
+                              {applyResult.msg}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  ) : node.type === 'email' ? (
+                    <>
+                      {/* To */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">To <span className="text-[#ff4d4d]">*</span></label>
+                        <input
+                          type="email" value={node.config.to || ''}
+                          onChange={e => onUpdateConfig(node.id, 'to', e.target.value)}
+                          placeholder="recipient@example.com"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      {/* CC */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">CC <span className="text-slate-600">(optional)</span></label>
+                        <input
+                          type="text" value={node.config.cc || ''}
+                          onChange={e => onUpdateConfig(node.id, 'cc', e.target.value)}
+                          placeholder="other@example.com"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      {/* Subject */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Subject</label>
+                        <input
+                          type="text" value={node.config.subject || ''}
+                          onChange={e => onUpdateConfig(node.id, 'subject', e.target.value)}
+                          placeholder="Automated Report"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      {/* Body */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Body <span className="text-slate-600">(HTML supported)</span></label>
+                        <textarea
+                          rows={5}
+                          value={node.config.body || ''}
+                          onChange={e => onUpdateConfig(node.id, 'body', e.target.value)}
+                          placeholder="<p>Your message here...</p>"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all resize-none disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      {/* Attach screenshot toggle */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Attach Screenshot</label>
+                        <button
+                          type="button"
+                          disabled={viewOnly}
+                          onClick={e => { e.stopPropagation(); if (!viewOnly) onUpdateConfig(node.id, 'attachScreenshot', node.config.attachScreenshot === 'true' ? 'false' : 'true'); }}
+                          className="flex items-center gap-3 w-full px-4 py-2.5 rounded-xl border transition-all text-left disabled:cursor-default"
+                          style={{
+                            background: node.config.attachScreenshot === 'true' ? node.color + '18' : 'rgba(255,255,255,.04)',
+                            borderColor: node.config.attachScreenshot === 'true' ? node.color + '50' : 'rgba(255,255,255,.08)',
+                          }}
+                        >
+                          <div className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all"
+                            style={{
+                              background: node.config.attachScreenshot === 'true' ? node.color : 'transparent',
+                              borderColor: node.config.attachScreenshot === 'true' ? node.color : 'rgba(255,255,255,.2)',
+                            }}>
+                            {node.config.attachScreenshot === 'true' && <span className="text-[10px] text-black font-black">✓</span>}
+                          </div>
+                          <div>
+                            <span className="text-sm font-semibold" style={{ color: node.config.attachScreenshot === 'true' ? node.color : '#94a3b8' }}>
+                              Embed screenshot in email
+                            </span>
+                            <p className="text-[10px] text-slate-600 leading-tight">Appends the screenshot from a preceding Screenshot node.</p>
+                          </div>
+                        </button>
+                      </div>
+                      {/* SMTP hint */}
+                      <div className="pt-1 border-t border-white/6">
+                        <p className="text-[10px] text-slate-600 leading-relaxed">
+                          SMTP credentials are read from environment variables.<br />
+                          Set <span className="font-mono text-slate-500">SMTP_HOST</span>, <span className="font-mono text-slate-500">SMTP_USER</span>, <span className="font-mono text-slate-500">SMTP_PASS</span> in your <span className="font-mono text-slate-500">.env</span> file.
+                        </p>
                       </div>
                     </>
                   ) : (
@@ -1577,10 +1824,12 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                         <input
                           type="text" value={value}
                           onChange={e => onUpdateConfig(node.id, key, e.target.value)}
-                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
                           style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
                           onClick={e => e.stopPropagation()}
-                          onFocus={e => { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; }}
+                          readOnly={viewOnly}
+                          disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
                           onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
                       </div>
                     ))
@@ -1624,13 +1873,17 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
         {/* Modal footer */}
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-white/8 shrink-0"
           style={{ background: 'rgba(255,255,255,.01)' }}>
-          <button onClick={() => { if (window.confirm(`Delete node "${node.label}"?`)) onDelete(node.id); }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all"
-            style={{ border: '1px solid rgba(255,77,77,.2)', background: 'rgba(255,77,77,.07)', color: '#ff4d4d' }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,77,77,.15)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,77,77,.07)')}>
-            <Trash2 size={12} /> Delete Node
-          </button>
+          {!viewOnly ? (
+            <button onClick={() => { if (window.confirm(`Delete node "${node.label}"?`)) onDelete(node.id); }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+              style={{ border: '1px solid rgba(255,77,77,.2)', background: 'rgba(255,77,77,.07)', color: '#ff4d4d' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,77,77,.15)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,77,77,.07)')}>
+              <Trash2 size={12} /> Delete Node
+            </button>
+          ) : (
+            <div />
+          )}
           <button onClick={onClose}
             className="flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold text-white transition-all"
             style={{ background: node.color + 'cc', boxShadow: `0 0 16px ${node.color}40` }}
@@ -1640,6 +1893,228 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Note Card ──────────────────────────────────────────────────────────────────
+interface NoteCardProps {
+  note: WFNote;
+  viewOnly: boolean;
+  onUpdate: (patch: Partial<WFNote>) => void;
+  onDelete: () => void;
+  onDragMouseDown: (e: React.MouseEvent) => void;
+  onResizeMouseDown: (e: React.MouseEvent) => void;
+}
+
+function NoteCard({ note, viewOnly, onUpdate, onDelete, onDragMouseDown, onResizeMouseDown }: NoteCardProps) {
+  const [hovered,    setHovered]    = useState(false);
+  const [showColors, setShowColors] = useState(false);
+  const col       = NOTE_COLORS[note.color] ?? NOTE_COLORS.yellow;
+  const displayH  = note.minimized ? 38 : note.h;
+
+  return (
+    <div
+      className="wf-note"
+      style={{
+        position: 'absolute', left: note.x, top: note.y,
+        width: note.w, height: displayH,
+        background: col.bg,
+        border: `1.5px solid ${col.border}`,
+        borderRadius: 14,
+        boxShadow: hovered
+          ? `0 0 0 1.5px ${col.accent}30, 0 8px 32px rgba(0,0,0,.55), 0 0 24px ${col.accent}18`
+          : '0 4px 18px rgba(0,0,0,.4)',
+        transition: 'box-shadow .2s, height .18s ease',
+        overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+        zIndex: 5,
+        cursor: note.pinned || viewOnly ? 'default' : 'grab',
+        userSelect: 'none',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setShowColors(false); }}
+      onMouseDown={onDragMouseDown}
+    >
+      {/* Colored left accent bar */}
+      <div style={{
+        position: 'absolute', left: 0, top: 0, bottom: 0, width: 3,
+        background: col.accent, borderRadius: '14px 0 0 14px', opacity: .85,
+        pointerEvents: 'none',
+      }} />
+
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 8px 5px 13px', flexShrink: 0 }}>
+        <input
+          value={note.title}
+          onChange={e => onUpdate({ title: e.target.value })}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+          readOnly={viewOnly}
+          placeholder="Title"
+          style={{
+            flex: 1, background: 'transparent', border: 'none', outline: 'none',
+            fontSize: 11, fontWeight: 800, color: col.text,
+            letterSpacing: '.05em', minWidth: 0, fontFamily: 'inherit',
+            cursor: viewOnly ? 'default' : 'text',
+          }} />
+
+        {/* Toolbar — visible on hover */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 2,
+          opacity: hovered || showColors ? 1 : 0,
+          transition: 'opacity .15s',
+          flexShrink: 0,
+        }} onMouseDown={e => e.stopPropagation()}>
+
+          {/* Color picker */}
+          {!viewOnly && (
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={e => { e.stopPropagation(); setShowColors(v => !v); }}
+                title="Change color"
+                style={{
+                  width: 20, height: 20, padding: 0, borderRadius: 6, border: 'none',
+                  cursor: 'pointer', background: 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: col.accent, boxShadow: `0 0 6px ${col.accent}80` }} />
+              </button>
+              {showColors && (
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: 5,
+                  display: 'flex', gap: 5, padding: '7px 9px',
+                  borderRadius: 10, background: '#09051a',
+                  border: '1px solid rgba(255,255,255,.12)',
+                  boxShadow: '0 10px 28px rgba(0,0,0,.7)', zIndex: 30,
+                }}>
+                  {NOTE_COLOR_KEYS.map(k => (
+                    <button key={k}
+                      onClick={e => { e.stopPropagation(); onUpdate({ color: k }); setShowColors(false); }}
+                      title={k}
+                      style={{
+                        width: 15, height: 15, borderRadius: '50%', padding: 0,
+                        background: NOTE_COLORS[k].accent,
+                        border: note.color === k ? '2px solid white' : '1.5px solid rgba(255,255,255,.18)',
+                        cursor: 'pointer',
+                        boxShadow: `0 0 8px ${NOTE_COLORS[k].accent}70`,
+                        transition: 'transform .1s',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.25)')}
+                      onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pin button */}
+          {!viewOnly && (
+            <button
+              onClick={e => { e.stopPropagation(); onUpdate({ pinned: !note.pinned }); }}
+              title={note.pinned ? 'Unpin' : 'Pin note'}
+              style={{
+                width: 20, height: 20, padding: 0, borderRadius: 6, border: 'none',
+                cursor: 'pointer', fontSize: 11, lineHeight: 1,
+                background: note.pinned ? col.accent + '28' : 'transparent',
+                color: note.pinned ? col.accent : 'rgba(255,255,255,.32)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background .15s, color .15s',
+              }}>
+              📌
+            </button>
+          )}
+
+          {/* Minimize / Expand */}
+          <button
+            onClick={e => { e.stopPropagation(); onUpdate({ minimized: !note.minimized }); }}
+            title={note.minimized ? 'Expand' : 'Collapse'}
+            style={{
+              width: 20, height: 20, padding: 0, borderRadius: 6, border: 'none',
+              cursor: 'pointer', background: 'transparent',
+              color: 'rgba(255,255,255,.35)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'color .15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'rgba(255,255,255,.8)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.35)')}>
+            {note.minimized ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
+          </button>
+
+          {/* Delete */}
+          {!viewOnly && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              title="Delete note"
+              style={{
+                width: 20, height: 20, padding: 0, borderRadius: 6, border: 'none',
+                cursor: 'pointer', background: 'transparent',
+                color: 'rgba(255,77,77,.45)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'color .15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#ff4d4d')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,77,77,.45)')}>
+              <Trash2 size={10} />
+            </button>
+          )}
+        </div>
+
+        {/* Pin indicator when not hovered */}
+        {note.pinned && !hovered && (
+          <span style={{ fontSize: 10, flexShrink: 0, lineHeight: 1 }}>📌</span>
+        )}
+      </div>
+
+      {/* ── Body ── */}
+      {!note.minimized && (
+        <>
+          <textarea
+            value={note.body}
+            onChange={e => onUpdate({ body: e.target.value })}
+            onClick={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
+            readOnly={viewOnly}
+            placeholder={viewOnly ? '' : 'Write something…'}
+            style={{
+              flex: 1, background: 'transparent', border: 'none', outline: 'none',
+              resize: 'none', padding: '2px 10px 4px 13px',
+              fontSize: 11.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.65,
+              fontFamily: 'inherit', minHeight: 0,
+              cursor: viewOnly ? 'default' : 'text',
+            }} />
+
+          {/* ── Footer ── */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '2px 8px 6px 13px', flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,.18)', fontFamily: 'inherit', letterSpacing: '.03em' }}>
+              {new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+
+            {/* Resize handle */}
+            {!viewOnly && (
+              <div
+                onMouseDown={e => { e.stopPropagation(); onResizeMouseDown(e); }}
+                style={{
+                  cursor: 'nwse-resize', padding: '2px 2px 0 6px',
+                  color: 'rgba(255,255,255,.18)',
+                  display: 'flex', alignItems: 'center',
+                  transition: 'color .15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = col.accent)}
+                onMouseLeave={e => (e.currentTarget.style.color = 'rgba(255,255,255,.18)')}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <line x1="9" y1="3" x2="3" y2="9" />
+                  <line x1="9" y1="6" x2="6" y2="9" />
+                  <line x1="9" y1="9" x2="9" y2="9" strokeWidth="2" />
+                </svg>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

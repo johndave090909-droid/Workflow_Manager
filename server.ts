@@ -7,6 +7,24 @@ import { fileURLToPath } from "url";
 import { execFile } from "child_process";
 import fs from "fs";
 import cron from "node-cron";
+import admin from "firebase-admin";
+import nodemailer from "nodemailer";
+
+// ── Firebase Admin SDK (optional — needed for email/password updates) ─────────
+let adminAuth: admin.auth.Auth | null = null;
+try {
+  const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (sa) {
+    const serviceAccount = JSON.parse(sa);
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    adminAuth = admin.auth();
+    console.log("[Firebase Admin] Initialized — auth management enabled.");
+  } else {
+    console.warn("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT not set — password/email updates disabled.");
+  }
+} catch (e) {
+  console.error("[Firebase Admin] Failed to initialize:", e);
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -463,6 +481,8 @@ async function startServer() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             recipient: { id: recipientId },
+            messaging_type: "MESSAGE_TAG",
+            tag: "CONFIRMED_EVENT_UPDATE",
             message: { attachment: { type: "image", payload: { url: imageUrl, is_reusable: true } } },
           }),
         });
@@ -474,7 +494,12 @@ async function startServer() {
         const txtResp = await fetch(base, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ recipient: { id: recipientId }, message: { text: message } }),
+          body: JSON.stringify({
+            recipient: { id: recipientId },
+            messaging_type: "MESSAGE_TAG",
+            tag: "CONFIRMED_EVENT_UPDATE",
+            message: { text: message },
+          }),
         });
         const txtData = await txtResp.json() as any;
         if (txtData.error) { res.status(400).json({ error: txtData.error.message }); return; }
@@ -482,6 +507,60 @@ async function startServer() {
       }
       res.json({ success: true });
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Send Email (SMTP via nodemailer) ────────────────────────────────────────
+  app.post("/api/send-email", async (req, res) => {
+    const { to, subject, body, cc, attachScreenshot, imageUrl } = req.body as {
+      to: string; subject?: string; body?: string;
+      cc?: string; attachScreenshot?: string; imageUrl?: string;
+    };
+
+    const smtpHost   = process.env.SMTP_HOST;
+    const smtpPort   = Number(process.env.SMTP_PORT  || 587);
+    const smtpSecure = process.env.SMTP_SECURE === 'true';
+    const smtpUser   = process.env.SMTP_USER;
+    const smtpPass   = process.env.SMTP_PASS;
+    const smtpFrom   = process.env.SMTP_FROM || smtpUser;
+
+    if (!smtpHost || !smtpUser || !smtpPass) {
+      res.status(500).json({ error: "SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS in .env" });
+      return;
+    }
+    if (!to?.trim()) {
+      res.status(400).json({ error: "to is required" });
+      return;
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpSecure,
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+
+      let htmlBody = body || '<p>This is an automated message from <strong>Workflow Manager</strong>.</p>';
+
+      // Embed screenshot if requested and available
+      if (attachScreenshot === 'true' && imageUrl) {
+        htmlBody += `<br><br><img src="${imageUrl}" alt="Screenshot" style="max-width:100%;border-radius:8px;border:1px solid #eee">`;
+      }
+
+      const info = await transporter.sendMail({
+        from:    smtpFrom,
+        to:      to.trim(),
+        cc:      cc?.trim() || undefined,
+        subject: subject || 'Automated Report',
+        html:    htmlBody,
+      });
+
+      console.log(`[Email] Sent to ${to} — messageId: ${info.messageId}`);
+      res.json({ success: true, messageId: info.messageId });
+    } catch (err: any) {
+      console.error("[Email] Error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -636,6 +715,8 @@ async function startServer() {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               recipient: { id: cfg.recipientId },
+              messaging_type: "MESSAGE_TAG",
+              tag: "CONFIRMED_EVENT_UPDATE",
               message: { attachment: { type: "image", payload: { url: storageUrl, is_reusable: true } } },
             }),
           });
@@ -643,7 +724,12 @@ async function startServer() {
         if (cfg.message) {
           await fetch(base, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ recipient: { id: cfg.recipientId }, message: { text: cfg.message } }),
+            body: JSON.stringify({
+              recipient: { id: cfg.recipientId },
+              messaging_type: "MESSAGE_TAG",
+              tag: "CONFIRMED_EVENT_UPDATE",
+              message: { text: cfg.message },
+            }),
           });
         }
         console.log("[Scheduler] Facebook message sent");
@@ -686,6 +772,32 @@ async function startServer() {
 
     console.log(`[Scheduler] Active — pattern: "${pattern}", tz: ${tz}`);
     res.json({ active: true, pattern, timezone: tz });
+  });
+
+  // ── Firebase Auth admin update (email + password) ────────────────────────────
+  app.post("/api/admin/update-user-auth", async (req, res) => {
+    if (!adminAuth) {
+      res.status(503).json({ error: "Firebase Admin SDK not configured. Add FIREBASE_SERVICE_ACCOUNT to your .env file." });
+      return;
+    }
+    const { uid, email, password } = req.body as { uid?: string; email?: string; password?: string };
+    if (!uid) { res.status(400).json({ error: "uid is required." }); return; }
+
+    const updates: { email?: string; password?: string } = {};
+    if (email)    updates.email    = email.trim();
+    if (password) updates.password = password;
+
+    if (Object.keys(updates).length === 0) {
+      res.json({ success: true, message: "Nothing to update." });
+      return;
+    }
+
+    try {
+      await adminAuth.updateUser(uid, updates);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message ?? "Failed to update user." });
+    }
   });
 
   // Vite middleware for development

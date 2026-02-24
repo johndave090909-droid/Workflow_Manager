@@ -67,10 +67,12 @@ interface Props {
   onClose: () => void;
   onUpdated: () => void;
   onMarkRead: () => void;
+  viewOnly?: boolean;
 }
 
-export default function ProjectDetailModal({ project, users, currentUser, onClose, onUpdated, onMarkRead }: Props) {
-  const isDirector = currentUser.role === 'Director';
+export default function ProjectDetailModal({ project, users, currentUser, onClose, onUpdated, onMarkRead, viewOnly = false }: Props) {
+  // viewOnly overrides edit access even for Directors
+  const isDirector = currentUser.role === 'Director' && !viewOnly;
 
   const [isEditing,      setIsEditing]      = useState(false);
   const [tasks,          setTasks]          = useState<Task[]>([]);

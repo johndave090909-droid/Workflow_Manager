@@ -92,5 +92,6 @@ export interface SystemCard {
   link: string;
   link_type: 'internal' | 'external';
   is_active: boolean;
+  is_view_only: boolean;
   sort_order: number;
 }

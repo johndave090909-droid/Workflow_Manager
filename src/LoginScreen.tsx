@@ -36,7 +36,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0510] text-white flex flex-col items-center justify-center p-8">
+    <div className="min-h-screen bg-[#0a0510] text-white flex flex-col items-center justify-center px-6 pt-[calc(2rem+var(--sat))] pb-[calc(2rem+var(--sab))]">
       <div className="mb-10 text-center">
         <div className="w-16 h-16 bg-[#ff00ff] rounded-2xl flex items-center justify-center text-white font-bold text-3xl shadow-lg shadow-pink-500/30 mx-auto mb-4">
           W
@@ -85,7 +85,7 @@ export default function LoginScreen() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 rounded-xl bg-[#ff00ff] text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 shadow-lg shadow-[#ff00ff]/20 flex items-center justify-center gap-2 mt-2"
+          className="w-full py-3 min-h-[48px] rounded-xl bg-[#ff00ff] text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 shadow-lg shadow-[#ff00ff]/20 flex items-center justify-center gap-2 mt-2"
         >
           {loading
             ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" />
