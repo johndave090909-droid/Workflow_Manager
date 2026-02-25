@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "source": "functions"
+  },
   "firestore": {
     "rules": "firestore.rules"
   },
@@ -13,6 +16,13 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/worker-roster/google/**",
+        "function": {
+          "functionId": "workerRosterGoogleApi",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "**",
         "destination": "/index.html"

@@ -338,6 +338,7 @@ export default function WorkerRoster({
   const [googleSyncConfigured, setGoogleSyncConfigured] = useState(false);
   const [googleSyncInfo, setGoogleSyncInfo] = useState<{ spreadsheetId: string | null; sheetName: string } | null>(null);
   const [lastGoogleHash, setLastGoogleHash] = useState<string | null>(null);
+  const [googleSyncConflict, setGoogleSyncConflict] = useState(false);
 
   const resizeStateRef = useRef<
     | { kind: 'col'; colKey: string; startX: number; startWidth: number }
@@ -374,13 +375,13 @@ export default function WorkerRoster({
         setDirty(false);
         if (snap.exists()) setLastSavedLabel('Loaded from Firestore');
         try {
-          const statusResp = await fetch('/api/worker-roster/google/status');
+          const statusResp = await fetch(`/api/worker-roster/google/status?t=${Date.now()}`, { cache: 'no-store' });
           if (statusResp.ok) {
             const status = await statusResp.json();
             setGoogleSyncConfigured(Boolean(status.configured));
             setGoogleSyncInfo({ spreadsheetId: status.spreadsheetId ?? null, sheetName: status.sheetName ?? 'Workers' });
             if (status.configured) {
-              const pullResp = await fetch('/api/worker-roster/google/pull');
+              const pullResp = await fetch(`/api/worker-roster/google/pull?t=${Date.now()}`, { cache: 'no-store' });
               if (pullResp.ok) {
                 const pulled = await pullResp.json();
                 const pulledRows = normalizeRows(pulled.rows);
@@ -537,13 +538,19 @@ export default function WorkerRoster({
       const googleResp = await fetch('/api/worker-roster/google/push', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows, customColumns }),
+        body: JSON.stringify({ rows, customColumns, expectedHash: lastGoogleHash }),
       });
       if (!googleResp.ok) {
         const data = await googleResp.json().catch(() => ({}));
+        if (googleResp.status === 409 || data.code === 'REMOTE_CONFLICT') {
+          setGoogleSyncConflict(true);
+          setLastSavedLabel('Remote changes detected');
+          throw new Error('REMOTE_CONFLICT');
+        }
         throw new Error(data.error || 'Google Sheets push failed');
       }
       const pushed = await googleResp.json().catch(() => ({}));
+      setGoogleSyncConflict(false);
       if (typeof pushed.hash === 'string') setLastGoogleHash(pushed.hash);
     }
 
@@ -564,6 +571,39 @@ export default function WorkerRoster({
     setLastSavedLabel(`${labelPrefix} ${format(new Date(), 'MMM d, yyyy h:mm a')}${googleSyncConfigured ? ' • Google Sheets' : ''}`);
   };
 
+  const pullLatestFromGoogle = async () => {
+    if (!googleSyncConfigured) return;
+    const resp = await fetch(`/api/worker-roster/google/pull?t=${Date.now()}`, { cache: 'no-store' });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || 'Google Sheets pull failed');
+    }
+    const pulled = await resp.json();
+    const pulledRows = normalizeRows(pulled.rows);
+    const pulledCustom = normalizeCustomColumns(pulled.customColumns);
+    setRows(pulledRows.map((r) => ({ ...r, id: r.id || makeId() })));
+    setCustomColumns(pulledCustom);
+    setLastGoogleHash(typeof pulled.hash === 'string' ? pulled.hash : null);
+    setGoogleSyncConflict(false);
+    setDirty(false);
+    setLastSavedLabel(`Reloaded from Google Sheets ${format(new Date(), 'h:mm:ss a')}`);
+  };
+
+  const reloadFromGoogle = async () => {
+    if (!googleSyncConfigured) return;
+    if (dirty && !window.confirm('Reload from Google Sheets and discard unsaved local changes?')) return;
+    setSaving(true);
+    setError('');
+    try {
+      await pullLatestFromGoogle();
+    } catch (e) {
+      console.error('Failed to reload worker roster from Google Sheets', e);
+      setError('Failed to reload from Google Sheets.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveRoster = async () => {
     if (viewOnly) return;
     if (autosaveTimerRef.current !== null) {
@@ -576,7 +616,11 @@ export default function WorkerRoster({
       await persistRoster('Saved');
     } catch (e) {
       console.error('Failed to save worker roster', e);
-      setError('Failed to save roster. Check Firestore rules/connection and try again.');
+      setError(
+        e instanceof Error && e.message === 'REMOTE_CONFLICT'
+          ? 'Remote changes detected in Google Sheets. Reload from Google Sheets before saving again.'
+          : 'Failed to save roster. Check Firestore rules/connection and try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -593,8 +637,13 @@ export default function WorkerRoster({
         await persistRoster('Auto-saved');
       } catch (e) {
         console.error('Failed to auto-save worker roster', e);
-        setError('Auto-save failed. You can try Save Changes manually.');
-        setLastSavedLabel('Auto-save failed');
+        if (e instanceof Error && e.message === 'REMOTE_CONFLICT') {
+          setError('Remote changes detected in Google Sheets. Reload from Google Sheets before saving again.');
+          setLastSavedLabel('Remote changes detected');
+        } else {
+          setError('Auto-save failed. You can try Save Changes manually.');
+          setLastSavedLabel('Auto-save failed');
+        }
       } finally {
         setSaving(false);
         autosaveTimerRef.current = null;
@@ -609,7 +658,7 @@ export default function WorkerRoster({
     syncPollTimerRef.current = window.setInterval(async () => {
       if (dirty || saving || activeEditCell) return;
       try {
-        const resp = await fetch('/api/worker-roster/google/pull');
+        const resp = await fetch(`/api/worker-roster/google/pull?t=${Date.now()}`, { cache: 'no-store' });
         if (!resp.ok) return;
         const pulled = await resp.json();
         if (typeof pulled.hash === 'string' && pulled.hash === lastGoogleHash) return;
@@ -618,6 +667,7 @@ export default function WorkerRoster({
         setRows(pulledRows.map((r) => ({ ...r, id: r.id || makeId() })));
         setCustomColumns(pulledCustom);
         setLastGoogleHash(typeof pulled.hash === 'string' ? pulled.hash : null);
+        setGoogleSyncConflict(false);
         setLastSavedLabel(`Synced from Google Sheets ${format(new Date(), 'h:mm:ss a')}`);
       } catch (e) {
         console.warn('Google Sheets poll sync failed', e);
@@ -953,6 +1003,14 @@ export default function WorkerRoster({
               >
                 <Copy size={15} /> Copy Range
               </button>
+              <button
+                onClick={() => { void reloadFromGoogle(); }}
+                disabled={!googleSyncConfigured || saving}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
+                title="Discard local unsaved changes and reload latest data from Google Sheets"
+              >
+                <RefreshCw size={15} /> Reload from Google
+              </button>
               {viewOnly && <span className="text-xs font-black uppercase tracking-widest px-3 py-2 rounded-xl border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">View Only</span>}
             </div>
 
@@ -978,6 +1036,11 @@ export default function WorkerRoster({
           )}
           <p className="mt-3 text-[11px] text-slate-500">Drag the right edge of a column header to resize columns. Drag the bottom edge of a row number to resize row height.</p>
           <p className="mt-1 text-[11px] text-slate-500">Changes auto-save automatically after you stop typing or resizing. Custom column headers can be renamed inline. Ctrl/Cmd+V pastes tabular ranges into the selected cell. When Google Sheets is configured, edits sync both ways.</p>
+          {googleSyncConflict && (
+            <p className="mt-2 text-xs text-amber-300">
+              Remote changes detected in Google Sheets. Reload from Google Sheets before saving again (or manually merge your changes first).
+            </p>
+          )}
           {error && <p className="mt-3 text-xs text-rose-300">{error}</p>}
         </div>
 
