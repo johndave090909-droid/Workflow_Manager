@@ -81,7 +81,7 @@ export interface Deliverable {
   storagePath: string;    // path in Firebase Storage (used for deletion)
 }
 
-export type AppView = 'hub' | 'tracker' | 'it-admin' | 'workflow';
+export type AppView = 'hub' | 'tracker' | 'it-admin' | 'workflow' | 'workers';
 
 export interface SystemCard {
   id: string;        // Firestore document ID

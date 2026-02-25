@@ -9,6 +9,7 @@ import fs from "fs";
 import cron from "node-cron";
 import admin from "firebase-admin";
 import nodemailer from "nodemailer";
+import crypto from "crypto";
 
 // ── Firebase Admin SDK (optional — needed for email/password updates) ─────────
 let adminAuth: admin.auth.Auth | null = null;
@@ -30,6 +31,197 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const db = new Database("sync.db");
+
+type GoogleServiceAccount = {
+  client_email: string;
+  private_key: string;
+  token_uri?: string;
+};
+
+type WorkerSheetRow = {
+  id?: string;
+  shift: string;
+  job: string;
+  firstName: string;
+  lastName: string;
+  payRate: string;
+  idNumber: string;
+  preferredName: string;
+  birthDay: string;
+  messenger: string;
+  persona: string;
+  knife: string;
+  custom?: Record<string, string>;
+};
+
+type WorkerSheetCustomColumn = { id: string; label: string };
+
+const WORKER_FIXED_HEADERS = [
+  "", "Job", "First Name", "Last Name", "Pay Rate", "Id Number",
+  "Prefered Name", "Birth Day", "Messenger", "Persona", "Knife",
+];
+const WORKER_FIXED_KEYS = [
+  "shift", "job", "firstName", "lastName", "payRate", "idNumber",
+  "preferredName", "birthDay", "messenger", "persona", "knife",
+] as const;
+
+function parseGoogleServiceAccount(): GoogleServiceAccount | null {
+  const raw = process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT || process.env.GOOGLE_SERVICE_ACCOUNT;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed?.client_email || !parsed?.private_key) return null;
+    return parsed as GoogleServiceAccount;
+  } catch {
+    return null;
+  }
+}
+
+function getWorkerSheetConfig() {
+  return {
+    spreadsheetId: process.env.GOOGLE_WORKER_ROSTER_SPREADSHEET_ID || "",
+    sheetName: process.env.GOOGLE_WORKER_ROSTER_SHEET_NAME || "Workers",
+  };
+}
+
+function b64url(input: string | Buffer) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+async function getGoogleAccessToken(scopes: string[]) {
+  const sa = parseGoogleServiceAccount();
+  if (!sa) throw new Error("Google service account is not configured");
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claim = {
+    iss: sa.client_email,
+    scope: scopes.join(" "),
+    aud: sa.token_uri || "https://oauth2.googleapis.com/token",
+    exp: now + 3600,
+    iat: now,
+  };
+  const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claim))}`;
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(unsigned);
+  signer.end();
+  const signature = signer.sign(sa.private_key);
+  const assertion = `${unsigned}.${b64url(signature)}`;
+  const resp = await fetch(claim.aud, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  if (!resp.ok) throw new Error(`Token request failed (${resp.status})`);
+  const data = await resp.json() as any;
+  if (!data.access_token) throw new Error("No access token returned from Google");
+  return data.access_token as string;
+}
+
+async function sheetsApi(pathname: string, init: RequestInit = {}) {
+  const token = await getGoogleAccessToken(["https://www.googleapis.com/auth/spreadsheets"]);
+  const resp = await fetch(`https://sheets.googleapis.com/v4/${pathname}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(init.headers || {}),
+    },
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Google Sheets API ${resp.status}: ${text.slice(0, 500)}`);
+  }
+  return resp;
+}
+
+function normalizeSheetCell(v: unknown) {
+  return typeof v === "string" ? v : (v == null ? "" : String(v));
+}
+
+function parseWorkerRosterFromSheet(values: unknown[][]) {
+  const rows = Array.isArray(values) ? values : [];
+  const headerRow = (rows[0] ?? []).map(normalizeSheetCell);
+  const customHeaders = headerRow.slice(WORKER_FIXED_KEYS.length);
+  const customColumns: WorkerSheetCustomColumn[] = customHeaders.map((label, i) => ({
+    id: `col_${i + 1}`,
+    label: label || `Column ${i + 1}`,
+  }));
+
+  const parsedRows: WorkerSheetRow[] = rows.slice(1)
+    .map((r) => Array.isArray(r) ? r.map(normalizeSheetCell) : [])
+    .filter((r) => r.some((v) => v.trim() !== ""))
+    .map((r) => {
+      const fixedVals = WORKER_FIXED_KEYS.map((_, i) => normalizeSheetCell(r[i]));
+      const custom: Record<string, string> = {};
+      customColumns.forEach((c, idx) => { custom[c.id] = normalizeSheetCell(r[WORKER_FIXED_KEYS.length + idx]); });
+      return {
+        shift: fixedVals[0],
+        job: fixedVals[1],
+        firstName: fixedVals[2],
+        lastName: fixedVals[3],
+        payRate: fixedVals[4],
+        idNumber: fixedVals[5],
+        preferredName: fixedVals[6],
+        birthDay: fixedVals[7],
+        messenger: fixedVals[8],
+        persona: fixedVals[9],
+        knife: fixedVals[10],
+        custom,
+      };
+    });
+
+  return { customColumns, rows: parsedRows };
+}
+
+function buildWorkerRosterSheetValues(rows: WorkerSheetRow[], customColumns: WorkerSheetCustomColumn[]) {
+  const header = [...WORKER_FIXED_HEADERS, ...customColumns.map(c => c.label || "New Column")];
+  const body = rows.map((r) => {
+    const fixed = WORKER_FIXED_KEYS.map((k) => normalizeSheetCell((r as any)[k]));
+    const custom = customColumns.map((c) => normalizeSheetCell(r.custom?.[c.id]));
+    return [...fixed, ...custom];
+  });
+  return [header, ...body];
+}
+
+async function readWorkerRosterFromGoogleSheet() {
+  const { spreadsheetId, sheetName } = getWorkerSheetConfig();
+  if (!spreadsheetId) throw new Error("GOOGLE_WORKER_ROSTER_SPREADSHEET_ID is not set");
+  const range = encodeURIComponent(`${sheetName}!A:ZZ`);
+  const resp = await sheetsApi(`spreadsheets/${spreadsheetId}/values/${range}`);
+  const data = await resp.json() as any;
+  const parsed = parseWorkerRosterFromSheet(data.values ?? []);
+  return {
+    spreadsheetId,
+    sheetName,
+    ...parsed,
+    hash: crypto.createHash("sha256").update(JSON.stringify(data.values ?? [])).digest("hex"),
+  };
+}
+
+async function writeWorkerRosterToGoogleSheet(payload: { rows: WorkerSheetRow[]; customColumns: WorkerSheetCustomColumn[] }) {
+  const { spreadsheetId, sheetName } = getWorkerSheetConfig();
+  if (!spreadsheetId) throw new Error("GOOGLE_WORKER_ROSTER_SPREADSHEET_ID is not set");
+  const values = buildWorkerRosterSheetValues(payload.rows ?? [], payload.customColumns ?? []);
+  const range = encodeURIComponent(`${sheetName}!A1`);
+  await sheetsApi(`spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=USER_ENTERED`, {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
+  return {
+    spreadsheetId,
+    sheetName,
+    rowCount: Math.max(0, values.length - 1),
+    columnCount: values[0]?.length ?? 0,
+    hash: crypto.createHash("sha256").update(JSON.stringify(values)).digest("hex"),
+  };
+}
 
 // Initialize Database
 db.exec(`
@@ -158,6 +350,37 @@ async function startServer() {
   app.use("/screenshots", express.static(screenshotsDir));
 
   // API Routes
+  app.get("/api/worker-roster/google/status", (_req, res) => {
+    const sa = parseGoogleServiceAccount();
+    const { spreadsheetId, sheetName } = getWorkerSheetConfig();
+    res.json({
+      configured: Boolean(sa && spreadsheetId),
+      spreadsheetId: spreadsheetId || null,
+      sheetName: sheetName || "Workers",
+      authConfigured: Boolean(sa),
+    });
+  });
+
+  app.get("/api/worker-roster/google/pull", async (_req, res) => {
+    try {
+      const data = await readWorkerRosterFromGoogleSheet();
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? "Failed to pull from Google Sheets" });
+    }
+  });
+
+  app.put("/api/worker-roster/google/push", async (req, res) => {
+    try {
+      const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+      const customColumns = Array.isArray(req.body?.customColumns) ? req.body.customColumns : [];
+      const result = await writeWorkerRosterToGoogleSheet({ rows, customColumns });
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? "Failed to push to Google Sheets" });
+    }
+  });
+
   app.get("/api/users", (req, res) => {
     const users = db.prepare(`
       SELECT u.*, (SELECT COUNT(*) FROM projects WHERE account_lead_id = u.id AND status != 'Done') as workload_count 

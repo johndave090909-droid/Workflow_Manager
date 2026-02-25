@@ -20,6 +20,7 @@ import CalendarView from './CalendarView';
 import SystemHub from './SystemHub';
 import SystemAdminPanel from './SystemAdminPanel';
 import WorkflowAutomation from './WorkflowAutomation';
+import WorkerRoster from './WorkerRoster';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -145,7 +146,8 @@ export default function App() {
   useEffect(() => {
     const isViewOnly =
       (currentView === 'workflow' && isViewOnlyCard('workflow')) ||
-      (currentView === 'tracker'  && trackerViewOnly);
+      (currentView === 'tracker'  && trackerViewOnly) ||
+      (currentView === 'workers'  && isViewOnlyCard('workers'));
     if (isViewOnly) {
       setShowViewOnlyToast(true);
       const t = setTimeout(() => setShowViewOnlyToast(false), 7000);
@@ -193,8 +195,9 @@ export default function App() {
       const snap = await getDocs(query(collection(db, 'system_cards'), orderBy('sort_order')));
       const cards = snap.docs.map(d => ({ id: d.id, ...d.data() } as SystemCard));
 
-      // Auto-seed Workflow Automation card if it doesn't exist yet
+      // Auto-seed internal systems if they don't exist yet
       const hasWorkflow = cards.some(c => c.link === 'workflow' && c.link_type === 'internal');
+      const hasWorkers = cards.some(c => c.link === 'workers' && c.link_type === 'internal');
       if (!hasWorkflow) {
         await addDoc(collection(db, 'system_cards'), {
           title: 'Workflow Automation',
@@ -206,6 +209,21 @@ export default function App() {
           is_active: true,
           sort_order: 99,
         });
+      }
+      if (!hasWorkers) {
+        await addDoc(collection(db, 'system_cards'), {
+          title: 'Worker Roster',
+          description: 'Spreadsheet-style roster to record employee shifts, jobs, pay rates, IDs, and notes.',
+          icon: '📊',
+          color_accent: '#38bdf8',
+          link: 'workers',
+          link_type: 'internal',
+          is_active: true,
+          is_view_only: false,
+          sort_order: 100,
+        });
+      }
+      if (!hasWorkflow || !hasWorkers) {
         const reSnap = await getDocs(query(collection(db, 'system_cards'), orderBy('sort_order')));
         setSystemCards(reSnap.docs.map(d => ({ id: d.id, ...d.data() } as SystemCard)));
         return;
@@ -353,6 +371,20 @@ export default function App() {
         onLogout={handleLogout}
         roleColor={userRoleColor}
         viewOnly={isViewOnlyCard('workflow')}
+      />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
+    </>
+  );
+
+  if (currentView === 'workers') return (
+    <>
+      <WorkerRoster
+        currentUser={currentUser}
+        onBackToHub={() => setCurrentView('hub')}
+        onLogout={handleLogout}
+        roleColor={userRoleColor}
+        viewOnly={isViewOnlyCard('workers')}
       />
       <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
       <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
