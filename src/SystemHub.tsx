@@ -289,14 +289,14 @@ export default function SystemHub({
           {/* HOME */}
           {activeSection === 'home' && (
             <>
-              <div className="py-8 sm:py-16 text-center px-4 sm:px-8">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-3">System Hub</p>
-                <h2 className="text-4xl font-bold text-white mb-3">
+              <div className="py-4 sm:py-16 text-center px-4 sm:px-8">
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 mb-2 sm:mb-3">System Hub</p>
+                <h2 className="text-2xl sm:text-4xl font-bold text-white mb-1 sm:mb-3">
                   Welcome back, <span style={{ color: roleColor }}>{firstName}</span>
                 </h2>
-                <p className="text-sm text-slate-400">Select a system to get started.</p>
+                <p className="hidden sm:block text-sm text-slate-400">Select a system to get started.</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 max-w-5xl mx-auto px-4 sm:px-8 pb-16 sm:pb-24">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6 max-w-5xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
                 {systemCards.map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
@@ -565,31 +565,32 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
   return (
     <button
       onClick={handleClick}
-      className="glass-card rounded-3xl p-5 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+      className="glass-card rounded-2xl sm:rounded-3xl p-3 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
     >
       <div
         className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300"
         style={{ backgroundColor: card.color_accent }}
       />
       <div
-        className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center mb-4 sm:mb-6 relative z-10 overflow-hidden"
+        className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}
       >
         {card.icon.startsWith('http') || card.icon.startsWith('data:')
-          ? <img src={card.icon} className="w-9 h-9 object-contain" alt={card.title} />
-          : <span className="text-2xl">{card.icon}</span>
+          ? <img src={card.icon} className="w-5 h-5 sm:w-9 sm:h-9 object-contain" alt={card.title} />
+          : <span className="text-base sm:text-2xl">{card.icon}</span>
         }
       </div>
-      <h3 className="text-lg font-bold mb-2 relative z-10 transition-opacity group-hover:opacity-90" style={{ color: card.color_accent }}>
+      <h3 className="text-xs sm:text-lg font-bold mb-1 sm:mb-2 relative z-10 transition-opacity group-hover:opacity-90 leading-tight" style={{ color: card.color_accent }}>
         {card.title}
       </h3>
-      <p className="text-sm text-slate-400 leading-relaxed relative z-10">{card.description}</p>
-      <div className="mt-6 flex items-center gap-2 relative z-10">
-        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">
-          {card.link_type === 'external' ? '↗ External' : '→ Open'}
+      <p className="hidden sm:block text-sm text-slate-400 leading-relaxed relative z-10">{card.description}</p>
+      <div className="mt-2 sm:mt-6 flex items-center gap-1 sm:gap-2 relative z-10">
+        <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-600">
+          {card.link_type === 'external' ? '↗' : '→'}
+          <span className="hidden sm:inline"> {card.link_type === 'external' ? 'External' : 'Open'}</span>
         </span>
         {card.is_view_only && (
-          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">
+          <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-widest px-1.5 sm:px-2 py-0.5 rounded-full border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">
             View Only
           </span>
         )}
