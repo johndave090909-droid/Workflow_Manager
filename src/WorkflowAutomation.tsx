@@ -1448,7 +1448,18 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const [mousePos, setMousePos]         = useState({ x: 0, y: 0 });
   const [nodeLog, setNodeLog]           = useState<Record<string, string[]>>({});
-  const [logOpen, setLogOpen]           = useState(true);
+  const [historyOpen, setHistoryOpen]   = useState(true);
+
+  type DriveFileRecord = {
+    fileId: string;
+    name: string;
+    webViewLink?: string;
+    discoveredAt: string;
+    size?: string;
+  };
+  const [history, setHistory] = useState<DriveFileRecord[]>(() => {
+    try { return JSON.parse(localStorage.getItem('wf_gdrive_history') || '[]'); } catch { return []; }
+  });
 
   const dragging     = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved    = useRef(false);
@@ -1457,6 +1468,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
 
   useEffect(() => { localStorage.setItem('wf_gdrive_nodes', JSON.stringify(nodes)); }, [nodes]);
   useEffect(() => { localStorage.setItem('wf_gdrive_edges', JSON.stringify(edges)); }, [edges]);
+  useEffect(() => { localStorage.setItem('wf_gdrive_history', JSON.stringify(history)); }, [history]);
 
   const log = (nodeId: string, msg: string) =>
     setNodeLog(prev => ({ ...prev, [nodeId]: [...(prev[nodeId] || []), `[${new Date().toLocaleTimeString()}] ${msg}`] }));
@@ -1567,6 +1579,23 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
         log(id, `✗ ${node.label} failed`);
         setStatus(id, 'error');
       }
+    }
+
+    // Merge newly found files into history (deduplicate by fileId, keep newest 200)
+    if (foundFiles.length > 0) {
+      setHistory(prev => {
+        const existingIds = new Set(prev.map(r => r.fileId));
+        const newEntries: DriveFileRecord[] = foundFiles
+          .filter(f => !existingIds.has(f.id))
+          .map(f => ({
+            fileId:       f.id,
+            name:         f.name,
+            webViewLink:  f.webViewLink,
+            discoveredAt: f.createdTime || new Date().toISOString(),
+            size:         (f as any).size,
+          }));
+        return [...newEntries, ...prev].slice(0, 200);
+      });
     }
 
     executingRef.current = false;
@@ -1798,43 +1827,66 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
           </div>
         </div>
 
-        {/* Execution Log Panel */}
-        <div className="shrink-0 border-t border-white/10 flex flex-col" style={{ height: 200, background: 'rgba(5,2,10,.98)' }}>
+        {/* PDF History Panel */}
+        <div className="shrink-0 border-t border-white/10 flex flex-col" style={{ height: 220, background: 'rgba(5,2,10,.98)' }}>
           <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/6 shrink-0">
-            <Terminal size={13} style={{ color: '#4285f4' }} />
-            <span className="text-xs font-bold text-white">Execution Log</span>
-            {Object.values(nodeLog).some(l => l.length > 0) && (
+            <span style={{ fontSize: 13 }}>📄</span>
+            <span className="text-xs font-bold text-white">PDF History</span>
+            {history.length > 0 && (
               <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md"
                 style={{ background: '#4285f418', color: '#4285f4', border: '1px solid #4285f430' }}>
-                {Object.values(nodeLog).reduce((a, l) => a + l.length, 0)} entries
+                {history.length} file{history.length !== 1 ? 's' : ''}
               </span>
             )}
             <div className="flex-1" />
-            <button onClick={() => setLogOpen(o => !o)} className="text-slate-500 hover:text-white transition-colors">
-              {logOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+            <button onClick={() => setHistoryOpen(o => !o)} className="text-slate-500 hover:text-white transition-colors">
+              {historyOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
             </button>
-            {Object.values(nodeLog).some(l => l.length > 0) && (
-              <button onClick={() => setNodeLog({})}
+            {history.length > 0 && (
+              <button onClick={() => { if (window.confirm('Clear PDF history?')) setHistory([]); }}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
                 style={{ background: 'rgba(255,77,77,.08)', border: '1px solid rgba(255,77,77,.25)', color: '#ff4d4d' }}>
                 <X size={9} /> Clear
               </button>
             )}
           </div>
-          {logOpen && (
-            <div className="flex-1 overflow-y-auto px-5 py-3 font-mono text-[10px] text-slate-400 space-y-0.5">
-              {Object.values(nodeLog).flat().length === 0 ? (
-                <p className="text-slate-600 text-center mt-4">No logs yet — click Execute to run the workflow.</p>
+          {historyOpen && (
+            <div className="flex-1 overflow-y-auto">
+              {history.length === 0 ? (
+                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — click Execute to poll the Drive folder.</p>
               ) : (
-                Object.entries(nodeLog).map(([nodeId, lines]) => {
-                  const node = nodes.find(n => n.id === nodeId);
-                  return lines.map((line, i) => (
-                    <p key={`${nodeId}-${i}`}>
-                      <span style={{ color: node?.color ?? '#4285f4', fontWeight: 700 }}>{node?.icon ?? '◆'} </span>
-                      {line}
-                    </p>
-                  ));
-                })
+                <div className="divide-y divide-white/5">
+                  {history.map(file => {
+                    const d = new Date(file.discoveredAt);
+                    const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    const kb = file.size ? Math.round(Number(file.size) / 1024) : null;
+                    return (
+                      <div key={file.fileId} className="flex items-center gap-3 px-5 py-2.5 hover:bg-white/3 transition-colors group">
+                        <span className="text-sm shrink-0">📄</span>
+                        <div className="flex-1 min-w-0">
+                          {file.webViewLink
+                            ? <a href={file.webViewLink} target="_blank" rel="noreferrer"
+                                className="text-[11px] font-semibold text-slate-200 hover:text-[#4285f4] transition-colors truncate block">
+                                {file.name}
+                              </a>
+                            : <span className="text-[11px] font-semibold text-slate-200 truncate block">{file.name}</span>
+                          }
+                          <p className="text-[9px] text-slate-600 mt-0.5">
+                            {dateStr} · {timeStr}{kb ? ` · ${kb} KB` : ''}
+                          </p>
+                        </div>
+                        {file.webViewLink && (
+                          <a href={file.webViewLink} target="_blank" rel="noreferrer"
+                            className="shrink-0 text-[9px] font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={{ background: 'rgba(66,133,244,.15)', color: '#4285f4', border: '1px solid rgba(66,133,244,.3)' }}>
+                            Open ↗
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}
