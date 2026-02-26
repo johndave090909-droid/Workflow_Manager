@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
@@ -322,111 +322,13 @@ export default function SystemHub({
                 <p className="text-sm text-slate-400">All files uploaded across projects.</p>
               </div>
 
-              {delivLoading ? (
-                <div className="flex justify-center py-20">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#ff00ff]" />
-                </div>
-              ) : allDeliverables.length === 0 ? (
-                <div className="text-center py-20 text-slate-600 italic text-sm">
-                  No deliverables uploaded yet.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {allDeliverables.map(deliv => {
-                    const type = getFileViewType(deliv.contentType, deliv.name);
-                    const icon = getFileIcon(type, deliv.name);
-                    const initials = deliv.uploadedByName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-                    return (
-                      <div
-                        key={`${deliv.projectId}-${deliv.id}`}
-                        className="rounded-2xl border transition-all group"
-                        style={{
-                          background: deliv.sharedWithAll ? 'rgba(16,185,129,0.04)' : 'rgba(255,255,255,0.02)',
-                          borderColor: deliv.sharedWithAll ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = deliv.sharedWithAll ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.15)')}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = deliv.sharedWithAll ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)')}
-                      >
-                        {/* ── Top row: icon, filename, badges, actions ── */}
-                        <div className="flex items-start gap-3 px-5 pt-4 pb-3">
-                          <span className="text-2xl shrink-0 mt-0.5">{icon}</span>
-                          <div className="flex-1 min-w-0">
-                            {/* Filename + shared badge */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-semibold text-white truncate">{deliv.name}</p>
-                              {deliv.sharedWithAll && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
-                                  🌐 Shared with all
-                                </span>
-                              )}
-                            </div>
-                            {/* Submitter chip + meta */}
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/5 text-slate-300 border border-white/10 shrink-0">
-                                <span className="w-4 h-4 rounded-full bg-slate-600 flex items-center justify-center text-[8px] font-bold text-white shrink-0">
-                                  {initials}
-                                </span>
-                                {deliv.uploadedByName}
-                              </span>
-                              <span className="text-[11px] text-slate-600">·</span>
-                              <span className="text-[11px] text-slate-500">{formatBytes(deliv.size)}</span>
-                              <span className="text-[11px] text-slate-600">·</span>
-                              <span className="text-[11px] text-slate-500">{deliv.uploadedAt ? format(new Date(deliv.uploadedAt), 'MMM d, yyyy') : ''}</span>
-                            </div>
-                          </div>
-
-                          {/* Action buttons */}
-                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                            {isDirector && (
-                              <button
-                                onClick={() => handleToggleShared(deliv)}
-                                title={deliv.sharedWithAll ? 'Remove from all accounts' : 'Share with all accounts'}
-                                className={`px-2.5 py-1.5 text-[10px] font-bold rounded-lg transition-colors ${
-                                  deliv.sharedWithAll
-                                    ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400'
-                                    : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
-                                }`}
-                              >
-                                {deliv.sharedWithAll ? '🌐 Shared' : '🔒 Private'}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleView(deliv)}
-                              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors opacity-0 group-hover:opacity-100"
-                            >
-                              {type === 'image' || type === 'video' ? 'View' : 'Open'}
-                            </button>
-                            <a
-                              href={deliv.url}
-                              download={deliv.name}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors opacity-0 group-hover:opacity-100"
-                            >
-                              ↓
-                            </a>
-                          </div>
-                        </div>
-
-                        {/* ── Project info row ── */}
-                        <div className="flex items-start gap-2 px-5 pb-3.5 border-t border-white/5 pt-2.5">
-                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 mt-0.5 shrink-0 pt-px">Project</span>
-                          <div className="flex-1 min-w-0">
-                            <span className="text-[12px] font-semibold text-slate-300">{deliv.projectName}</span>
-                            {deliv.projectDirectorsNote && (
-                              <span className="text-[11px] text-slate-500 ml-1.5">
-                                — {deliv.projectDirectorsNote.length > 100
-                                  ? deliv.projectDirectorsNote.slice(0, 100) + '…'
-                                  : deliv.projectDirectorsNote}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <DeliverableGroups
+                deliverables={allDeliverables}
+                loading={delivLoading}
+                isDirector={isDirector}
+                onToggleShared={handleToggleShared}
+                onView={handleView}
+              />
             </div>
           )}
 
@@ -478,6 +380,173 @@ export default function SystemHub({
         </div>
       )}
 
+    </div>
+  );
+}
+
+// ── DeliverableGroups ──────────────────────────────────────────────────────────
+
+const PROJECT_ACCENTS = [
+  '#ff00ff', '#00ffff', '#ffd700', '#ff4d4d',
+  '#a855f7', '#22d3ee', '#fb923c', '#4ade80',
+];
+
+interface DeliverableGroupsProps {
+  deliverables: DeliverableWithProject[];
+  loading: boolean;
+  isDirector: boolean;
+  onToggleShared: (d: DeliverableWithProject) => void;
+  onView: (d: DeliverableWithProject) => void;
+}
+
+function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, onView }: DeliverableGroupsProps) {
+  // Group by projectId; preserve chronological order within each group;
+  // sort groups by their most-recent upload.
+  const groups = useMemo(() => {
+    const map = new Map<string, DeliverableWithProject[]>();
+    for (const d of deliverables) {
+      if (!map.has(d.projectId)) map.set(d.projectId, []);
+      map.get(d.projectId)!.push(d);
+    }
+    return Array.from(map.entries())
+      .map(([projectId, items]) => ({ projectId, items }))
+      .sort((a, b) => b.items[0].uploadedAt.localeCompare(a.items[0].uploadedAt));
+  }, [deliverables]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#ff00ff]" />
+      </div>
+    );
+  }
+  if (deliverables.length === 0) {
+    return (
+      <div className="text-center py-20 text-slate-600 italic text-sm">
+        No deliverables uploaded yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      {groups.map(({ projectId, items }, groupIdx) => {
+        const accent = PROJECT_ACCENTS[groupIdx % PROJECT_ACCENTS.length];
+        const first  = items[0];
+        return (
+          <div key={projectId}>
+            {/* ── Project group header ── */}
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: accent, boxShadow: `0 0 6px ${accent}80` }} />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-bold text-white">{first.projectName}</span>
+                {first.projectDirectorsNote && (
+                  <span className="text-[11px] text-slate-500 ml-2">
+                    — {first.projectDirectorsNote.length > 80
+                      ? first.projectDirectorsNote.slice(0, 80) + '…'
+                      : first.projectDirectorsNote}
+                  </span>
+                )}
+              </div>
+              <span
+                className="text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0"
+                style={{ color: accent, borderColor: `${accent}40`, background: `${accent}15` }}
+              >
+                {items.length} file{items.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* ── Deliverable cards (left accent bar connects them) ── */}
+            <div className="flex gap-3">
+              {/* Connecting left rail */}
+              <div className="flex flex-col items-center shrink-0" style={{ width: '3px' }}>
+                <div className="flex-1 rounded-full" style={{ width: '3px', background: `linear-gradient(to bottom, ${accent}, ${accent}30)` }} />
+              </div>
+
+              {/* Cards */}
+              <div className="flex-1 min-w-0 space-y-2">
+                {items.map(deliv => {
+                  const type    = getFileViewType(deliv.contentType, deliv.name);
+                  const icon    = getFileIcon(type, deliv.name);
+                  const initials = deliv.uploadedByName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+                  return (
+                    <div
+                      key={`${deliv.projectId}-${deliv.id}`}
+                      className="rounded-2xl border transition-all group"
+                      style={{
+                        background: deliv.sharedWithAll ? 'rgba(16,185,129,0.04)' : 'rgba(255,255,255,0.02)',
+                        borderColor: deliv.sharedWithAll ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)',
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = deliv.sharedWithAll ? 'rgba(16,185,129,0.35)' : `${accent}50`)}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = deliv.sharedWithAll ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)')}
+                    >
+                      <div className="flex items-start gap-3 px-5 pt-4 pb-4">
+                        <span className="text-2xl shrink-0 mt-0.5">{icon}</span>
+                        <div className="flex-1 min-w-0">
+                          {/* Filename + shared badge */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold text-white truncate">{deliv.name}</p>
+                            {deliv.sharedWithAll && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                🌐 Shared with all
+                              </span>
+                            )}
+                          </div>
+                          {/* Submitter chip + meta */}
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/5 text-slate-300 border border-white/10 shrink-0">
+                              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0" style={{ backgroundColor: accent + '80' }}>
+                                {initials}
+                              </span>
+                              {deliv.uploadedByName}
+                            </span>
+                            <span className="text-[11px] text-slate-600">·</span>
+                            <span className="text-[11px] text-slate-500">{formatBytes(deliv.size)}</span>
+                            <span className="text-[11px] text-slate-600">·</span>
+                            <span className="text-[11px] text-slate-500">{deliv.uploadedAt ? format(new Date(deliv.uploadedAt), 'MMM d, yyyy') : ''}</span>
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                          {isDirector && (
+                            <button
+                              onClick={() => onToggleShared(deliv)}
+                              title={deliv.sharedWithAll ? 'Remove from all accounts' : 'Share with all accounts'}
+                              className={`px-2.5 py-1.5 text-[10px] font-bold rounded-lg transition-colors ${
+                                deliv.sharedWithAll
+                                  ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400'
+                                  : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
+                              }`}
+                            >
+                              {deliv.sharedWithAll ? '🌐 Shared' : '🔒 Private'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => onView(deliv)}
+                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            {type === 'image' || type === 'video' ? 'View' : 'Open'}
+                          </button>
+                          <a
+                            href={deliv.url}
+                            download={deliv.name}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            ↓
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
