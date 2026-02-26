@@ -17,6 +17,13 @@
     ],
     "rewrites": [
       {
+        "source": "/api/google-drive/**",
+        "function": {
+          "functionId": "googleDriveApi",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/api/worker-roster/google/**",
         "function": {
           "functionId": "workerRosterGoogleApi",

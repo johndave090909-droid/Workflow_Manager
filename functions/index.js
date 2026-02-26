@@ -203,6 +203,96 @@ function parseJsonBody(req) {
   return {};
 }
 
+// ── Google Drive API ────────────────────────────────────────────────────────────
+async function getDriveAccessToken(saJson) {
+  // Use custom SA JSON if provided, otherwise fall back to env var
+  let sa;
+  if (saJson) {
+    try {
+      sa = JSON.parse(saJson);
+      if (!sa.client_email || !sa.private_key) sa = null;
+    } catch { sa = null; }
+  }
+  if (!sa) sa = parseGoogleServiceAccount();
+  if (!sa) throw new Error("Google service account is not configured");
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claim = {
+    iss: sa.client_email,
+    scope: "https://www.googleapis.com/auth/drive.readonly",
+    aud: sa.token_uri || "https://oauth2.googleapis.com/token",
+    exp: now + 3600,
+    iat: now,
+  };
+  const unsigned = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(claim))}`;
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(unsigned);
+  signer.end();
+  const signature = signer.sign(sa.private_key);
+  const assertion = `${unsigned}.${b64url(signature)}`;
+
+  const resp = await fetch(claim.aud, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion,
+    }),
+  });
+  if (!resp.ok) throw new Error(`Token request failed (${resp.status})`);
+  const data = await resp.json();
+  if (!data.access_token) throw new Error("No access token returned");
+  return data.access_token;
+}
+
+exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  try {
+    const path = req.path || req.url || "";
+
+    // GET /status — check if Drive is configured
+    if (req.method === "GET" && path.endsWith("/status")) {
+      const sa = parseGoogleServiceAccount();
+      return sendJson(res, 200, {
+        configured: Boolean(sa),
+        email: sa ? sa.client_email : null,
+      });
+    }
+
+    // POST /poll — list PDFs in a folder
+    if (req.method === "POST" && path.endsWith("/poll")) {
+      const body = parseJsonBody(req);
+      const { folderId, since, serviceAccountJson } = body;
+
+      if (!folderId) {
+        return sendJson(res, 400, { error: "folderId is required" });
+      }
+
+      const token = await getDriveAccessToken(serviceAccountJson || null);
+
+      let q = `'${folderId}' in parents and mimeType='application/pdf' and trashed=false`;
+      if (since) q += ` and createdTime > '${since}'`;
+
+      const driveResp = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime,webViewLink,size,mimeType)&orderBy=createdTime%20desc`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!driveResp.ok) {
+        const text = await driveResp.text();
+        return sendJson(res, 500, { error: `Drive API ${driveResp.status}: ${text.slice(0, 400)}` });
+      }
+
+      const data = await driveResp.json();
+      return sendJson(res, 200, { files: data.files || [] });
+    }
+
+    return sendJson(res, 404, { error: "Not found" });
+  } catch (e) {
+    return sendJson(res, 500, { error: e?.message || "Google Drive error" });
+  }
+});
+
 exports.workerRosterGoogleApi = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
   try {
     const path = req.path || req.url || "";
