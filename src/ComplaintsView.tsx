@@ -436,19 +436,19 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
+    <div className="p-3 sm:p-8 max-w-6xl mx-auto space-y-3 sm:space-y-8">
 
       {/* Title */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold text-white mb-1">Complaints</h2>
-          <p className="text-sm text-slate-400">Upload a complaints PDF to extract, analyse, and track all entries.</p>
+          <h2 className="text-lg sm:text-2xl font-bold text-white mb-0.5 sm:mb-1">Complaints</h2>
+          <p className="hidden sm:block text-sm text-slate-400">Upload a complaints PDF to extract, analyse, and track all entries.</p>
         </div>
         {untranslatedCount > 0 && (
           <button
             onClick={translateAll}
             disabled={translatingAll}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all disabled:opacity-60"
             style={{ backgroundColor: `${roleColor}22`, color: roleColor, border: `1px solid ${roleColor}44` }}
           >
             {translatingAll
@@ -465,7 +465,7 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         onClick={() => !uploading && fileInputRef.current?.click()}
-        className="rounded-2xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center py-10 px-6 text-center"
+        className="rounded-2xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center py-5 sm:py-10 px-4 sm:px-6 text-center"
         style={{
           borderColor: dragOver ? roleColor : 'rgba(255,255,255,0.12)',
           background:  dragOver ? `${roleColor}10` : 'rgba(255,255,255,0.02)',
@@ -475,14 +475,14 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
           onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
         {uploading ? (
           <>
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 mb-3" style={{ borderColor: roleColor }} />
-            <p className="text-sm font-semibold text-slate-300">{progress}</p>
+            <div className="animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-b-2 mb-2 sm:mb-3" style={{ borderColor: roleColor }} />
+            <p className="text-xs sm:text-sm font-semibold text-slate-300">{progress}</p>
           </>
         ) : (
           <>
-            <span className="text-4xl mb-3">📄</span>
-            <p className="text-sm font-semibold text-white mb-1">Drop a complaints PDF here</p>
-            <p className="text-xs text-slate-500">or click to browse · PDF only</p>
+            <span className="text-2xl sm:text-4xl mb-2 sm:mb-3">📄</span>
+            <p className="text-xs sm:text-sm font-semibold text-white mb-0.5 sm:mb-1">Drop a complaints PDF here</p>
+            <p className="text-[10px] sm:text-xs text-slate-500">or click to browse · PDF only</p>
           </>
         )}
       </div>
@@ -504,16 +504,16 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
 
       {/* Stats */}
       {complaints.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           {[
             { label: 'Total Complaints', value: complaints.length,                           color: roleColor },
             { label: 'This Year',        value: totalThisYear,                               color: '#00ffff' },
             { label: 'This Month',       value: monthlyData.at(-1)?.count ?? 0,              color: '#ffd700' },
             { label: 'Most Recent',      value: latestDate ? displayDate(latestDate) : '—',  color: '#ff4d4d', small: true },
           ].map(stat => (
-            <div key={stat.label} className="rounded-2xl p-5 border border-white/8" style={{ background: 'rgba(255,255,255,0.03)' }}>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">{stat.label}</p>
-              <p className={`font-bold ${stat.small ? 'text-lg' : 'text-3xl'}`} style={{ color: stat.color }}>{stat.value}</p>
+            <div key={stat.label} className="rounded-xl sm:rounded-2xl p-2.5 sm:p-5 border border-white/8" style={{ background: 'rgba(255,255,255,0.03)' }}>
+              <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 sm:mb-2">{stat.label}</p>
+              <p className={`font-bold ${stat.small ? 'text-sm sm:text-lg' : 'text-xl sm:text-3xl'}`} style={{ color: stat.color }}>{stat.value}</p>
             </div>
           ))}
         </div>
@@ -521,9 +521,9 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
 
       {/* Chart */}
       {monthlyData.length > 1 && (
-        <div className="rounded-2xl border border-white/8 p-6" style={{ background: 'rgba(255,255,255,0.02)' }}>
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Complaints by Month</h3>
-          <div className="h-[220px]">
+        <div className="rounded-xl sm:rounded-2xl border border-white/8 p-3 sm:p-6" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 sm:mb-6">Complaints by Month</h3>
+          <div className="h-[140px] sm:h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlyData} barSize={28}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
@@ -544,18 +544,18 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
 
       {/* AI Insights */}
       {complaints.length > 0 && (
-        <div className="rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
+        <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
 
           {/* Header */}
-          <div className="px-6 py-4 border-b border-white/8 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🤖</span>
-              <h3 className="text-sm font-bold text-white uppercase tracking-widest">AI Insights</h3>
-              <span className="text-[10px] text-slate-600 normal-case tracking-normal font-normal">· powered by OpenAI</span>
+          <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-white/8 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-base sm:text-lg">🤖</span>
+              <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-widest">AI Insights</h3>
+              <span className="hidden sm:inline text-[10px] text-slate-600 normal-case tracking-normal font-normal">· powered by OpenAI</span>
             </div>
             <button
               onClick={() => setShowKeyInput(v => !v)}
-              className="text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-400 transition-colors flex items-center gap-1"
+              className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-400 transition-colors flex items-center gap-1"
             >
               ⚙ {apiKey ? 'API Key ✓' : 'Set API Key'}
             </button>
@@ -563,18 +563,18 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
 
           {/* API Key input (collapsible) */}
           {showKeyInput && (
-            <div className="px-6 py-3 border-b border-white/8 bg-white/[0.015] flex items-center gap-3">
+            <div className="px-3 sm:px-6 py-3 border-b border-white/8 bg-white/[0.015] flex items-center gap-2 sm:gap-3">
               <input
                 type="password"
                 placeholder="sk-proj-..."
                 value={apiKey}
                 onChange={e => saveApiKey(e.target.value)}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 font-mono"
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs sm:text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 font-mono"
                 style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
               />
               <button
                 onClick={() => setShowKeyInput(false)}
-                className="text-xs font-bold px-3 py-2 rounded-xl transition-colors text-white"
+                className="text-xs font-bold px-3 py-2 rounded-xl transition-colors text-white shrink-0"
                 style={{ backgroundColor: `${roleColor}33` }}
               >
                 Save
@@ -582,7 +582,7 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
             </div>
           )}
 
-          <div className="p-6 space-y-4">
+          <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
             {/* Quick prompt chips */}
             <div className="flex flex-wrap gap-2">
               {[
@@ -665,15 +665,15 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
 
       {/* List */}
       {complaints.length > 0 && (
-        <div className="rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
-          <div className="px-6 py-4 border-b border-white/8 flex items-center justify-between gap-4">
-            <h3 className="text-sm font-bold text-slate-300 uppercase tracking-widest">
+        <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <div className="px-3 sm:px-6 py-2.5 sm:py-4 border-b border-white/8 flex items-center justify-between gap-3">
+            <h3 className="text-[9px] sm:text-sm font-bold text-slate-300 uppercase tracking-widest">
               All Entries <span className="text-slate-600 font-normal normal-case tracking-normal">({filtered.length})</span>
             </h3>
             <input
               type="text" placeholder="Search..." value={search}
               onChange={e => setSearch(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-xl py-1.5 px-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 w-52"
+              className="bg-white/5 border border-white/10 rounded-xl py-1 sm:py-1.5 px-2.5 sm:px-3 text-xs sm:text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 w-32 sm:w-52"
               style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
             />
           </div>
@@ -695,34 +695,34 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
                 return (
                   <div key={c.id} className="group">
                     <div
-                      className="flex items-start gap-4 px-6 py-4 hover:bg-white/[0.03] transition-colors cursor-pointer"
+                      className="flex items-start gap-2 sm:gap-4 px-3 sm:px-6 py-2.5 sm:py-4 hover:bg-white/[0.03] transition-colors cursor-pointer"
                       onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
                     >
-                      <span className="text-[11px] font-mono text-slate-600 pt-0.5 shrink-0 w-6 text-right">{i + 1}</span>
+                      <span className="text-[10px] font-mono text-slate-600 pt-0.5 shrink-0 w-5 text-right">{i + 1}</span>
 
                       {/* Date chip */}
-                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg shrink-0 mt-0.5"
+                      <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg shrink-0 mt-0.5"
                         style={{ background: `${roleColor}22`, color: roleColor }}>
                         {displayDate(c.date)}
                       </span>
 
-                      {/* Description — show translation if available */}
+                      {/* Description */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-300 leading-relaxed line-clamp-2">{displayText}</p>
+                        <p className="text-xs sm:text-sm text-slate-300 leading-relaxed line-clamp-2">{displayText}</p>
                         {hasTranslation && c.detectedLang && (
-                          <span className="text-[10px] text-slate-600 mt-0.5 block">
-                            🌐 Translated from <span className="text-slate-500">{c.detectedLang}</span>
+                          <span className="text-[9px] sm:text-[10px] text-slate-600 mt-0.5 block">
+                            🌐 from <span className="text-slate-500">{c.detectedLang}</span>
                           </span>
                         )}
                       </div>
 
                       {/* Translate button + expand */}
-                      <div className="flex items-center gap-2 shrink-0 ml-2" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0" onClick={e => e.stopPropagation()}>
                         {needsTranslation && (
                           <button
                             onClick={() => translateOne(c)}
                             disabled={isTranslating}
-                            className="px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all disabled:opacity-60"
+                            className="hidden sm:inline-flex px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all disabled:opacity-60"
                             style={{ backgroundColor: `${roleColor}20`, color: roleColor, border: `1px solid ${roleColor}40` }}
                           >
                             {isTranslating
@@ -731,14 +731,13 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
                             }
                           </button>
                         )}
-                        <span className="text-[10px] text-slate-600 hidden sm:block truncate max-w-[100px]">{c.source}</span>
                         <span className="text-slate-600 text-xs" style={{ transform: expandedId === c.id ? 'rotate(180deg)' : 'none', display: 'inline-block' }}>▾</span>
                       </div>
                     </div>
 
                     {/* Expanded */}
                     {expandedId === c.id && (
-                      <div className="px-6 pb-5 pt-2 border-t border-white/5" style={{ background: 'rgba(255,255,255,0.015)' }}>
+                      <div className="px-3 sm:px-6 pb-4 sm:pb-5 pt-2 border-t border-white/5" style={{ background: 'rgba(255,255,255,0.015)' }}>
 
                         {/* Original text */}
                         <div className="mb-3">
