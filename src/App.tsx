@@ -85,6 +85,7 @@ export default function App() {
     systemCards.some(c => c.link === link && c.link_type === 'internal' && (c.is_view_only ?? false));
 
   const trackerViewOnly = isViewOnlyCard('tracker');
+  const trackerCard     = systemCards.find((c: SystemCard) => c.link === 'tracker' && c.link_type === 'internal');
   const perms: RolePermissions = trackerViewOnly
     ? { ...basePerms, edit_projects: false, create_projects: false }
     : basePerms;
@@ -364,7 +365,7 @@ export default function App() {
         projects={visibleProjects}
         allProjects={projects}
       />
-      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
     </>
   );
 
@@ -377,7 +378,7 @@ export default function App() {
         roleColor={userRoleColor}
         viewOnly={isViewOnlyCard('workflow')}
       />
-      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
     </>
   );
@@ -391,7 +392,7 @@ export default function App() {
         roleColor={userRoleColor}
         viewOnly={isViewOnlyCard('workers')}
       />
-      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
     </>
   );
@@ -410,7 +411,7 @@ export default function App() {
           permissions={perms}
           roleColor={userRoleColor}
         />
-        <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+        <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       </>
     );
   }
@@ -425,7 +426,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#0a0510] text-white font-sans selection:bg-[#ff00ff]/30 pb-nav md:pb-0">
       <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
-      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           {/* Hub link — hidden on mobile (use bottom nav instead) */}
@@ -630,8 +631,8 @@ export default function App() {
         <div className="glass-card rounded-[2rem] overflow-hidden border border-white/10">
           <div className="p-4 sm:p-8 border-b border-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4 sm:gap-6">
             <div>
-              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] mb-1">Master Account Table</h2>
-              <p className="text-xs sm:text-sm text-slate-400">Manage and track all project lifecycles across accounts.</p>
+              <h2 className="text-xl sm:text-2xl font-display font-bold text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] mb-1">{trackerCard?.title ?? 'Project Tracker'}</h2>
+              <p className="text-xs sm:text-sm text-slate-400">{trackerCard?.description ?? 'Manage and track all project lifecycles across accounts.'}</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative flex-1 sm:flex-none">
@@ -807,15 +808,16 @@ export default function App() {
 }
 
 // ── Bottom Navigation Bar (mobile only) ───────────────────────────────────────
-function BottomNav({ current, onNavigate, perms, roleColor }: {
+function BottomNav({ current, onNavigate, perms, roleColor, systemCards }: {
   current: AppView; onNavigate: (v: AppView) => void;
-  perms: RolePermissions; roleColor: string;
+  perms: RolePermissions; roleColor: string; systemCards: SystemCard[];
 }) {
+  const trackerLabel = systemCards.find((c: SystemCard) => c.link === 'tracker' && c.link_type === 'internal')?.title ?? 'Tracker';
   const items = [
-    { view: 'hub'      as AppView, icon: <Home size={20} />,         label: 'Hub',      always: true },
-    { view: 'tracker'  as AppView, icon: <ClipboardList size={20} />, label: 'Tracker',  always: false, show: perms.access_tracker },
-    { view: 'workflow' as AppView, icon: <Zap size={20} />,           label: 'Workflow', always: false, show: true },
-    { view: 'it-admin' as AppView, icon: <SettingsIcon size={20} />,  label: 'Admin',    always: false, show: perms.access_it_admin },
+    { view: 'hub'      as AppView, icon: <Home size={20} />,         label: 'Hub',         always: true },
+    { view: 'tracker'  as AppView, icon: <ClipboardList size={20} />, label: trackerLabel,  always: false, show: perms.access_tracker },
+    { view: 'workflow' as AppView, icon: <Zap size={20} />,           label: 'Workflow',    always: false, show: true },
+    { view: 'it-admin' as AppView, icon: <SettingsIcon size={20} />,  label: 'Admin',       always: false, show: perms.access_it_admin },
   ].filter(i => i.always || i.show);
 
   return (
