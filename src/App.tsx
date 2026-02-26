@@ -293,13 +293,17 @@ export default function App() {
   const visibleProjects = useMemo(() => {
     // Directors always see everything; others see all if they toggled "All Projects"
     if (perms.view_all_projects || showAllProjects) return projects;
-    if (currentUser) return projects.filter(p => p.account_lead_id === currentUser.id);
+    if (currentUser) return projects.filter(p =>
+      (p.assignee_ids ?? [p.account_lead_id]).includes(currentUser.id)
+    );
     return projects;
   }, [projects, perms.view_all_projects, showAllProjects, currentUser]);
 
   const filteredProjects = useMemo(() => {
     if (selectedOwnerId === null) return visibleProjects;
-    return visibleProjects.filter(p => p.account_lead_id === selectedOwnerId);
+    return visibleProjects.filter(p =>
+      (p.assignee_ids ?? [p.account_lead_id]).includes(selectedOwnerId)
+    );
   }, [visibleProjects, selectedOwnerId]);
 
   const stats = useMemo(() => {
@@ -328,7 +332,7 @@ export default function App() {
     assignableUsers.map(u => ({
       id:    u.id,
       name:  u.name.split(' ')[0],
-      count: projects.filter(p => p.account_lead_id === u.id).length,
+      count: projects.filter(p => (p.assignee_ids ?? [p.account_lead_id]).includes(u.id)).length,
     })),
   [assignableUsers, projects]);
 
@@ -685,7 +689,7 @@ export default function App() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 mb-1.5">{p.account_lead_name} · {p.department}</p>
+                    <p className="text-xs text-slate-400 mb-1.5">{p.assignee_names?.join(', ') ?? p.account_lead_name} · {p.department}</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={cn('text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border', STATUS_COLORS[p.status])}>
                         {p.status}
@@ -756,7 +760,11 @@ export default function App() {
                           )}
                         </div>
                       </td>
-                      <td className="px-8 py-5"><span className="text-xs font-medium text-slate-400">{p.account_lead_name}</span></td>
+                      <td className="px-8 py-5">
+                        <span className="text-xs font-medium text-slate-400">
+                          {p.assignee_names?.join(', ') ?? p.account_lead_name}
+                        </span>
+                      </td>
                       <td className="px-8 py-5"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{p.department}</span></td>
                       <td className="px-8 py-5">
                         <span className={cn('text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border', STATUS_COLORS[p.status])}>

@@ -240,7 +240,7 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
                 {STATUS_LABEL[tooltip.project.status]} {tooltip.project.status}
               </p>
               <p className="text-[10px] text-slate-400">
-                <span className="text-slate-500">Owner:</span> {tooltip.project.account_lead_name}
+                <span className="text-slate-500">Owner:</span> {tooltip.project.assignee_names?.join(', ') ?? tooltip.project.account_lead_name}
               </p>
               <p className="text-[10px] text-slate-400">
                 <span className="text-slate-500">Priority:</span> {tooltip.project.priority}

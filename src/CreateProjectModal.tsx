@@ -14,7 +14,7 @@ interface CreateProjectModalProps {
 export default function CreateProjectModal({ adminUsers, currentUser, onClose, onCreated }: CreateProjectModalProps) {
   const [form, setForm] = useState({
     name:               '',
-    account_lead_id:    adminUsers[0]?.id ?? '',
+    assignee_ids:       adminUsers[0] ? [adminUsers[0].id] : [] as string[],
     status:             'Not Started' as ProjectStatus,
     priority:           'Medium'      as ProjectPriority,
     department:         'Business'    as Department,
@@ -27,19 +27,31 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState('');
 
+  const toggleAssignee = (id: string) => {
+    setForm(f => ({
+      ...f,
+      assignee_ids: f.assignee_ids.includes(id)
+        ? f.assignee_ids.filter(x => x !== id)
+        : [...f.assignee_ids, id],
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim())        { setError('Project name is required.'); return; }
-    if (!form.account_lead_id)    { setError('Please assign this project to an admin.'); return; }
+    if (!form.name.trim())              { setError('Project name is required.'); return; }
+    if (form.assignee_ids.length === 0) { setError('Please assign this project to at least one person.'); return; }
 
     setSubmitting(true);
     setError('');
     try {
-      const lead = adminUsers.find(u => u.id === form.account_lead_id);
+      const selectedUsers  = adminUsers.filter(u => form.assignee_ids.includes(u.id));
+      const primaryLead    = selectedUsers[0];
       await addDoc(collection(db, 'projects'), {
         name:               form.name.trim(),
-        account_lead_id:    form.account_lead_id,
-        account_lead_name:  lead?.name ?? '',
+        account_lead_id:    primaryLead?.id   ?? '',
+        account_lead_name:  primaryLead?.name ?? '',
+        assignee_ids:       form.assignee_ids,
+        assignee_names:     selectedUsers.map(u => u.name),
         status:             form.status,
         priority:           form.priority,
         department:         form.department,
@@ -50,7 +62,6 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
         is_time_critical:   form.is_time_critical,
         created_at:         serverTimestamp(),
       });
-      // Audit trail
       await addDoc(collection(db, 'audit_trail'), {
         user_id:    currentUser.id,
         user_name:  currentUser.name,
@@ -67,8 +78,9 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
     }
   };
 
-  const inputClass = "w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff00ff] transition-all";
-  const labelClass = "block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5";
+  const inputCls  = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff00ff] transition-all';
+  const selectCls = 'w-full bg-[#1e1130] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff00ff] transition-all';
+  const labelCls  = 'block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
@@ -82,55 +94,87 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
         {/* Form */}
         <form onSubmit={handleSubmit} className="px-8 py-6 space-y-5 max-h-[75vh] overflow-y-auto">
           <div>
-            <label className={labelClass}>Project Name *</label>
-            <input type="text" className={inputClass} placeholder="Enter project name..."
+            <label className={labelCls}>Project Name *</label>
+            <input type="text" className={inputCls} placeholder="Enter project name..."
               value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
 
+          {/* ── Multi-user assignee selector ── */}
           <div>
-            <label className={labelClass}>Assign To (Office Admin) *</label>
-            <select className={inputClass} value={form.account_lead_id}
-              onChange={e => setForm(f => ({ ...f, account_lead_id: e.target.value }))}>
-              {adminUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+            <label className={labelCls}>
+              Assign To *
+              {form.assignee_ids.length > 0 && (
+                <span className="ml-2 normal-case font-bold text-[#ff00ff]">
+                  {form.assignee_ids.length} selected
+                </span>
+              )}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {adminUsers.map(u => {
+                const selected = form.assignee_ids.includes(u.id);
+                const isPrimary = form.assignee_ids[0] === u.id;
+                return (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => toggleAssignee(u.id)}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all"
+                    style={
+                      selected
+                        ? { background: 'rgba(255,0,255,0.15)', borderColor: 'rgba(255,0,255,0.5)', color: '#ff00ff' }
+                        : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: '#94a3b8' }
+                    }
+                  >
+                    {selected && <span className="text-[10px]">✓</span>}
+                    {u.name}
+                    {isPrimary && selected && (
+                      <span className="text-[9px] font-black uppercase tracking-wider opacity-60">primary</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {form.assignee_ids.length > 1 && (
+              <p className="text-[10px] text-slate-500 mt-1.5">First selected is the primary account lead.</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Department</label>
-              <select className={inputClass} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
+              <label className={labelCls}>Department</label>
+              <select className={selectCls} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
                 {(['Business', 'Finance', 'Personal', 'Health'] as Department[]).map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelClass}>Priority</label>
-              <select className={inputClass} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as ProjectPriority }))}>
+              <label className={labelCls}>Priority</label>
+              <select className={selectCls} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as ProjectPriority }))}>
                 {(['High', 'Medium', 'Low'] as ProjectPriority[]).map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
           </div>
 
           <div>
-            <label className={labelClass}>Status</label>
-            <select className={inputClass} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectStatus }))}>
+            <label className={labelCls}>Status</label>
+            <select className={selectCls} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectStatus }))}>
               {(['Not Started', 'In Progress', 'On Hold', 'Done'] as ProjectStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Start Date</label>
-              <input type="date" className={inputClass} value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
+              <label className={labelCls}>Start Date</label>
+              <input type="date" className={inputCls} value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />
             </div>
             <div>
-              <label className={labelClass}>End Date</label>
-              <input type="date" className={inputClass} value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
+              <label className={labelCls}>End Date</label>
+              <input type="date" className={inputCls} value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
             </div>
           </div>
 
           <div>
-            <label className={labelClass}>Director's Note</label>
-            <textarea className={inputClass + ' resize-none h-20'} placeholder="Optional note..."
+            <label className={labelCls}>Director's Note</label>
+            <textarea className={inputCls + ' resize-none h-20'} placeholder="Optional note..."
               value={form.directors_note} onChange={e => setForm(f => ({ ...f, directors_note: e.target.value }))} />
           </div>
 

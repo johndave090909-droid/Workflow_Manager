@@ -30,8 +30,10 @@ export type Department      = 'Personal' | 'Business' | 'Finance' | 'Health';
 export interface Project {
   id: string;        // Firestore document ID
   name: string;
-  account_lead_id: string;
-  account_lead_name: string;
+  account_lead_id: string;       // primary assignee (backwards compat)
+  account_lead_name: string;     // primary assignee name (backwards compat)
+  assignee_ids?: string[];       // all assignees (includes primary)
+  assignee_names?: string[];     // all assignee names
   status: ProjectStatus;
   priority: ProjectPriority;
   department: Department;

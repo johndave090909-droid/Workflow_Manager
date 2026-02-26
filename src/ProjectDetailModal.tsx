@@ -102,7 +102,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
 
   const [form, setForm] = useState({
     name:              project.name,
-    account_lead_id:   project.account_lead_id,
+    assignee_ids:      project.assignee_ids ?? [project.account_lead_id],
     status:            project.status,
     priority:          project.priority,
     department:        project.department,
@@ -167,10 +167,22 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   const handleSave = async () => {
     setSaving(true);
     try {
-      const lead = users.find(u => u.id === form.account_lead_id);
+      const selectedUsers = adminUsers.filter(u => form.assignee_ids.includes(u.id));
+      const primaryLead   = selectedUsers[0];
       await updateDoc(doc(db, 'projects', project.id), {
-        ...form,
-        account_lead_name: lead?.name ?? project.account_lead_name,
+        name:               form.name,
+        status:             form.status,
+        priority:           form.priority,
+        department:         form.department,
+        start_date:         form.start_date,
+        end_date:           form.end_date,
+        directors_note:     form.directors_note,
+        is_priority_focus:  form.is_priority_focus,
+        is_time_critical:   form.is_time_critical,
+        assignee_ids:       form.assignee_ids,
+        assignee_names:     selectedUsers.map(u => u.name),
+        account_lead_id:    primaryLead?.id   ?? project.account_lead_id,
+        account_lead_name:  primaryLead?.name ?? project.account_lead_name,
       });
       onUpdated();
       setIsEditing(false);
@@ -182,7 +194,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   const handleCancel = () => {
     setForm({
       name:              project.name,
-      account_lead_id:   project.account_lead_id,
+      assignee_ids:      project.assignee_ids ?? [project.account_lead_id],
       status:            project.status,
       priority:          project.priority,
       department:        project.department,
@@ -484,15 +496,62 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
                 </div>
 
                 <div>
-                  <label className={labelCls}>Account Lead</label>
+                  <label className={labelCls}>
+                    Assignees
+                    {isEditing && form.assignee_ids.length > 0 && (
+                      <span className="ml-2 normal-case font-bold text-[#ff00ff]">{form.assignee_ids.length} selected</span>
+                    )}
+                  </label>
                   {isEditing ? (
-                    <select className={selectCls} value={form.account_lead_id} onChange={e => setForm(f => ({ ...f, account_lead_id: e.target.value }))}>
-                      {adminUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                    </select>
+                    <>
+                      <div className="flex flex-wrap gap-2">
+                        {adminUsers.map(u => {
+                          const selected  = form.assignee_ids.includes(u.id);
+                          const isPrimary = form.assignee_ids[0] === u.id;
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => setForm(f => ({
+                                ...f,
+                                assignee_ids: selected
+                                  ? f.assignee_ids.filter(x => x !== u.id)
+                                  : [...f.assignee_ids, u.id],
+                              }))}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all"
+                              style={
+                                selected
+                                  ? { background: 'rgba(255,0,255,0.15)', borderColor: 'rgba(255,0,255,0.5)', color: '#ff00ff' }
+                                  : { background: 'rgba(255,255,255,0.04)', borderColor: 'rgba(255,255,255,0.1)', color: '#94a3b8' }
+                              }
+                            >
+                              {selected && <span className="text-[10px]">✓</span>}
+                              {u.name}
+                              {isPrimary && selected && (
+                                <span className="text-[9px] font-black uppercase tracking-wider opacity-60">primary</span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {form.assignee_ids.length > 1 && (
+                        <p className="text-[10px] text-slate-500 mt-1.5">First selected is the primary account lead.</p>
+                      )}
+                    </>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <img src={currentLead?.photo || `https://picsum.photos/seed/${project.account_lead_id}/100/100`} className="w-6 h-6 rounded-full object-cover border border-white/10" alt="" />
-                      <span className="text-sm text-white font-medium">{project.account_lead_name}</span>
+                    <div className="flex flex-wrap gap-2">
+                      {(project.assignee_ids ?? [project.account_lead_id]).map((id, i) => {
+                        const u    = users.find(x => x.id === id);
+                        const name = project.assignee_names?.[i] ?? u?.name ?? id;
+                        const isPrimary = i === 0;
+                        return (
+                          <div key={id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium bg-white/5 border border-white/10 text-slate-300">
+                            <img src={u?.photo || `https://picsum.photos/seed/${id}/100/100`} className="w-5 h-5 rounded-full object-cover" alt="" />
+                            {name}
+                            {isPrimary && <span className="text-[9px] text-slate-500 font-bold uppercase">lead</span>}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
