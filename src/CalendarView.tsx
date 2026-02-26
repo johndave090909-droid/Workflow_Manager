@@ -5,6 +5,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 import type { EventResizeDoneArg } from '@fullcalendar/interaction';
 import type { EventDropArg } from '@fullcalendar/core';
 import { format, addDays, parseISO } from 'date-fns';
+import { ChevronDown, ChevronUp, CalendarDays } from 'lucide-react';
 import { Project, ProjectStatus, Department } from './types';
 
 const DEPT_COLORS: Record<Department, string> = {
@@ -34,6 +35,7 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
   const calendarRef = useRef<FullCalendar>(null);
   const [tooltip, setTooltip] = useState<{ project: Project; x: number; y: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const tooltipTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Each project appears only on its due date (end_date) as a single-day event
@@ -263,10 +265,24 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
         </div>
       )}
 
-      <div
-        className="glass-card rounded-3xl overflow-hidden border border-white/10 p-6"
-        style={{ background: 'rgba(10,5,16,0.8)' }}
-      >
+      <div className="glass-card rounded-3xl overflow-hidden border border-white/10" style={{ background: 'rgba(10,5,16,0.8)' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+          <div className="flex items-center gap-2">
+            <CalendarDays size={16} className="text-[#ff00ff]" />
+            <span className="text-sm font-bold text-slate-300 uppercase tracking-widest">Calendar</span>
+          </div>
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-white/5 border border-white/5 hover:border-white/15 transition-all"
+          >
+            {collapsed ? <><ChevronDown size={14} /> Show</> : <><ChevronUp size={14} /> Hide</>}
+          </button>
+        </div>
+
+        {/* Collapsible body */}
+        {!collapsed && (
+        <div className="p-6">
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, interactionPlugin]}
@@ -361,18 +377,19 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
             );
           }}
         />
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-6 mt-4 px-2">
-        {(Object.entries(DEPT_COLORS) as [Department, string][]).map(([dept, color]) => (
-          <div key={dept} className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{dept}</span>
+          {/* Legend */}
+          <div className="flex flex-wrap items-center gap-4 sm:gap-6 mt-4 px-2">
+            {(Object.entries(DEPT_COLORS) as [Department, string][]).map(([dept, color]) => (
+              <div key={dept} className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{dept}</span>
+              </div>
+            ))}
+            {!readOnly && <span className="text-[10px] text-slate-600 ml-auto italic">Drag from table or within calendar to change due date</span>}
+            {readOnly && <span className="text-[10px] text-slate-600 ml-auto italic">View only — contact your Director to change dates</span>}
           </div>
-        ))}
-        {!readOnly && <span className="text-[10px] text-slate-600 ml-auto italic">Drag from table or within calendar to change due date</span>}
-        {readOnly && <span className="text-[10px] text-slate-600 ml-auto italic">View only — contact your Director to change dates</span>}
+        </div>
+        )}
       </div>
     </div>
   );
