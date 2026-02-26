@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LogOut, Play, X, Trash2, Plus, RotateCcw, Code2, Settings2, Terminal, Camera, Upload, StickyNote, ChevronDown, ChevronUp } from 'lucide-react';
-import { collection, doc, getDocs, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, onSnapshot, orderBy, query, setDoc } from 'firebase/firestore';
 import { db as firestoreDb } from './firebase';
 import { User } from './types';
 
@@ -493,6 +493,18 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
     all.sort((a, b) => new Date(b.captured_at).getTime() - new Date(a.captured_at).getTime());
     setScreenshots(all);
+  };
+
+  const clearScreenshots = async () => {
+    if (!window.confirm('Delete all screenshot history? This cannot be undone.')) return;
+    // Delete Firestore records
+    try {
+      const snap = await getDocs(collection(firestoreDb, 'screenshots'));
+      await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'screenshots', d.id))));
+    } catch {}
+    // Delete local backend records
+    try { await fetch(API_BASE + '/api/screenshots', { method: 'DELETE' }); } catch {}
+    setScreenshots([]);
   };
 
   useEffect(() => {
@@ -1235,6 +1247,14 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
               <Camera size={11} />
               {capturingScreenshot ? 'Capturing…' : 'Take Screenshot'}
             </button>
+            {screenshots.length > 0 && (
+              <button
+                onClick={clearScreenshots}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
+                style={{ background: 'rgba(255,77,77,.08)', border: '1px solid rgba(255,77,77,.25)', color: '#ff4d4d' }}>
+                🗑 Clear History
+              </button>
+            )}
           </div>
           {/* Screenshots list */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden">
