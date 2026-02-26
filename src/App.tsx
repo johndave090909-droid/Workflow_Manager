@@ -558,9 +558,9 @@ export default function App() {
         {/* Charts row */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-6">
           {perms.view_workload && (
-            <div className="xl:col-span-3 glass-card p-6 rounded-3xl">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Workload by Admin</h3>
-              <div className="h-[300px]">
+            <div className="xl:col-span-3 glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl">
+              <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 sm:mb-6">Workload by Admin</h3>
+              <div className="h-[160px] sm:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={workloadData} onClick={data => {
                     if (data?.activePayload?.[0]) setSelectedOwnerId(data.activePayload[0].payload.id);
