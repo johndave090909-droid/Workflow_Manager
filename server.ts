@@ -1023,6 +1023,72 @@ async function startServer() {
     }
   });
 
+  // ── Google Drive API ────────────────────────────────────────────────────────
+
+  async function driveApi(pathname: string, saJson?: string) {
+    // Use node-provided SA JSON first, fallback to env var
+    let token: string;
+    if (saJson) {
+      try {
+        const sa = JSON.parse(saJson) as GoogleServiceAccount;
+        if (!sa.client_email || !sa.private_key) throw new Error("bad sa");
+        // Temporarily swap env to reuse getGoogleAccessToken
+        const original = process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT;
+        process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT = saJson;
+        token = await getGoogleAccessToken(["https://www.googleapis.com/auth/drive.readonly"]);
+        process.env.GOOGLE_SHEETS_SERVICE_ACCOUNT = original;
+      } catch {
+        token = await getGoogleAccessToken(["https://www.googleapis.com/auth/drive.readonly"]);
+      }
+    } else {
+      token = await getGoogleAccessToken(["https://www.googleapis.com/auth/drive.readonly"]);
+    }
+    const resp = await fetch(`https://www.googleapis.com/drive/v3/${pathname}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`Drive API ${resp.status}: ${text.slice(0, 400)}`);
+    }
+    return resp.json();
+  }
+
+  // Status check — tells the frontend whether Drive is usable
+  app.get("/api/google-drive/status", (_req, res) => {
+    const sa = parseGoogleServiceAccount();
+    res.json({ configured: !!sa, email: sa?.client_email ?? null });
+  });
+
+  // Poll a folder for PDF files (optionally filtered by createdTime > since)
+  app.post("/api/google-drive/poll", async (req, res) => {
+    const { folderId, since, serviceAccountJson } = req.body as {
+      folderId?: string;
+      since?: string;        // ISO date — only return files newer than this
+      serviceAccountJson?: string;
+    };
+
+    if (!folderId) {
+      res.status(400).json({ error: "folderId is required" });
+      return;
+    }
+
+    try {
+      let q = `'${folderId}' in parents and mimeType='application/pdf' and trashed=false`;
+      if (since) {
+        q += ` and createdTime > '${since}'`;
+      }
+
+      const data = await driveApi(
+        `files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime,webViewLink,size,mimeType)&orderBy=createdTime%20desc`,
+        serviceAccountJson
+      ) as { files: any[] };
+
+      res.json({ files: data.files ?? [] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Drive API error" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

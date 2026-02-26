@@ -1471,35 +1471,94 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     setNodeLog({});
     setNodes(prev => prev.map(n => ({ ...n, status: 'idle' })));
 
+    // Collect found PDF files so the email node can reference them
+    let foundFiles: { id: string; name: string; webViewLink?: string; createdTime?: string }[] = [];
+
     const order = getExecutionOrder(nodes, edges);
     for (const id of order) {
       const node = nodes.find(n => n.id === id);
       if (!node) continue;
       setStatus(id, 'running');
       log(id, `▶ Starting ${node.label}…`);
-      await sleep(600);
+      await sleep(400);
 
       try {
         if (node.type === 'google_drive') {
           const folderId = node.config.folderId?.trim() || '';
           if (!folderId) {
             log(id, '⚠ No Folder ID configured — open node settings to add one');
-          } else {
-            log(id, `📂 Watching Drive folder: ${folderId}`);
-            await sleep(800);
-            log(id, '🔍 Polling for new PDFs…');
-            await sleep(1200);
-            log(id, '✓ Trigger active — new PDFs will fire the next node');
+            setStatus(id, 'error');
+            break;
           }
+          log(id, `📂 Polling Drive folder: ${folderId}`);
+          try {
+            const res = await fetch(API_BASE + '/api/google-drive/poll', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                folderId,
+                serviceAccountJson: node.config.serviceAccountJson?.trim() || undefined,
+              }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({})) as any;
+              log(id, `✗ Drive API error: ${err.error || res.status}`);
+              setStatus(id, 'error');
+              break;
+            }
+            const data = await res.json() as { files: typeof foundFiles };
+            foundFiles = data.files ?? [];
+            if (foundFiles.length === 0) {
+              log(id, '📭 No PDF files found in folder');
+            } else {
+              log(id, `✓ Found ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''}:`);
+              foundFiles.slice(0, 5).forEach(f => log(id, `   • ${f.name}`));
+              if (foundFiles.length > 5) log(id, `   … and ${foundFiles.length - 5} more`);
+            }
+          } catch {
+            log(id, '⚠ Could not reach backend — running in view-only mode');
+            log(id, '   (Deploy to Railway or run the local server to enable Drive polling)');
+          }
+
         } else if (node.type === 'email') {
           const to = node.config.to?.trim() || '';
           if (!to) {
             log(id, '⚠ No recipient configured — open node settings to add one');
+            setStatus(id, 'error');
+            break;
+          }
+          if (foundFiles.length === 0) {
+            log(id, '📭 No new PDFs — skipping email');
           } else {
             log(id, `✉️ Sending email to ${to}…`);
-            await sleep(1000);
-            log(id, `✓ Email sent: "${node.config.subject || 'New PDF in Drive'}"`);
+            // Build a file list for the email body
+            const fileList = foundFiles.map(f =>
+              f.webViewLink ? `<li><a href="${f.webViewLink}">${f.name}</a></li>` : `<li>${f.name}</li>`
+            ).join('');
+            const body = (node.config.body || '<p>New PDFs found in your Drive folder:</p>')
+              .replace('{{file.name}}', foundFiles[0]?.name ?? '')
+              + `<ul>${fileList}</ul>`;
+            try {
+              const res = await fetch(API_BASE + '/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  to, cc: node.config.cc || '',
+                  subject: node.config.subject || 'New PDF in Drive',
+                  body,
+                }),
+              });
+              if (res.ok) {
+                log(id, `✓ Email sent to ${to}: "${node.config.subject || 'New PDF in Drive'}"`);
+              } else {
+                const err = await res.json().catch(() => ({})) as any;
+                log(id, `⚠ Email API: ${err.error || res.status} — configure SMTP in server settings`);
+              }
+            } catch {
+              log(id, '⚠ Could not reach backend — email not sent');
+            }
           }
+
         } else {
           log(id, `✓ ${node.label} completed`);
         }
