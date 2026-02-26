@@ -556,7 +556,7 @@ export default function App() {
         </div>
 
         {/* Charts row */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-6">
           {perms.view_workload && (
             <div className="xl:col-span-3 glass-card p-6 rounded-3xl">
               <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Workload by Admin</h3>
@@ -581,14 +581,14 @@ export default function App() {
             </div>
           )}
 
-          <div className="xl:col-span-3 glass-card p-6 rounded-3xl">
-            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Progress by Area</h3>
-            <div className="h-[300px]">
+          <div className="xl:col-span-3 glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl">
+            <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 sm:mb-6">Progress by Area</h3>
+            <div className="h-[160px] sm:h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={deptData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.05)" />
                   <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} width={80} />
+                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 10 }} width={60} />
                   <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: '#1a1025', border: 'none', borderRadius: '8px' }} />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                     {deptData.map((entry, i) => <Cell key={i} fill={DEPT_COLORS[entry.name as Department]} />)}
@@ -598,19 +598,19 @@ export default function App() {
             </div>
           </div>
 
-          <div className="xl:col-span-3 glass-card p-6 rounded-3xl">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Next Deadlines</h3>
-              <Clock size={16} className="text-[#ff00ff]" />
+          <div className="xl:col-span-3 glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl">
+            <div className="flex items-center justify-between mb-3 sm:mb-6">
+              <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest">Next Deadlines</h3>
+              <Clock size={12} className="text-[#ff00ff] sm:w-4 sm:h-4" />
             </div>
-            <div className="space-y-4">
+            <div className="space-y-1.5 sm:space-y-4">
               {nextDeadlines.map(p => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold group-hover:text-[#00ffff] transition-colors">{p.name}</span>
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">{p.account_lead_name}</span>
+                <div key={p.id} className="flex items-center justify-between px-2.5 py-1.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 transition-all group">
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-xs sm:text-sm font-semibold group-hover:text-[#00ffff] transition-colors truncate">{p.name}</span>
+                    <span className="text-[9px] sm:text-[10px] text-slate-500 font-bold uppercase">{p.account_lead_name}</span>
                   </div>
-                  <span className={cn('text-xs font-mono font-bold', isBefore(parseISO(p.end_date), new Date()) ? 'text-[#ff4d4d]' : 'text-[#ffd700]')}>
+                  <span className={cn('text-[10px] sm:text-xs font-mono font-bold ml-2 flex-shrink-0', isBefore(parseISO(p.end_date), new Date()) ? 'text-[#ff4d4d]' : 'text-[#ffd700]')}>
                     {format(parseISO(p.end_date), 'MMM dd')}
                   </span>
                 </div>
