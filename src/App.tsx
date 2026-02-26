@@ -85,7 +85,7 @@ export default function App() {
     systemCards.some(c => c.link === link && c.link_type === 'internal' && (c.is_view_only ?? false));
 
   const trackerViewOnly = isViewOnlyCard('tracker');
-  const trackerCard     = systemCards.find((c: SystemCard) => c.link === 'tracker' && c.link_type === 'internal');
+  const trackerCard = systemCards.find((c: SystemCard) => c.link === 'tracker' && c.link_type === 'internal');
   const perms: RolePermissions = trackerViewOnly
     ? { ...basePerms, edit_projects: false, create_projects: false }
     : basePerms;
@@ -814,10 +814,10 @@ function BottomNav({ current, onNavigate, perms, roleColor, systemCards }: {
 }) {
   const trackerLabel = systemCards.find((c: SystemCard) => c.link === 'tracker' && c.link_type === 'internal')?.title ?? 'Tracker';
   const items = [
-    { view: 'hub'      as AppView, icon: <Home size={20} />,         label: 'Hub',         always: true },
-    { view: 'tracker'  as AppView, icon: <ClipboardList size={20} />, label: trackerLabel,  always: false, show: perms.access_tracker },
-    { view: 'workflow' as AppView, icon: <Zap size={20} />,           label: 'Workflow',    always: false, show: true },
-    { view: 'it-admin' as AppView, icon: <SettingsIcon size={20} />,  label: 'Admin',       always: false, show: perms.access_it_admin },
+    { view: 'hub'      as AppView, icon: <Home size={20} />,          label: 'Hub',        always: true },
+    { view: 'tracker'  as AppView, icon: <ClipboardList size={20} />, label: trackerLabel, always: false, show: perms.access_tracker },
+    { view: 'workflow' as AppView, icon: <Zap size={20} />,           label: 'Workflow',   always: false, show: true },
+    { view: 'it-admin' as AppView, icon: <SettingsIcon size={20} />,  label: 'Admin',      always: false, show: perms.access_it_admin },
   ].filter(i => i.always || i.show);
 
   return (
