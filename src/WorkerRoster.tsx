@@ -971,47 +971,47 @@ export default function WorkerRoster({
       <main className="p-4 sm:p-6 lg:p-8 space-y-4">
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
           <div className="flex flex-col xl:flex-row xl:items-center gap-3 xl:gap-4 justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={addRow} disabled={viewOnly} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-[#00c2ff] text-[#062033] disabled:opacity-50">
-                <Plus size={16} /> Add Row
+            <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2">
+              <button onClick={addRow} disabled={viewOnly} className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold bg-[#00c2ff] text-[#062033] disabled:opacity-50">
+                <Plus size={14} /> Add Row
               </button>
-              <button onClick={addColumn} disabled={viewOnly} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-[#93c5fd] text-[#082f49] disabled:opacity-50">
-                <Plus size={16} /> Add Column
+              <button onClick={addColumn} disabled={viewOnly} className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold bg-[#93c5fd] text-[#082f49] disabled:opacity-50">
+                <Plus size={14} /> Add Column
               </button>
-              <button onClick={resetToStarter} disabled={viewOnly} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50">
-                <RefreshCw size={15} /> Reset Template
+              <button onClick={resetToStarter} disabled={viewOnly} className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50">
+                <RefreshCw size={13} /> Reset Template
               </button>
               <button
                 onClick={() => { if (viewOnly) return; setColumnWidths({}); setRowHeights({}); setDirty(true); }}
                 disabled={viewOnly}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
               >
                 Reset Sizes
               </button>
               <button
                 onClick={saveRoster}
                 disabled={viewOnly || saving || !dirty}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold text-white disabled:opacity-50"
                 style={{ backgroundColor: dirty ? '#22c55e' : '#334155' }}
               >
-                <Save size={16} /> {saving ? 'Saving...' : 'Save Changes'}
+                <Save size={14} /> {saving ? 'Saving...' : 'Save Changes'}
               </button>
               <button
                 onClick={copySelectionToClipboard}
                 disabled={!selection}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
               >
-                <Copy size={15} /> Copy Range
+                <Copy size={13} /> Copy Range
               </button>
               <button
                 onClick={() => { void reloadFromGoogle(); }}
                 disabled={!googleSyncConfigured || saving}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
+                className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-bold border border-white/15 bg-white/5 text-slate-200 disabled:opacity-50"
                 title="Discard local unsaved changes and reload latest data from Google Sheets"
               >
-                <RefreshCw size={15} /> Reload from Google
+                <RefreshCw size={13} /> Reload from Google
               </button>
-              {viewOnly && <span className="text-xs font-black uppercase tracking-widest px-3 py-2 rounded-xl border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">View Only</span>}
+              {viewOnly && <span className="col-span-2 sm:col-span-1 text-xs font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700] text-center">View Only</span>}
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
