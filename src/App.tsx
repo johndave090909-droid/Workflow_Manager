@@ -527,18 +527,20 @@ export default function App() {
 
       <main className="p-4 sm:p-8 max-w-[1600px] mx-auto space-y-6 sm:space-y-8">
         {/* KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-1.5 sm:gap-4">
           <KPICard label="Total Projects"    value={stats.total}      icon={<ClipboardList className="text-[#00ffff]" />} />
           <KPICard label="Completed"         value={stats.completed}  icon={<CheckCircle2  className="text-[#00ffff]" />} />
           <KPICard label="Onboarding"        value={stats.onboarding} icon={<Zap           className="text-[#ffd700]" />} />
           <KPICard label="Overdue"           value={stats.overdue}    icon={<AlertCircle   className="text-[#ff4d4d]" />} critical={stats.overdue > 0} />
-          <div className="glass-card p-4 sm:p-6 rounded-3xl flex items-center justify-between group overflow-hidden relative col-span-2 sm:col-span-2 lg:col-span-1">
-            <div className="relative z-10">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Overall Completion</p>
-              <p className="text-5xl font-display font-bold text-[#00ffff]">{stats.completionRate}%</p>
+          <div className="glass-card group overflow-hidden relative col-span-2 sm:col-span-2 lg:col-span-1
+            flex items-center gap-3 px-3 py-2 rounded-xl
+            sm:flex sm:items-center sm:justify-between sm:p-6 sm:rounded-3xl">
+            <div className="relative z-10 flex-1">
+              <p className="text-[9px] sm:text-xs font-bold text-slate-400 uppercase tracking-widest mb-0.5 sm:mb-2">Overall Completion</p>
+              <p className="text-base sm:text-5xl font-display font-bold text-[#00ffff]">{stats.completionRate}%</p>
             </div>
-            <div className="relative w-20 h-20 z-10">
-              <svg className="w-full h-full transform -rotate-90">
+            <div className="relative w-10 h-10 sm:w-20 sm:h-20 z-10 flex-shrink-0">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 80 80">
                 <circle cx="40" cy="40" r="32" stroke="currentColor" strokeWidth="7" fill="transparent" className="text-white/5" />
                 <circle cx="40" cy="40" r="32" stroke="currentColor" strokeWidth="7" fill="transparent"
                   strokeDasharray={201} strokeDashoffset={201 - (201 * stats.completionRate) / 100}
@@ -546,7 +548,7 @@ export default function App() {
                 />
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                <Target size={20} className="text-[#00ffff]/50" />
+                <Target size={12} className="text-[#00ffff]/50 sm:w-5 sm:h-5" />
               </div>
             </div>
             <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-[#00ffff]/5 rounded-full blur-3xl group-hover:bg-[#00ffff]/10 transition-all" />
@@ -904,12 +906,20 @@ function ViewOnlyToast({ show, onClose }: { show: boolean; onClose: () => void }
 
 function KPICard({ label, value, icon, critical }: { label: string; value: number; icon: React.ReactNode; critical?: boolean }) {
   return (
-    <div className={cn('glass-card p-6 rounded-3xl transition-all duration-300 group relative overflow-hidden', critical && 'border-rose-500/30 bg-rose-500/5')}>
-      <div className="flex items-center justify-between mb-4 relative z-10">
+    <div className={cn('glass-card relative overflow-hidden transition-all duration-300 group', critical && 'border-rose-500/30 bg-rose-500/5',
+      'flex items-center gap-2 px-3 py-2 rounded-xl sm:block sm:p-6 sm:rounded-3xl')}>
+      {/* Mobile: horizontal compact */}
+      <div className="flex-shrink-0 [&>svg]:w-3.5 [&>svg]:h-3.5 sm:hidden">{icon}</div>
+      <div className="flex-1 min-w-0 sm:hidden">
+        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest truncate">{label}</p>
+        <p className={cn('text-base font-display font-bold leading-tight', critical ? 'text-[#ff4d4d]' : 'text-white')}>{value}</p>
+      </div>
+      {/* Desktop: original vertical layout */}
+      <div className="hidden sm:flex items-center justify-between mb-4 relative z-10">
         <div className="p-2 bg-white/5 rounded-xl group-hover:scale-110 transition-transform">{icon}</div>
         <ArrowUpRight size={16} className="text-slate-500 group-hover:text-white transition-colors" />
       </div>
-      <div className="relative z-10">
+      <div className="hidden sm:block relative z-10">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{label}</p>
         <p className={cn('text-3xl font-display font-bold', critical ? 'text-[#ff4d4d]' : 'text-white')}>{value}</p>
       </div>
