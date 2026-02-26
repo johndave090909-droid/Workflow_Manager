@@ -29,6 +29,7 @@ interface NodeTypeDef {
 const NODE_TYPE_DEFS: NodeTypeDef[] = [
   { type: 'schedule',      label: 'Schedule',      icon: '⏰', color: '#ff9500', category: 'trigger', defaultConfig: { frequency: 'daily', time: '09:00', timezone: 'Pacific/Honolulu' } },
   { type: 'webhook',       label: 'Webhook',        icon: '⚡', color: '#ff7849', category: 'trigger', defaultConfig: { path: '/webhook', method: 'POST' } },
+  { type: 'google_drive',  label: 'Google Drive PDF', icon: '📂', color: '#4285f4', category: 'trigger', defaultConfig: { folderId: '', apiKey: '', watchInterval: '60', serviceAccountJson: '' } },
   { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', selector: '', format: 'PNG', fullPage: 'true' } },
   { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipientId: '', message: 'Daily screenshot report' } },
   { type: 'data_transform',label: 'Data Transform', icon: '⚙️', color: '#a855f7', category: 'action', defaultConfig: { mode: 'JSON → CSV', filter: '' } },
@@ -83,6 +84,15 @@ const INITIAL_NODES: WFNode[] = [
 const INITIAL_EDGES: WFEdge[] = [
   { id: 'e1', fromId: 'n1', toId: 'n2' },
   { id: 'e2', fromId: 'n2', toId: 'n3' },
+];
+
+// ── Initial Google Drive workflow ───────────────────────────────────────────────
+const INITIAL_GDRIVE_NODES: WFNode[] = [
+  { id: 'g1', type: 'google_drive', label: 'Google Drive PDF', icon: '📂', color: '#4285f4', x: 60,  y: 120, status: 'idle', config: { folderId: '', watchInterval: '60', serviceAccountJson: '' } },
+  { id: 'g2', type: 'email',        label: 'Send Email',        icon: '✉️', color: '#00ffff', x: 370, y: 120, status: 'idle', config: { to: '', cc: '', subject: 'New PDF in Drive', body: '<p>A new PDF was uploaded to your Google Drive folder.</p><p><strong>File:</strong> {{file.name}}</p>', attachScreenshot: 'false' } },
+];
+const INITIAL_GDRIVE_EDGES: WFEdge[] = [
+  { id: 'ge1', fromId: 'g1', toId: 'g2' },
 ];
 
 // ── Execution order ────────────────────────────────────────────────────────────
@@ -340,6 +350,64 @@ async function execute(input) {
   };
 }`;
 
+    case 'google_drive': return `// 📂  Google Drive PDF Trigger
+// Polls a Google Drive folder for newly uploaded PDF files
+// and fires the next node in the workflow for each new file found.
+
+const { google } = require('googleapis');
+
+const FOLDER_ID       = '${node.config.folderId || 'YOUR_FOLDER_ID'}';
+const WATCH_INTERVAL  = ${node.config.watchInterval || 60} * 1000; // ms
+const SCOPES          = ['https://www.googleapis.com/auth/drive.readonly'];
+
+async function getAuthClient() {
+  // Option A — Service Account (recommended for automation)
+  const auth = new google.auth.GoogleAuth({
+    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}'),
+    scopes: SCOPES,
+  });
+  return auth.getClient();
+}
+
+async function getNewPDFs(drive, lastChecked) {
+  const query = [
+    \`'\${FOLDER_ID}' in parents\`,
+    \`mimeType = 'application/pdf'\`,
+    \`trashed = false\`,
+    lastChecked ? \`createdTime > '\${lastChecked}'\` : '',
+  ].filter(Boolean).join(' and ');
+
+  const res = await drive.files.list({
+    q: query,
+    fields: 'files(id, name, createdTime, webViewLink, size, mimeType)',
+    orderBy: 'createdTime desc',
+    pageSize: 20,
+  });
+  return res.data.files || [];
+}
+
+// ── Main polling loop ──────────────────────────────────────────────────────────
+const auth  = await getAuthClient();
+const drive = google.drive({ version: 'v3', auth });
+let lastChecked = new Date().toISOString();
+
+setInterval(async () => {
+  try {
+    const newFiles = await getNewPDFs(drive, lastChecked);
+    if (newFiles.length > 0) {
+      lastChecked = new Date().toISOString();
+      console.log(\`[GDrive] \${newFiles.length} new PDF(s) found\`);
+      for (const file of newFiles) {
+        console.log(\`  → \${file.name} (id: \${file.id})\`);
+        // Pass file info to the next node
+        workflow.emit('trigger', { file, triggeredAt: new Date().toISOString() });
+      }
+    }
+  } catch (err) {
+    console.error('[GDrive] Poll error:', err.message);
+  }
+}, WATCH_INTERVAL);`;
+
     default: return `// Node type: ${node.type}\n// No code template available for this node.`;
   }
 }
@@ -353,8 +421,9 @@ function getNodeOutput(node: WFNode): string {
     case 'screenshot': return JSON.stringify({ imageBase64: 'iVBORw0KGgoAAAANSUhEUgA...', format: node.config.format || 'PNG', url: node.config.url, capturedAt: t, sizeBytes: 48320 }, null, 2);
     case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipientId || 'RECIPIENT_PSID', sentAt: t }, null, 2);
     case 'data_transform': return JSON.stringify({ output: 'id,name,value\n1,Alpha,100\n2,Beta,200', format: 'csv', rowCount: 2, processedAt: t }, null, 2);
-    case 'email':    return JSON.stringify({ messageId: '<abc123@smtp.example.com>', to: node.config.to, sentAt: t }, null, 2);
-    default:         return '{}';
+    case 'email':        return JSON.stringify({ messageId: '<abc123@smtp.example.com>', to: node.config.to, sentAt: t }, null, 2);
+    case 'google_drive': return JSON.stringify({ files: [{ id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74O', name: 'Invoice_2024_001.pdf', createdTime: t, webViewLink: 'https://drive.google.com/file/d/1BxiMVs.../view', size: '245760', mimeType: 'application/pdf' }], folderId: node.config.folderId || 'YOUR_FOLDER_ID', triggeredAt: t }, null, 2);
+    default:             return '{}';
   }
 }
 
@@ -443,6 +512,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     nodeStatuses: Record<string, string>;
     nodeLogs: Record<string, string[]>;
   } | null>(null);
+  const [wfPage, setWfPage] = useState<'main' | 'gdrive'>('main');
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved           = useRef(false);
@@ -893,6 +963,17 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             }
           } catch { log(id, '⚠ Couldn\'t reach email server'); }
         }
+      } else if (node.type === 'google_drive') {
+        const folderId = node.config.folderId?.trim() || '';
+        if (!folderId) {
+          log(id, '⚠ No Folder ID configured — open node settings to add one');
+        } else {
+          log(id, `📂 Watching Drive folder: ${folderId}`);
+          await sleep(800);
+          log(id, '🔍 Polling for new PDFs…');
+          await sleep(1200);
+          log(id, '✓ Trigger active — new PDFs will fire the next node');
+        }
       } else {
         await sleep(750 + Math.random() * 750);
       }
@@ -971,18 +1052,36 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             </span>
           )}
         </div>
+        <div className="w-px h-5 bg-white/10 shrink-0" />
+        {/* ── Workflow tabs ── */}
+        <div className="flex items-center gap-1 p-0.5 rounded-xl shrink-0" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}>
+          {([
+            { key: 'main',   label: '📸 Screenshot Reporter' },
+            { key: 'gdrive', label: '📂 Drive PDF Watcher' },
+          ] as const).map(tab => (
+            <button key={tab.key} onClick={() => setWfPage(tab.key)}
+              className="px-3 py-1 rounded-lg text-[10px] font-bold transition-all"
+              style={{
+                background: wfPage === tab.key ? 'rgba(255,0,255,.25)' : 'transparent',
+                color:      wfPage === tab.key ? '#ff00ff' : '#64748b',
+                boxShadow:  wfPage === tab.key ? '0 0 10px rgba(255,0,255,.2)' : 'none',
+              }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <div className="flex-1" />
-        {!viewOnly && <button onClick={handleReset}
+        {wfPage === 'main' && !viewOnly && <button onClick={handleReset}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold">
           <RotateCcw size={11} /> Reset
         </button>}
-        {!viewOnly && backendAvailable ? (
+        {wfPage === 'main' && !viewOnly && backendAvailable ? (
           <button onClick={handleExecute} disabled={executing}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: executing ? 'rgba(255,0,255,.2)' : '#ff00ff', boxShadow: executing ? 'none' : '0 0 20px rgba(255,0,255,.4)' }}>
             <Play size={12} fill="white" />{executing ? 'Running…' : 'Execute Workflow'}
           </button>
-        ) : !viewOnly ? (
+        ) : wfPage === 'main' && !viewOnly ? (
           <div className="flex items-center gap-2">
             <button
               disabled={remoteRunning}
@@ -1021,7 +1120,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             )}
           </div>
         ) : null}
-        {!viewOnly && backendAvailable && <button onClick={() => {
+        {wfPage === 'main' && !viewOnly && backendAvailable && <button onClick={() => {
             const next = !liveMode;
             setLiveMode(next);
             const sched = nodes.find(n => n.type === 'schedule');
@@ -1062,6 +1161,10 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
+
+      {wfPage === 'gdrive' ? (
+        <GDriveWorkflowPage viewOnly={viewOnly} />
+      ) : (<>
 
         {/* Left sidebar — hidden in view-only mode */}
         {!viewOnly && (
@@ -1300,11 +1403,12 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
         </div>{/* end screenshots panel */}
 
         </div>{/* end right column */}
-      </div>
+      </>) /* end wfPage === 'main' */}
+      </div>{/* end body */}
 
 
-      {/* ── Node Editor Modal ── */}
-      {nodeModal && (
+      {/* ── Node Editor Modal (main workflow) ── */}
+      {wfPage === 'main' && nodeModal && (
         <NodeEditorModal
           node={nodeModal}
           tab={editorTab}
@@ -1317,6 +1421,381 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
         />
       )}
     </div>
+  );
+}
+
+// ── Google Drive Workflow Page ─────────────────────────────────────────────────
+function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
+  const [nodes, setNodes] = useState<WFNode[]>(() => {
+    try {
+      const s = localStorage.getItem('wf_gdrive_nodes');
+      if (!s) return INITIAL_GDRIVE_NODES;
+      const saved: WFNode[] = JSON.parse(s);
+      return saved.map(node => {
+        const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
+        if (!def) return node;
+        return { ...node, config: { ...def.defaultConfig, ...node.config } };
+      });
+    } catch { return INITIAL_GDRIVE_NODES; }
+  });
+  const [edges, setEdges] = useState<WFEdge[]>(() => {
+    try { const s = localStorage.getItem('wf_gdrive_edges'); return s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES; } catch { return INITIAL_GDRIVE_EDGES; }
+  });
+  const [selectedId, setSelectedId]     = useState<string | null>(null);
+  const [nodeModal, setNodeModal]       = useState<WFNode | null>(null);
+  const [editorTab, setEditorTab]       = useState<EditorTab>('code');
+  const [executing, setExecuting]       = useState(false);
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [mousePos, setMousePos]         = useState({ x: 0, y: 0 });
+  const [nodeLog, setNodeLog]           = useState<Record<string, string[]>>({});
+  const [logOpen, setLogOpen]           = useState(true);
+
+  const dragging     = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const dragMoved    = useRef(false);
+  const wrapperRef   = useRef<HTMLDivElement>(null);
+  const executingRef = useRef(false);
+
+  useEffect(() => { localStorage.setItem('wf_gdrive_nodes', JSON.stringify(nodes)); }, [nodes]);
+  useEffect(() => { localStorage.setItem('wf_gdrive_edges', JSON.stringify(edges)); }, [edges]);
+
+  const log = (nodeId: string, msg: string) =>
+    setNodeLog(prev => ({ ...prev, [nodeId]: [...(prev[nodeId] || []), `[${new Date().toLocaleTimeString()}] ${msg}`] }));
+
+  const setStatus = (id: string, s: WFNode['status']) =>
+    setNodes(prev => prev.map(n => n.id === id ? { ...n, status: s } : n));
+
+  const handleExecute = async () => {
+    if (executingRef.current) return;
+    executingRef.current = true;
+    setExecuting(true);
+    setNodeLog({});
+    setNodes(prev => prev.map(n => ({ ...n, status: 'idle' })));
+
+    const order = getExecutionOrder(nodes, edges);
+    for (const id of order) {
+      const node = nodes.find(n => n.id === id);
+      if (!node) continue;
+      setStatus(id, 'running');
+      log(id, `▶ Starting ${node.label}…`);
+      await sleep(600);
+
+      try {
+        if (node.type === 'google_drive') {
+          const folderId = node.config.folderId?.trim() || '';
+          if (!folderId) {
+            log(id, '⚠ No Folder ID configured — open node settings to add one');
+          } else {
+            log(id, `📂 Watching Drive folder: ${folderId}`);
+            await sleep(800);
+            log(id, '🔍 Polling for new PDFs…');
+            await sleep(1200);
+            log(id, '✓ Trigger active — new PDFs will fire the next node');
+          }
+        } else if (node.type === 'email') {
+          const to = node.config.to?.trim() || '';
+          if (!to) {
+            log(id, '⚠ No recipient configured — open node settings to add one');
+          } else {
+            log(id, `✉️ Sending email to ${to}…`);
+            await sleep(1000);
+            log(id, `✓ Email sent: "${node.config.subject || 'New PDF in Drive'}"`);
+          }
+        } else {
+          log(id, `✓ ${node.label} completed`);
+        }
+        setStatus(id, 'success');
+      } catch {
+        log(id, `✗ ${node.label} failed`);
+        setStatus(id, 'error');
+      }
+    }
+
+    executingRef.current = false;
+    setExecuting(false);
+  };
+
+  const handleReset = () => {
+    if (!window.confirm('Reset Google Drive workflow to default? This cannot be undone.')) return;
+    localStorage.removeItem('wf_gdrive_nodes');
+    localStorage.removeItem('wf_gdrive_edges');
+    setNodes(INITIAL_GDRIVE_NODES);
+    setEdges(INITIAL_GDRIVE_EDGES);
+    setNodeLog({});
+  };
+
+  // ── Canvas mouse handlers ──
+  const getCanvasPos = (e: React.MouseEvent) => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    const scrollLeft = wrapperRef.current?.scrollLeft ?? 0;
+    const scrollTop  = wrapperRef.current?.scrollTop  ?? 0;
+    return { x: e.clientX - (rect?.left ?? 0) + scrollLeft, y: e.clientY - (rect?.top ?? 0) + scrollTop };
+  };
+
+  const handleNodeMouseDown = (e: React.MouseEvent, id: string) => {
+    if (connectingFrom) return;
+    e.stopPropagation();
+    dragMoved.current = false;
+    const node = nodes.find(n => n.id === id)!;
+    const pos = getCanvasPos(e);
+    dragging.current = { nodeId: id, offX: pos.x - node.x, offY: pos.y - node.y };
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+    const pos = getCanvasPos(e);
+    setMousePos(pos);
+    if (dragging.current) {
+      dragMoved.current = true;
+      const { nodeId, offX, offY } = dragging.current;
+      setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, x: pos.x - offX, y: pos.y - offY } : n));
+    }
+  };
+
+  const handleCanvasMouseUp = () => { dragging.current = null; };
+
+  const handleCanvasClick = () => {
+    if (connectingFrom) { setConnectingFrom(null); return; }
+    setSelectedId(null);
+  };
+
+  const handleNodeClick = (e: React.MouseEvent, id: string) => {
+    if (connectingFrom) return;
+    if (dragMoved.current) return;
+    e.stopPropagation();
+    setSelectedId(id);
+    const node = nodes.find(n => n.id === id)!;
+    setNodeModal(node);
+  };
+
+  const handleOutputPortClick = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (connectingFrom === id) { setConnectingFrom(null); return; }
+    if (connectingFrom) {
+      if (connectingFrom !== id && !edges.find(ed => ed.fromId === connectingFrom && ed.toId === id)) {
+        const newEdge: WFEdge = { id: `ge${Date.now()}`, fromId: connectingFrom, toId: id };
+        setEdges(prev => [...prev, newEdge]);
+      }
+      setConnectingFrom(null);
+    } else {
+      setConnectingFrom(id);
+    }
+  };
+
+  const handleInputPortClick = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (connectingFrom && connectingFrom !== id) {
+      if (!edges.find(ed => ed.fromId === connectingFrom && ed.toId === id)) {
+        setEdges(prev => [...prev, { id: `ge${Date.now()}`, fromId: connectingFrom, toId: id }]);
+      }
+      setConnectingFrom(null);
+    }
+  };
+
+  const handleAddNode = (def: NodeTypeDef) => {
+    const id = `g${Date.now()}`;
+    setNodes(prev => [...prev, { id, type: def.type, label: def.label, icon: def.icon, color: def.color, x: 200 + prev.length * 60, y: 200, status: 'idle', config: { ...def.defaultConfig } }]);
+  };
+
+  const handleUpdateConfig = (id: string, key: string, value: string) => {
+    setNodes(prev => prev.map(n => n.id === id ? { ...n, config: { ...n.config, [key]: value } } : n));
+    setNodeModal(prev => prev && prev.id === id ? { ...prev, config: { ...prev.config, [key]: value } } : prev);
+  };
+  const handleUpdateLabel = (id: string, label: string) => {
+    setNodes(prev => prev.map(n => n.id === id ? { ...n, label } : n));
+    setNodeModal(prev => prev && prev.id === id ? { ...prev, label } : prev);
+  };
+  const handleDeleteNode = (id: string) => {
+    setNodes(prev => prev.filter(n => n.id !== id));
+    setEdges(prev => prev.filter(e => e.fromId !== id && e.toId !== id));
+    setNodeModal(null); setSelectedId(null);
+  };
+
+  // SVG path helper
+  const getPath = (fromId: string, toId: string) => {
+    const from = nodes.find(n => n.id === fromId);
+    const to   = nodes.find(n => n.id === toId);
+    if (!from || !to) return '';
+    const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2;
+    const x2 = to.x,            y2 = to.y + NODE_H / 2;
+    const cp = Math.max(50, Math.abs(x2 - x1) * 0.4);
+    return `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${x2 - cp} ${y2}, ${x2} ${y2}`;
+  };
+  const getTempPath = () => {
+    if (!connectingFrom) return '';
+    const from = nodes.find(n => n.id === connectingFrom);
+    if (!from) return '';
+    const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2;
+    const cp = Math.max(50, Math.abs(mousePos.x - x1) * 0.4);
+    return `M ${x1} ${y1} C ${x1 + cp} ${y1}, ${mousePos.x - cp} ${mousePos.y}, ${mousePos.x} ${mousePos.y}`;
+  };
+
+  const triggers = NODE_TYPE_DEFS.filter(d => d.category === 'trigger');
+  const actions  = NODE_TYPE_DEFS.filter(d => d.category === 'action');
+
+  return (
+    <>
+      {/* Sidebar */}
+      {!viewOnly && (
+        <aside className="shrink-0 border-r border-white/8 flex flex-col py-4 overflow-y-auto"
+          style={{ width: 172, background: 'rgba(5,2,10,.98)' }}>
+          <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[.22em] text-slate-600">Triggers</p>
+          <div className="flex flex-col gap-0.5 px-2 mb-4">
+            {triggers.map(d => <SidebarItem key={d.type} def={d} onAdd={handleAddNode} />)}
+          </div>
+          <div className="mx-4 border-t border-white/6 mb-4" />
+          <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[.22em] text-slate-600">Actions</p>
+          <div className="flex flex-col gap-0.5 px-2">
+            {actions.map(d => <SidebarItem key={d.type} def={d} onAdd={handleAddNode} />)}
+          </div>
+          <div className="mt-auto px-4 pt-4 border-t border-white/6">
+            <button onClick={handleReset}
+              className="flex items-center gap-2 w-full px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold mb-3">
+              <RotateCcw size={11} /> Reset
+            </button>
+            {!viewOnly && (
+              <button onClick={handleExecute} disabled={executing}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-white text-xs font-bold transition-all disabled:opacity-50"
+                style={{ background: executing ? 'rgba(66,133,244,.2)' : '#4285f4', boxShadow: executing ? 'none' : '0 0 16px rgba(66,133,244,.4)' }}>
+                <Play size={11} fill="white" />{executing ? 'Running…' : 'Execute'}
+              </button>
+            )}
+            <p className="text-[9px] text-slate-600 leading-relaxed mt-3">
+              Click a node to <span style={{ color: '#4285f4' }}>configure it</span>. Drag to reposition. Click ● to connect.
+            </p>
+          </div>
+        </aside>
+      )}
+
+      {/* Canvas + Log */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Canvas */}
+        <div ref={wrapperRef} className="flex-1 overflow-auto"
+          style={{ cursor: connectingFrom ? 'crosshair' : 'default', minHeight: 0 }}
+          onMouseMove={handleCanvasMouseMove}
+          onMouseUp={handleCanvasMouseUp}
+          onClick={handleCanvasClick}>
+          <div style={{ width: CANVAS_W, height: CANVAS_H, position: 'relative',
+            backgroundImage: 'radial-gradient(circle,rgba(255,255,255,.055) 1px,transparent 1px)',
+            backgroundSize: '24px 24px' }}>
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none',
+              background: 'radial-gradient(ellipse 60% 50% at 30% 35%,rgba(66,133,244,.04) 0%,transparent 70%)' }} />
+
+            {/* Info banner */}
+            <div style={{
+              position: 'absolute', top: 16, left: 16, right: 16, zIndex: 5, pointerEvents: 'none',
+              background: 'rgba(66,133,244,.08)', border: '1px solid rgba(66,133,244,.25)',
+              borderRadius: 12, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span style={{ fontSize: 12 }}>📂</span>
+              <span style={{ fontSize: 10, color: '#7ba7f5', fontWeight: 700 }}>
+                Drive PDF Watcher — triggers when a new PDF is uploaded to the configured Google Drive folder, then passes the file to the next node.
+              </span>
+            </div>
+
+            {/* SVG connections */}
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}>
+              <defs>
+                {(['Idle','Running','Success'] as const).map(s => (
+                  <marker key={s} id={`garr${s}`} markerWidth="7" markerHeight="7" refX="5.5" refY="3.5" orient="auto">
+                    <path d="M 0 0.5 L 6 3.5 L 0 6.5 z" fill={s==='Running'?'#ffd700':s==='Success'?'#00cc7a':'rgba(255,255,255,.18)'} />
+                  </marker>
+                ))}
+              </defs>
+              {edges.map(edge => {
+                const from = nodes.find(n => n.id === edge.fromId);
+                const to   = nodes.find(n => n.id === edge.toId);
+                if (!from || !to) return null;
+                const isRun = from.status === 'running'; const isOk = from.status === 'success';
+                const col  = isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)';
+                const mark = isOk ? 'garrSuccess' : isRun ? 'garrRunning' : 'garrIdle';
+                return (
+                  <path key={edge.id} d={getPath(edge.fromId, edge.toId)}
+                    stroke={col} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
+                    markerEnd={`url(#${mark})`}
+                    style={{ transition: 'stroke .5s,stroke-width .3s' }} />
+                );
+              })}
+              {connectingFrom && getTempPath() && (
+                <path d={getTempPath()} stroke="#4285f4" strokeWidth="2" fill="none" strokeDasharray="7 4" style={{ animation: 'wf-dash .4s linear infinite' }} />
+              )}
+            </svg>
+
+            {/* Nodes */}
+            {nodes.map(node => (
+              <WFNodeCard key={node.id} node={node}
+                selected={selectedId === node.id}
+                connecting={connectingFrom === node.id}
+                logs={nodeLog[node.id] ?? []}
+                onMouseDown={handleNodeMouseDown}
+                onClick={handleNodeClick}
+                onOutputPortClick={handleOutputPortClick}
+                onInputPortClick={handleInputPortClick} />
+            ))}
+
+            {nodes.length === 0 && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                <div className="text-center"><p className="text-5xl mb-4">📂</p><p className="text-sm font-bold text-slate-500">Click a node type in the sidebar to get started</p></div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Execution Log Panel */}
+        <div className="shrink-0 border-t border-white/10 flex flex-col" style={{ height: 200, background: 'rgba(5,2,10,.98)' }}>
+          <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/6 shrink-0">
+            <Terminal size={13} style={{ color: '#4285f4' }} />
+            <span className="text-xs font-bold text-white">Execution Log</span>
+            {Object.values(nodeLog).some(l => l.length > 0) && (
+              <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md"
+                style={{ background: '#4285f418', color: '#4285f4', border: '1px solid #4285f430' }}>
+                {Object.values(nodeLog).reduce((a, l) => a + l.length, 0)} entries
+              </span>
+            )}
+            <div className="flex-1" />
+            <button onClick={() => setLogOpen(o => !o)} className="text-slate-500 hover:text-white transition-colors">
+              {logOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+            </button>
+            {Object.values(nodeLog).some(l => l.length > 0) && (
+              <button onClick={() => setNodeLog({})}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
+                style={{ background: 'rgba(255,77,77,.08)', border: '1px solid rgba(255,77,77,.25)', color: '#ff4d4d' }}>
+                <X size={9} /> Clear
+              </button>
+            )}
+          </div>
+          {logOpen && (
+            <div className="flex-1 overflow-y-auto px-5 py-3 font-mono text-[10px] text-slate-400 space-y-0.5">
+              {Object.values(nodeLog).flat().length === 0 ? (
+                <p className="text-slate-600 text-center mt-4">No logs yet — click Execute to run the workflow.</p>
+              ) : (
+                Object.entries(nodeLog).map(([nodeId, lines]) => {
+                  const node = nodes.find(n => n.id === nodeId);
+                  return lines.map((line, i) => (
+                    <p key={`${nodeId}-${i}`}>
+                      <span style={{ color: node?.color ?? '#4285f4', fontWeight: 700 }}>{node?.icon ?? '◆'} </span>
+                      {line}
+                    </p>
+                  ));
+                })
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Node editor modal for gdrive page */}
+      {nodeModal && (
+        <NodeEditorModal
+          node={nodeModal}
+          tab={editorTab}
+          onTabChange={setEditorTab}
+          onUpdateConfig={handleUpdateConfig}
+          onUpdateLabel={handleUpdateLabel}
+          onDelete={handleDeleteNode}
+          onClose={() => { setNodeModal(null); setSelectedId(null); }}
+          viewOnly={viewOnly}
+        />
+      )}
+    </>
   );
 }
 
@@ -1833,6 +2312,50 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                           SMTP credentials are read from environment variables.<br />
                           Set <span className="font-mono text-slate-500">SMTP_HOST</span>, <span className="font-mono text-slate-500">SMTP_USER</span>, <span className="font-mono text-slate-500">SMTP_PASS</span> in your <span className="font-mono text-slate-500">.env</span> file.
                         </p>
+                      </div>
+                    </>
+                  ) : node.type === 'google_drive' ? (
+                    <>
+                      {/* Folder ID */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Google Drive Folder ID <span className="text-rose-400">*</span></label>
+                        <input type="text" value={node.config.folderId || ''} placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgm..."
+                          onChange={e => onUpdateConfig(node.id, 'folderId', e.target.value)}
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = '#4285f460'; e.currentTarget.style.boxShadow = '0 0 0 3px #4285f414'; } }}
+                          onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                        <p className="mt-1.5 text-[10px] text-slate-600">Find it in the Drive URL: drive.google.com/drive/folders/<span className="text-[#4285f4]">FOLDER_ID</span></p>
+                      </div>
+                      {/* Watch Interval */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Poll Interval (seconds)</label>
+                        <input type="number" min="10" value={node.config.watchInterval || '60'} placeholder="60"
+                          onChange={e => onUpdateConfig(node.id, 'watchInterval', e.target.value)}
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = '#4285f460'; e.currentTarget.style.boxShadow = '0 0 0 3px #4285f414'; } }}
+                          onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                        <p className="mt-1.5 text-[10px] text-slate-600">How often to check for new PDFs. Minimum: 10 seconds.</p>
+                      </div>
+                      {/* Service Account JSON */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Service Account JSON <span className="text-rose-400">*</span></label>
+                        <textarea rows={5} value={node.config.serviceAccountJson || ''} placeholder={'{\n  "type": "service_account",\n  "project_id": "...",\n  ...\n}'}
+                          onChange={e => onUpdateConfig(node.id, 'serviceAccountJson', e.target.value)}
+                          className="w-full rounded-xl px-4 py-2.5 text-xs text-white outline-none transition-all disabled:opacity-50 font-mono resize-y"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = '#4285f460'; e.currentTarget.style.boxShadow = '0 0 0 3px #4285f414'; } }}
+                          onBlur={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                        <p className="mt-1.5 text-[10px] text-slate-600">Paste your Google Cloud service account JSON. The account needs <span className="text-slate-400">Drive read access</span> to the folder.</p>
+                      </div>
+                      {/* Info banner */}
+                      <div className="rounded-xl p-3 text-[10px] leading-relaxed text-slate-400" style={{ background: 'rgba(66,133,244,.08)', border: '1px solid rgba(66,133,244,.2)' }}>
+                        <p className="font-bold text-[#4285f4] mb-1">📂 How it works</p>
+                        <p>This trigger polls the specified Google Drive folder every <strong>{node.config.watchInterval || 60}s</strong>. When a new PDF is detected it passes the file metadata to the next node in the workflow (e.g. Send Email with the file link).</p>
                       </div>
                     </>
                   ) : (
