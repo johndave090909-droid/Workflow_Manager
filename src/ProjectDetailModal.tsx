@@ -63,14 +63,16 @@ const PRIORITY_COLOR: Record<ProjectPriority, string> = {
 interface Props {
   project: Project;
   users: User[];
+  assignableUsers?: User[];
   currentUser: User;
   onClose: () => void;
   onUpdated: () => void;
   onMarkRead: () => void;
+  onDelete?: () => void;
   viewOnly?: boolean;
 }
 
-export default function ProjectDetailModal({ project, users, currentUser, onClose, onUpdated, onMarkRead, viewOnly = false }: Props) {
+export default function ProjectDetailModal({ project, users, assignableUsers, currentUser, onClose, onUpdated, onMarkRead, onDelete, viewOnly = false }: Props) {
   // viewOnly overrides edit access even for Directors
   const isDirector = currentUser.role === 'Director' && !viewOnly;
 
@@ -193,6 +195,28 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
     setIsEditing(false);
   };
 
+  const handleDeleteProject = async () => {
+    if (!window.confirm(`Delete "${project.name}"?\n\nThis will permanently remove the project, all tasks, messages, and uploaded files. This cannot be undone.`)) return;
+    try {
+      // Delete deliverable Storage files + Firestore docs
+      const delivSnap = await getDocs(collection(db, 'projects', project.id, 'deliverables'));
+      await Promise.all(delivSnap.docs.map(async d => {
+        const data = d.data();
+        if (data.storagePath) { try { await deleteObject(ref(storage, data.storagePath)); } catch {} }
+        await deleteDoc(doc(db, 'projects', project.id, 'deliverables', d.id));
+      }));
+      // Delete tasks
+      const taskSnap = await getDocs(collection(db, 'projects', project.id, 'tasks'));
+      await Promise.all(taskSnap.docs.map(d => deleteDoc(doc(db, 'projects', project.id, 'tasks', d.id))));
+      // Delete messages
+      const msgSnap = await getDocs(collection(db, 'projects', project.id, 'messages'));
+      await Promise.all(msgSnap.docs.map(d => deleteDoc(doc(db, 'projects', project.id, 'messages', d.id))));
+      // Delete project document
+      await deleteDoc(doc(db, 'projects', project.id));
+      onDelete?.();
+    } catch {}
+  };
+
   // ── Tasks ──────────────────────────────────────────────────────
   const toggleTask = async (task: Task) => {
     await updateDoc(doc(db, 'projects', project.id, 'tasks', task.id), { completed: !task.completed });
@@ -308,6 +332,12 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
     setDeliverables(prev => prev.filter(d => d.id !== deliv.id));
   };
 
+  const handleToggleShared = async (deliv: Deliverable) => {
+    const newVal = !(deliv.sharedWithAll ?? false);
+    await updateDoc(doc(db, 'projects', project.id, 'deliverables', deliv.id), { sharedWithAll: newVal });
+    setDeliverables(prev => prev.map(d => d.id === deliv.id ? { ...d, sharedWithAll: newVal } : d));
+  };
+
   const handleView = (deliv: Deliverable) => {
     const type = getFileViewType(deliv.contentType, deliv.name);
     if (type === 'image' || type === 'video') {
@@ -323,7 +353,7 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
   };
 
   // ── Derived ────────────────────────────────────────────────────
-  const adminUsers      = users.filter(u => u.role === 'Admin');
+  const adminUsers      = assignableUsers ?? users;
   const currentLead     = users.find(u => u.id === project.account_lead_id);
   const completedCount  = tasks.filter(t => t.completed).length;
   const totalTasks      = tasks.length;
@@ -333,8 +363,9 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
   const displayPriorityFocus = isEditing ? form.is_priority_focus : Boolean(project.is_priority_focus);
   const displayTimeCritical  = isEditing ? form.is_time_critical  : Boolean(project.is_time_critical);
 
-  const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff00ff] transition-all';
-  const labelCls = 'block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5';
+  const inputCls  = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff00ff] transition-all';
+  const selectCls = 'w-full bg-[#1e1130] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff00ff] transition-all';
+  const labelCls  = 'block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5';
 
   return (
     <>
@@ -411,12 +442,21 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
             </div>
             <div className="flex items-center gap-2 ml-4 flex-shrink-0">
               {isDirector && !isEditing && (
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-slate-300 hover:text-[#ff00ff] hover:border-[#ff00ff]/30 transition-all"
-                >
-                  <Edit2 size={12} /> Edit
-                </button>
+                <>
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-slate-300 hover:text-[#ff00ff] hover:border-[#ff00ff]/30 transition-all"
+                  >
+                    <Edit2 size={12} /> Edit
+                  </button>
+                  <button
+                    onClick={handleDeleteProject}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-slate-500 hover:text-[#ff4d4d] hover:border-[#ff4d4d]/30 hover:bg-[#ff4d4d]/5 transition-all"
+                    title="Delete project"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                </>
               )}
               <button onClick={onClose} className="p-1.5 text-slate-500 hover:text-white transition-colors">
                 <X size={20} />
@@ -435,7 +475,7 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
                 <div>
                   <label className={labelCls}>Status</label>
                   {isEditing ? (
-                    <select className={inputCls} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectStatus }))}>
+                    <select className={selectCls} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectStatus }))}>
                       {(['Not Started', 'In Progress', 'On Hold', 'Done'] as ProjectStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   ) : (
@@ -446,7 +486,7 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
                 <div>
                   <label className={labelCls}>Account Lead</label>
                   {isEditing ? (
-                    <select className={inputCls} value={form.account_lead_id} onChange={e => setForm(f => ({ ...f, account_lead_id: e.target.value }))}>
+                    <select className={selectCls} value={form.account_lead_id} onChange={e => setForm(f => ({ ...f, account_lead_id: e.target.value }))}>
                       {adminUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                     </select>
                   ) : (
@@ -461,7 +501,7 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
                   <div>
                     <label className={labelCls}>Department</label>
                     {isEditing ? (
-                      <select className={inputCls} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
+                      <select className={selectCls} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
                         {(['Business', 'Finance', 'Personal', 'Health'] as Department[]).map(d => <option key={d} value={d}>{d}</option>)}
                       </select>
                     ) : (
@@ -474,7 +514,7 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
                   <div>
                     <label className={labelCls}>Priority</label>
                     {isEditing ? (
-                      <select className={inputCls} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as ProjectPriority }))}>
+                      <select className={selectCls} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value as ProjectPriority }))}>
                         {(['High', 'Medium', 'Low'] as ProjectPriority[]).map(p => <option key={p} value={p}>{p}</option>)}
                       </select>
                     ) : (
@@ -659,50 +699,81 @@ export default function ProjectDetailModal({ project, users, currentUser, onClos
                   onDrop={e => { e.preventDefault(); setDragging(false); handleFileUpload(e.dataTransfer.files); }}
                 >
                   {deliverables.map(deliv => {
-                    const type = getFileViewType(deliv.contentType, deliv.name);
-                    const icon = getFileIcon(type, deliv.name);
+                    const type      = getFileViewType(deliv.contentType, deliv.name);
+                    const icon      = getFileIcon(type, deliv.name);
                     const canDelete = isDirector || deliv.uploadedBy === currentUser.id;
+                    const shared    = deliv.sharedWithAll ?? false;
                     return (
                       <div
                         key={deliv.id}
-                        className="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/5 hover:border-white/10 group transition-all"
+                        className="rounded-2xl border group transition-all"
+                        style={{
+                          background:   shared ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.03)',
+                          borderColor:  shared ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.05)',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = shared ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.12)')}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = shared ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.05)')}
                       >
-                        <span className="text-xl flex-shrink-0 leading-none">{icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-white truncate">{deliv.name}</p>
-                          <p className="text-[10px] text-slate-600">
-                            {formatBytes(deliv.size)} · {deliv.uploadedByName} · {format(parseISO(deliv.uploadedAt), 'MMM d, yyyy')}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {/* View / Open */}
-                          <button
-                            onClick={() => handleView(deliv)}
-                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-[#00ffff] bg-[#00ffff]/10 border border-[#00ffff]/20 hover:bg-[#00ffff]/20 transition-all"
-                          >
-                            {type === 'image' || type === 'video' ? 'View' : type === 'office' ? 'Open' : 'View'}
-                          </button>
-                          {/* Download */}
-                          <a
-                            href={deliv.url}
-                            download={deliv.name}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 bg-white/5 border border-white/10 hover:text-white hover:border-white/20 transition-all"
-                            title="Download"
-                          >
-                            ↓
-                          </a>
-                          {/* Delete */}
-                          {canDelete && (
+                        {/* Main row */}
+                        <div className="flex items-center gap-3 px-3 pt-3 pb-2">
+                          <span className="text-xl flex-shrink-0 leading-none">{icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-white truncate">{deliv.name}</p>
+                              {shared && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                  🌐 Shared with all
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-slate-600 mt-0.5">
+                              {formatBytes(deliv.size)} · {deliv.uploadedByName} · {format(parseISO(deliv.uploadedAt), 'MMM d, yyyy')}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {/* Director: share/unshare toggle */}
+                            {isDirector && (
+                              <button
+                                onClick={() => handleToggleShared(deliv)}
+                                title={shared ? 'Remove from all accounts' : 'Share with all accounts'}
+                                className={`px-2 py-1.5 rounded-lg text-[9px] font-bold transition-all ${
+                                  shared
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30'
+                                    : 'bg-white/5 text-slate-500 border border-white/10 hover:bg-white/10 hover:text-slate-300'
+                                }`}
+                              >
+                                {shared ? '🌐 Shared' : '🔒 Private'}
+                              </button>
+                            )}
+                            {/* View / Open */}
                             <button
-                              onClick={() => handleDeleteDeliverable(deliv)}
-                              className="p-1.5 text-slate-600 hover:text-[#ff4d4d] transition-colors rounded-lg hover:bg-[#ff4d4d]/10 opacity-0 group-hover:opacity-100"
-                              title="Delete"
+                              onClick={() => handleView(deliv)}
+                              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-[#00ffff] bg-[#00ffff]/10 border border-[#00ffff]/20 hover:bg-[#00ffff]/20 transition-all"
                             >
-                              <Trash2 size={12} />
+                              {type === 'image' || type === 'video' ? 'View' : 'Open'}
                             </button>
-                          )}
+                            {/* Download */}
+                            <a
+                              href={deliv.url}
+                              download={deliv.name}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 bg-white/5 border border-white/10 hover:text-white hover:border-white/20 transition-all"
+                              title="Download"
+                            >
+                              ↓
+                            </a>
+                            {/* Delete */}
+                            {canDelete && (
+                              <button
+                                onClick={() => handleDeleteDeliverable(deliv)}
+                                className="p-1.5 text-slate-600 hover:text-[#ff4d4d] transition-colors rounded-lg hover:bg-[#ff4d4d]/10 opacity-0 group-hover:opacity-100"
+                                title="Delete"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

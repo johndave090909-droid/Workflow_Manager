@@ -358,6 +358,7 @@ export default function App() {
         permissions={perms}
         roleColor={userRoleColor}
         projects={visibleProjects}
+        allProjects={projects}
       />
       <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} />
     </>
@@ -509,9 +510,11 @@ export default function App() {
         <ProjectDetailModal
           project={selectedProject}
           users={users}
+          assignableUsers={assignableUsers}
           currentUser={currentUser}
           onClose={() => setSelectedProject(null)}
           onUpdated={() => { fetchData(); setSelectedProject(null); }}
+          onDelete={() => { fetchData(); setSelectedProject(null); }}
           onMarkRead={() => currentUser && fetchUnreadCounts(currentUser.id, projects)}
           viewOnly={trackerViewOnly}
         />
@@ -658,7 +661,7 @@ export default function App() {
           </div>
 
           {perms.edit_projects && (
-            <p className="text-[10px] text-slate-600 italic px-8 pb-3">⠿ Drag any row onto the calendar below to set its due date</p>
+            <p className="text-[10px] text-slate-600 italic px-8 pb-3">⠿ Drag any row onto the calendar above to set its due date</p>
           )}
 
           {/* ── Mobile card list (< md) ── */}
@@ -669,12 +672,13 @@ export default function App() {
             {filteredProjects.map(p => {
               const daysLeft = p.end_date ? differenceInDays(parseISO(p.end_date), new Date()) : null;
               const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done';
+              const isDone = p.status === 'Done';
               return (
-                <div key={p.id} className="p-4 flex items-start gap-3 active:bg-white/5 cursor-pointer" onClick={() => setSelectedProject(p)}>
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: DEPT_COLORS[p.department] }} />
+                <div key={p.id} className={cn("p-4 flex items-start gap-3 active:bg-white/5 cursor-pointer transition-opacity", isDone && "opacity-50")} onClick={() => setSelectedProject(p)}>
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: isDone ? '#4b5563' : DEPT_COLORS[p.department] }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <p className="text-sm font-bold truncate">{p.name}</p>
+                      <p className={cn("text-sm font-bold truncate", isDone && "line-through text-slate-500")}>{p.name}</p>
                       {(unreadCounts[p.id] ?? 0) > 0 && (
                         <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ff00ff] text-white text-[9px] font-black flex items-center justify-center animate-pulse">
                           {unreadCounts[p.id]}
@@ -725,11 +729,12 @@ export default function App() {
                 {filteredProjects.map(p => {
                   const daysLeft = p.end_date ? differenceInDays(parseISO(p.end_date), new Date()) : null;
                   const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done';
+                  const isDone = p.status === 'Done';
 
                   return (
                     <tr
                       key={p.id}
-                      className="group hover:bg-white/[0.03] transition-colors cursor-pointer"
+                      className={cn("group hover:bg-white/[0.03] transition-all cursor-pointer", isDone && "opacity-50")}
                       data-fc-draggable={perms.edit_projects ? 'true' : undefined}
                       data-project-id={p.id}
                       data-project-name={p.name}
@@ -742,8 +747,8 @@ export default function App() {
                       )}
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: DEPT_COLORS[p.department] }} />
-                          <span className="text-sm font-bold tracking-tight group-hover:text-[#ff00ff] transition-colors">{p.name}</span>
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: isDone ? '#4b5563' : DEPT_COLORS[p.department] }} />
+                          <span className={cn("text-sm font-bold tracking-tight transition-colors", isDone ? "line-through text-slate-500" : "group-hover:text-[#ff00ff]")}>{p.name}</span>
                           {(unreadCounts[p.id] ?? 0) > 0 && (
                             <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ff00ff] text-white text-[9px] font-black flex items-center justify-center shadow-lg shadow-[#ff00ff]/40 animate-pulse">
                               {unreadCounts[p.id]}

@@ -39,16 +39,20 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
   // Each project appears only on its due date (end_date) as a single-day event
   const events = projects
     .filter(p => p.end_date)
-    .map(p => ({
-      id: String(p.id),
-      title: p.name,
-      start: p.end_date,
-      allDay: true,
-      backgroundColor: DEPT_COLORS[p.department],
-      borderColor: DEPT_COLORS[p.department],
-      textColor: '#0a0510',
-      extendedProps: { project: p },
-    }));
+    .map(p => {
+      const isDone = p.status === 'Done';
+      return {
+        id: String(p.id),
+        title: p.name,
+        start: p.end_date,
+        allDay: true,
+        backgroundColor: isDone ? '#374151' : DEPT_COLORS[p.department],
+        borderColor:     isDone ? '#374151' : DEPT_COLORS[p.department],
+        textColor:       isDone ? '#9ca3af' : '#0a0510',
+        classNames:      isDone ? ['fc-event-done'] : [],
+        extendedProps: { project: p },
+      };
+    });
 
   // When dragged, the new due date is wherever it was dropped
   const handleEventDrop = async (info: EventDropArg) => {
@@ -211,6 +215,9 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
         .fc-daygrid-day-frame {
           min-height: 110px;
         }
+        .fc-event-done {
+          opacity: 0.45 !important;
+        }
       `}</style>
 
       {/* Tooltip */}
@@ -274,6 +281,11 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
           droppable={!readOnly}
           eventResizableFromStart={false}
           eventDurationEditable={false}
+          eventStartEditable={!readOnly}
+          dragScroll={true}
+          longPressDelay={150}
+          eventLongPressDelay={150}
+          dragRevertDuration={200}
           dayMaxEvents={4}
           height="auto"
           eventDrop={!readOnly ? handleEventDrop : undefined}
@@ -290,16 +302,20 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
             const project: Project = info.event.extendedProps.project;
             if (project && onProjectClick) onProjectClick(project);
           }}
-          eventDragStart={!readOnly ? () => setDragging(true) : undefined}
-          eventDragStop={!readOnly ? () => { setDragging(false); setTooltip(null); } : undefined}
+          eventDragStart={!readOnly ? () => {
+            if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current);
+            setDragging(true);
+            setTooltip(null);
+          } : undefined}
+          eventDragStop={!readOnly ? () => { setDragging(false); } : undefined}
           eventMouseEnter={(info) => {
             const project: Project = info.event.extendedProps.project;
             if (!project) return;
             const rect = info.el.getBoundingClientRect();
             if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current);
             tooltipTimeout.current = setTimeout(() => {
-              setTooltip({ project, x: rect.left, y: rect.top });
-            }, 1000);
+              if (!dragging) setTooltip({ project, x: rect.left, y: rect.top });
+            }, 1400);
           }}
           eventMouseLeave={() => {
             if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current);
@@ -309,11 +325,12 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
             const project: Project = arg.event.extendedProps.project;
             if (!project) return <span className="truncate text-[11px] font-bold px-1">{arg.event.title}</span>;
             const unread = unreadCounts[project.id] ?? 0;
+            const isDone = project.status === 'Done';
             return (
               <div className="flex flex-col px-1 overflow-hidden w-full leading-tight">
                 <div className="flex items-center gap-1 w-full">
                   <span className="text-[10px] opacity-70 shrink-0">{STATUS_LABEL[project.status]}</span>
-                  <span className="truncate text-[11px] font-bold flex-1 min-w-0">{arg.event.title}</span>
+                  <span className={`truncate text-[11px] font-bold flex-1 min-w-0 ${isDone ? 'line-through' : ''}`}>{arg.event.title}</span>
                   {project.is_time_critical && <span className="text-[9px] shrink-0">⚡</span>}
                   {unread > 0 && (
                     <span

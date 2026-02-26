@@ -4,7 +4,7 @@ import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db } from './firebase';
 import ComplaintsView from './ComplaintsView';
-import { collection, getDocs, orderBy, query } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, orderBy, query, where, updateDoc, doc } from 'firebase/firestore';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -41,7 +41,12 @@ function formatBytes(bytes: number): string {
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type HubSection = 'home' | 'complaints' | 'deliverables';
-type DeliverableWithProject = Deliverable & { projectId: string; projectName: string };
+type DeliverableWithProject = Deliverable & {
+  projectId: string;
+  projectName: string;
+  projectDirectorsNote: string | null;
+  sharedWithAll: boolean;
+};
 
 const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
   { id: 'home',         label: 'Home',         emoji: '🏠' },
@@ -58,46 +63,104 @@ interface SystemHubProps {
   onLogout: () => void;
   permissions: RolePermissions;
   roleColor: string;
-  projects: Project[];
+  projects: Project[];       // visible projects for this user
+  allProjects: Project[];    // all projects (for shared deliverable lookup)
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function SystemHub({
-  currentUser, systemCards, onNavigate, onLogout, permissions, roleColor, projects,
+  currentUser, systemCards, onNavigate, onLogout, permissions, roleColor, projects, allProjects,
 }: SystemHubProps) {
-  const firstName = currentUser.name.split(' ')[0];
+  const firstName  = currentUser.name.split(' ')[0];
+  const isDirector = permissions.view_all_projects;
 
   const [activeSection,   setActiveSection]   = useState<HubSection>('home');
   const [allDeliverables, setAllDeliverables] = useState<DeliverableWithProject[]>([]);
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
 
-  // Fetch deliverables from all visible projects when tab opens
+  // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
     if (activeSection !== 'deliverables') return;
     setDelivLoading(true);
     const fetchAll = async () => {
       const all: DeliverableWithProject[] = [];
+      const seenIds = new Set<string>();
+
+      // Always fetch from the user's visible projects
       await Promise.all(
         projects.map(async (project) => {
           try {
             const snap = await getDocs(
               query(collection(db, 'projects', project.id, 'deliverables'), orderBy('uploadedAt', 'desc'))
             );
-            snap.docs.forEach(d =>
-              all.push({ id: d.id, projectId: project.id, projectName: project.name, ...d.data() } as DeliverableWithProject)
-            );
+            snap.docs.forEach(d => {
+              if (!seenIds.has(d.id)) {
+                seenIds.add(d.id);
+                const data = d.data() as Omit<Deliverable, 'id'>;
+                all.push({
+                  id: d.id,
+                  projectId: project.id,
+                  projectName: project.name,
+                  projectDirectorsNote: project.directors_note,
+                  sharedWithAll: data.sharedWithAll ?? false,
+                  ...data,
+                } as DeliverableWithProject);
+              }
+            });
           } catch {}
         })
       );
-      // Sort newest first across all projects
+
+      // Non-directors also see deliverables shared with all accounts
+      if (!isDirector) {
+        try {
+          const sharedSnap = await getDocs(
+            query(collectionGroup(db, 'deliverables'), where('sharedWithAll', '==', true))
+          );
+          sharedSnap.docs.forEach(d => {
+            if (!seenIds.has(d.id)) {
+              seenIds.add(d.id);
+              const projectId = d.ref.parent.parent?.id ?? '';
+              const proj = allProjects.find(p => p.id === projectId);
+              const data = d.data() as Omit<Deliverable, 'id'>;
+              all.push({
+                id: d.id,
+                projectId,
+                projectName: proj?.name ?? 'Unknown Project',
+                projectDirectorsNote: proj?.directors_note ?? null,
+                sharedWithAll: true,
+                ...data,
+              } as DeliverableWithProject);
+            }
+          });
+        } catch {}
+      }
+
       all.sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
       setAllDeliverables(all);
       setDelivLoading(false);
     };
     fetchAll();
-  }, [activeSection, projects]);
+  }, [activeSection, projects, allProjects, isDirector]);
+
+  // Director toggle: share/unshare a deliverable with all accounts
+  const handleToggleShared = async (deliv: DeliverableWithProject) => {
+    const newVal = !deliv.sharedWithAll;
+    try {
+      await updateDoc(doc(db, 'projects', deliv.projectId, 'deliverables', deliv.id), {
+        sharedWithAll: newVal,
+      });
+      setAllDeliverables(prev =>
+        prev.map(d =>
+          d.id === deliv.id && d.projectId === deliv.projectId
+            ? { ...d, sharedWithAll: newVal }
+            : d
+        )
+      );
+    } catch {}
+  };
 
   const handleView = (deliv: DeliverableWithProject) => {
     const type = getFileViewType(deliv.contentType, deliv.name);
@@ -268,44 +331,96 @@ export default function SystemHub({
                   No deliverables uploaded yet.
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {allDeliverables.map(deliv => {
                     const type = getFileViewType(deliv.contentType, deliv.name);
                     const icon = getFileIcon(type, deliv.name);
+                    const initials = deliv.uploadedByName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
                     return (
                       <div
                         key={`${deliv.projectId}-${deliv.id}`}
-                        className="flex items-center gap-4 px-5 py-4 rounded-2xl border transition-all group"
-                        style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.07)' }}
-                        onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)')}
-                        onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)')}
+                        className="rounded-2xl border transition-all group"
+                        style={{
+                          background: deliv.sharedWithAll ? 'rgba(16,185,129,0.04)' : 'rgba(255,255,255,0.02)',
+                          borderColor: deliv.sharedWithAll ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.borderColor = deliv.sharedWithAll ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.15)')}
+                        onMouseLeave={e => (e.currentTarget.style.borderColor = deliv.sharedWithAll ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)')}
                       >
-                        <span className="text-xl shrink-0">{icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-white truncate">{deliv.name}</p>
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            <span className="text-slate-300 font-medium">{deliv.projectName}</span>
-                            {' · '}{formatBytes(deliv.size)}
-                            {' · '}{deliv.uploadedByName}
-                            {' · '}{deliv.uploadedAt ? format(new Date(deliv.uploadedAt), 'MMM d, yyyy') : ''}
-                          </p>
+                        {/* ── Top row: icon, filename, badges, actions ── */}
+                        <div className="flex items-start gap-3 px-5 pt-4 pb-3">
+                          <span className="text-2xl shrink-0 mt-0.5">{icon}</span>
+                          <div className="flex-1 min-w-0">
+                            {/* Filename + shared badge */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-white truncate">{deliv.name}</p>
+                              {deliv.sharedWithAll && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">
+                                  🌐 Shared with all
+                                </span>
+                              )}
+                            </div>
+                            {/* Submitter chip + meta */}
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-white/5 text-slate-300 border border-white/10 shrink-0">
+                                <span className="w-4 h-4 rounded-full bg-slate-600 flex items-center justify-center text-[8px] font-bold text-white shrink-0">
+                                  {initials}
+                                </span>
+                                {deliv.uploadedByName}
+                              </span>
+                              <span className="text-[11px] text-slate-600">·</span>
+                              <span className="text-[11px] text-slate-500">{formatBytes(deliv.size)}</span>
+                              <span className="text-[11px] text-slate-600">·</span>
+                              <span className="text-[11px] text-slate-500">{deliv.uploadedAt ? format(new Date(deliv.uploadedAt), 'MMM d, yyyy') : ''}</span>
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                            {isDirector && (
+                              <button
+                                onClick={() => handleToggleShared(deliv)}
+                                title={deliv.sharedWithAll ? 'Remove from all accounts' : 'Share with all accounts'}
+                                className={`px-2.5 py-1.5 text-[10px] font-bold rounded-lg transition-colors ${
+                                  deliv.sharedWithAll
+                                    ? 'bg-emerald-500/20 text-emerald-400 hover:bg-red-500/20 hover:text-red-400'
+                                    : 'bg-white/5 text-slate-500 hover:bg-white/10 hover:text-slate-300'
+                                }`}
+                              >
+                                {deliv.sharedWithAll ? '🌐 Shared' : '🔒 Private'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleView(deliv)}
+                              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors opacity-0 group-hover:opacity-100"
+                            >
+                              {type === 'image' || type === 'video' ? 'View' : 'Open'}
+                            </button>
+                            <a
+                              href={deliv.url}
+                              download={deliv.name}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors opacity-0 group-hover:opacity-100"
+                            >
+                              ↓
+                            </a>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                          <button
-                            onClick={() => handleView(deliv)}
-                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
-                          >
-                            {type === 'image' || type === 'video' ? 'View' : 'Open'}
-                          </button>
-                          <a
-                            href={deliv.url}
-                            download={deliv.name}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 text-xs font-bold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
-                          >
-                            ↓
-                          </a>
+
+                        {/* ── Project info row ── */}
+                        <div className="flex items-start gap-2 px-5 pb-3.5 border-t border-white/5 pt-2.5">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 mt-0.5 shrink-0 pt-px">Project</span>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[12px] font-semibold text-slate-300">{deliv.projectName}</span>
+                            {deliv.projectDirectorsNote && (
+                              <span className="text-[11px] text-slate-500 ml-1.5">
+                                — {deliv.projectDirectorsNote.length > 100
+                                  ? deliv.projectDirectorsNote.slice(0, 100) + '…'
+                                  : deliv.projectDirectorsNote}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

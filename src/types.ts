@@ -79,6 +79,7 @@ export interface Deliverable {
   uploadedByName: string;
   uploadedAt: string;     // ISO string
   storagePath: string;    // path in Firebase Storage (used for deletion)
+  sharedWithAll?: boolean; // Director can make visible to all accounts
 }
 
 export type AppView = 'hub' | 'tracker' | 'it-admin' | 'workflow' | 'workers';
