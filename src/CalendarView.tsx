@@ -74,7 +74,7 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
   };
 
   return (
-    <div className="p-8 max-w-[1600px] mx-auto">
+    <div className="p-0 sm:p-8 max-w-[1600px] mx-auto">
       <style>{`
         /* FullCalendar dark neon overrides */
         .fc {
@@ -220,6 +220,45 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
         .fc-event-done {
           opacity: 0.45 !important;
         }
+        @media (max-width: 640px) {
+          .fc-toolbar {
+            flex-wrap: nowrap !important;
+            gap: 4px !important;
+          }
+          .fc-toolbar-chunk:last-child {
+            display: none !important;
+          }
+          .fc-toolbar-title {
+            font-size: 0.85rem !important;
+          }
+          .fc-button {
+            padding: 4px 8px !important;
+            font-size: 9px !important;
+            border-radius: 7px !important;
+          }
+          .fc-col-header-cell-cushion {
+            font-size: 8px !important;
+            letter-spacing: 0.05em !important;
+          }
+          .fc-daygrid-day-number {
+            font-size: 9px !important;
+            padding: 3px 5px !important;
+          }
+          .fc-daygrid-day-frame {
+            min-height: 60px !important;
+          }
+          .fc-event {
+            font-size: 9px !important;
+            padding: 1px 3px !important;
+            border-radius: 4px !important;
+          }
+          .fc-daygrid-day-events {
+            padding: 1px 2px !important;
+          }
+          .fc-daygrid-more-link {
+            font-size: 8px !important;
+          }
+        }
       `}</style>
 
       {/* Tooltip */}
@@ -282,7 +321,7 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
 
         {/* Collapsible body */}
         {!collapsed && (
-        <div className="p-6">
+        <div className="p-2 sm:p-6">
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, interactionPlugin]}
