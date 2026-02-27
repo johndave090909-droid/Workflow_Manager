@@ -60,6 +60,14 @@ interface WFNode {
   x: number;  y: number;   status: NodeStatus; config: Record<string, string>;
 }
 interface WFEdge { id: string; fromId: string; toId: string; label?: 'yes' | 'no'; }
+interface WorkflowLayoutDoc {
+  nodes: WFNode[];
+  edges: WFEdge[];
+  notes?: WFNote[];
+  paBoxPos?: { x: number; y: number };
+  notePos?: { x: number; y: number };
+  updatedAt?: string;
+}
 
 interface WFNote {
   id: string;
@@ -104,14 +112,55 @@ const INITIAL_EDGES: WFEdge[] = [
 
 // ── Initial Google Drive workflow ───────────────────────────────────────────────
 const INITIAL_GDRIVE_NODES: WFNode[] = [
-  { id: 'g1', type: 'google_drive', label: 'Google Drive PDF', icon: '📂', color: '#4285f4', x: 60,  y: 120, status: 'idle', config: { folderId: '', watchInterval: '60', serviceAccountJson: '' } },
-  { id: 'g3', type: 'save_pdf',     label: 'Save PDFs',        icon: '💾', color: '#8b5cf6', x: 330, y: 120, status: 'idle', config: { collection: 'drive_pdf_history' } },
-  { id: 'g2', type: 'email',        label: 'Send Email',        icon: '✉️', color: '#00ffff', x: 600, y: 120, status: 'idle', config: { to: '', cc: '', subject: 'New PDF in Drive', body: '<p>A new PDF was uploaded to your Google Drive folder.</p><p><strong>File:</strong> {{file.name}}</p>', attachScreenshot: 'false' } },
+  { id: 'g1', type: 'google_drive', label: 'Google Drive PDF', icon: '📂', color: '#4285f4', x: 320, y: 290, status: 'idle', config: { folderId: '', watchInterval: '60', serviceAccountJson: '' } },
+  { id: 'g3', type: 'save_pdf',     label: 'Save PDFs',        icon: '💾', color: '#8b5cf6', x: 590, y: 290, status: 'idle', config: { collection: 'drive_pdf_history' } },
+  { id: 'g4', type: 'facebook',     label: 'Facebook',         icon: '📘', color: '#1877f2', x: 860, y: 210, status: 'idle', config: { recipientName: '', recipientId: '', message: 'Daily screenshot report' } },
+  { id: 'g5', type: 'facebook',     label: 'Facebook',         icon: '📘', color: '#1877f2', x: 860, y: 380, status: 'idle', config: { recipientName: '', recipientId: '', message: 'Daily screenshot report' } },
 ];
 const INITIAL_GDRIVE_EDGES: WFEdge[] = [
   { id: 'ge1', fromId: 'g1', toId: 'g3' },
-  { id: 'ge2', fromId: 'g3', toId: 'g2' },
+  { id: 'ge2', fromId: 'g3', toId: 'g4' },
+  { id: 'ge3', fromId: 'g3', toId: 'g5' },
 ];
+
+function mergeNodeWithDefaults(node: WFNode): WFNode {
+  const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
+  if (!def) return node;
+  return { ...node, config: { ...def.defaultConfig, ...node.config } };
+}
+
+function hydrateNodes(savedNodes: WFNode[], fallbackNodes: WFNode[]): WFNode[] {
+  return savedNodes.map(node => {
+    const merged = mergeNodeWithDefaults(node);
+    const initial = fallbackNodes.find(n => n.id === merged.id);
+    if (!initial) return merged;
+    const cfg = { ...merged.config };
+    for (const [k, v] of Object.entries(initial.config)) {
+      if (v !== '' && cfg[k] === '') cfg[k] = v;
+    }
+    return { ...merged, config: cfg };
+  });
+}
+
+function normalizeGDriveLayout(rawNodes: WFNode[], rawEdges: WFEdge[]): { nodes: WFNode[]; edges: WFEdge[] } {
+  let nodes = hydrateNodes(rawNodes, INITIAL_GDRIVE_NODES)
+    // Remove legacy email node from Drive workflow; this flow now fans out to Facebook nodes.
+    .filter(n => n.type !== 'email');
+
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  if (!byId.has('g1')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g1')!);
+  if (!byId.has('g3')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g3')!);
+  if (!nodes.some(n => n.id === 'g4')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g4')!);
+  if (!nodes.some(n => n.id === 'g5')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g5')!);
+
+  const valid = new Set(nodes.map(n => n.id));
+  let edges = rawEdges.filter(e => valid.has(e.fromId) && valid.has(e.toId));
+  const has = (fromId: string, toId: string) => edges.some(e => e.fromId === fromId && e.toId === toId);
+  if (!has('g1', 'g3')) edges.push({ id: 'ge1', fromId: 'g1', toId: 'g3' });
+  if (!has('g3', 'g4')) edges.push({ id: 'ge2', fromId: 'g3', toId: 'g4' });
+  if (!has('g3', 'g5')) edges.push({ id: 'ge3', fromId: 'g3', toId: 'g5' });
+  return { nodes, edges };
+}
 
 // ── Execution order ────────────────────────────────────────────────────────────
 function getExecutionOrder(nodes: WFNode[], edges: WFEdge[]): string[] {
@@ -542,22 +591,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       const s = localStorage.getItem('wf_nodes');
       if (!s) return INITIAL_NODES;
       const saved: WFNode[] = JSON.parse(s);
-      // Merge saved config with current defaults so new fields (e.g. selector) appear automatically
-      return saved.map(node => {
-        const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
-        if (!def) return node;
-        const merged = { ...def.defaultConfig, ...node.config };
-        // For known node IDs: if a field is empty after merging but INITIAL_NODES has a non-empty
-        // value for it, use the INITIAL_NODES value. This handles cases where a new pre-configured
-        // field (like selector) was added after the user already saved their node config.
-        const initial = INITIAL_NODES.find(n => n.id === node.id);
-        if (initial) {
-          for (const [k, v] of Object.entries(initial.config)) {
-            if (v !== '' && merged[k] === '') merged[k] = v;
-          }
-        }
-        return { ...node, config: merged };
-      });
+      return hydrateNodes(saved, INITIAL_NODES);
     } catch { return INITIAL_NODES; }
   });
   const [edges, setEdges]           = useState<WFEdge[]>(() => {
@@ -594,6 +628,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     } catch {}
     return null;
   });
+  const [mainLayoutReady, setMainLayoutReady] = useState(false);
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved           = useRef(false);
@@ -699,6 +734,31 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       else localStorage.removeItem('wf_active_page');
     } catch {}
   }, [wfPage]);
+
+  // Cloud-first layout sync for main workflow (shared across browsers).
+  useEffect(() => {
+    const ref = doc(firestoreDb, 'workflow_layouts', 'main');
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const d = snap.data() as WorkflowLayoutDoc;
+        if (Array.isArray(d.nodes) && d.nodes.length) setNodes(hydrateNodes(d.nodes, INITIAL_NODES));
+        if (Array.isArray(d.edges) && d.edges.length) setEdges(d.edges);
+        if (Array.isArray(d.notes)) setNotes(d.notes);
+      }
+      setMainLayoutReady(true);
+    }, () => setMainLayoutReady(true));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!mainLayoutReady || viewOnly) return;
+    setDoc(doc(firestoreDb, 'workflow_layouts', 'main'), {
+      nodes,
+      edges,
+      notes,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }).catch(() => {});
+  }, [mainLayoutReady, viewOnly, nodes, edges, notes]);
 
   // Keep screenshotsRef in sync so handleExecute can read latest count without stale closures
   useEffect(() => { screenshotsRef.current = screenshots; }, [screenshots]);
@@ -1688,40 +1748,21 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     try {
       const s = localStorage.getItem('wf_gdrive_nodes');
       if (!s) return INITIAL_GDRIVE_NODES;
-      const saved: WFNode[] = JSON.parse(s).map((node: WFNode) => {
-        const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
-        return def ? { ...node, config: { ...def.defaultConfig, ...node.config } } : node;
-      });
-      // Auto-migrate: insert save_pdf node if missing
-      if (!saved.some(n => n.type === 'save_pdf')) {
-        const driveNode = saved.find(n => n.type === 'google_drive');
-        if (driveNode) {
-          saved.push({ id: 'g3', type: 'save_pdf', label: 'Save PDFs', icon: '💾', color: '#8b5cf6', x: driveNode.x + 270, y: driveNode.y, status: 'idle', config: { collection: 'drive_pdf_history' } });
-        }
-      }
-      return saved;
+      const rawNodes: WFNode[] = JSON.parse(s);
+      const rawEdges: WFEdge[] = (() => {
+        try { return JSON.parse(localStorage.getItem('wf_gdrive_edges') || '[]'); } catch { return []; }
+      })();
+      return normalizeGDriveLayout(rawNodes, rawEdges).nodes;
     } catch { return INITIAL_GDRIVE_NODES; }
   });
   const [edges, setEdges] = useState<WFEdge[]>(() => {
     try {
       const s = localStorage.getItem('wf_gdrive_edges');
-      const saved: WFEdge[] = s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES;
-      // Auto-migrate: wire save_pdf between google_drive and its existing target
-      const hasSavePdf = saved.some(e => e.fromId === 'g3' || e.toId === 'g3');
-      if (!hasSavePdf) {
-        const driveEdge = saved.find(e => {
-          return (JSON.parse(localStorage.getItem('wf_gdrive_nodes') || '[]') as WFNode[])
-            .find(n => n.id === e.fromId && n.type === 'google_drive');
-        });
-        if (driveEdge) {
-          const originalTo = driveEdge.toId;
-          driveEdge.toId = 'g3';
-          saved.push({ id: 'ge_save', fromId: 'g3', toId: originalTo });
-        } else {
-          saved.push({ id: 'ge_save', fromId: 'g3', toId: 'g2' });
-        }
-      }
-      return saved;
+      const rawEdges: WFEdge[] = s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES;
+      const rawNodes: WFNode[] = (() => {
+        try { return JSON.parse(localStorage.getItem('wf_gdrive_nodes') || '[]'); } catch { return []; }
+      })();
+      return normalizeGDriveLayout(rawNodes.length ? rawNodes : INITIAL_GDRIVE_NODES, rawEdges).edges;
     } catch { return INITIAL_GDRIVE_EDGES; }
   });
   const [selectedId, setSelectedId]     = useState<string | null>(null);
@@ -1749,6 +1790,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
 
   const [paBoxPos,  setPaBoxPos]  = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_pabox')  || 'null') ?? {x:30,  y:360}; } catch { return {x:30,  y:360}; } });
   const [notePos,   setNotePos]   = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_note')   || 'null') ?? {x:310, y:360}; } catch { return {x:310, y:360}; } });
+  const [gdriveLayoutReady, setGdriveLayoutReady] = useState(false);
 
   const dragging        = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const draggingOverlay = useRef<{ id: 'paBox' | 'note'; offX: number; offY: number } | null>(null);
@@ -1775,6 +1817,40 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   useEffect(() => { localStorage.setItem('wf_gdrive_edges',  JSON.stringify(edges));  }, [edges]);
   useEffect(() => { localStorage.setItem('wf_gdrive_pabox',  JSON.stringify(paBoxPos)); }, [paBoxPos]);
   useEffect(() => { localStorage.setItem('wf_gdrive_note',   JSON.stringify(notePos));  }, [notePos]);
+
+  // Cloud-first layout sync for Drive workflow (shared across browsers).
+  useEffect(() => {
+    const ref = doc(firestoreDb, 'workflow_layouts', 'gdrive');
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const d = snap.data() as WorkflowLayoutDoc;
+        if (Array.isArray(d.nodes) && d.nodes.length) {
+          const normalized = normalizeGDriveLayout(d.nodes, Array.isArray(d.edges) ? d.edges : []);
+          setNodes(normalized.nodes);
+          setEdges(normalized.edges);
+        } else if (Array.isArray(d.edges) && d.edges.length) {
+          const normalized = normalizeGDriveLayout(nodes, d.edges);
+          setNodes(normalized.nodes);
+          setEdges(normalized.edges);
+        }
+        if (d.paBoxPos && typeof d.paBoxPos.x === 'number' && typeof d.paBoxPos.y === 'number') setPaBoxPos(d.paBoxPos);
+        if (d.notePos && typeof d.notePos.x === 'number' && typeof d.notePos.y === 'number') setNotePos(d.notePos);
+      }
+      setGdriveLayoutReady(true);
+    }, () => setGdriveLayoutReady(true));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (!gdriveLayoutReady || viewOnly) return;
+    setDoc(doc(firestoreDb, 'workflow_layouts', 'gdrive'), {
+      nodes,
+      edges,
+      paBoxPos,
+      notePos,
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }).catch(() => {});
+  }, [gdriveLayoutReady, viewOnly, nodes, edges, paBoxPos, notePos]);
 
   // Live Firestore history — updated by the scheduled Cloud Function every 10 min
   useEffect(() => {
