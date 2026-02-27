@@ -25,11 +25,29 @@ export interface Complaint {
   rawText: string;
   translatedText?: string;      // persisted after first translation
   detectedLang?: string;        // e.g. "Filipino", "Spanish"
+  location?: string;            // e.g. "Aloha", "Ohana", "Gateway"
   source: string;
   pdfUrl: string;
   uploadedAt: string;
   uploadedBy: string;
   uploadedByName: string;
+}
+
+const LOCATIONS = ['Aloha', 'Ohana', 'Gateway'] as const;
+type Location = typeof LOCATIONS[number];
+
+const LOCATION_COLORS: Record<Location, { bg: string; text: string }> = {
+  Aloha:   { bg: 'rgba(34,197,94,0.15)',  text: '#22c55e' },
+  Ohana:   { bg: 'rgba(59,130,246,0.15)', text: '#60a5fa' },
+  Gateway: { bg: 'rgba(245,158,11,0.15)', text: '#f59e0b' },
+};
+
+function detectLocation(text: string): string | undefined {
+  const lower = text.toLowerCase();
+  for (const loc of LOCATIONS) {
+    if (lower.includes(loc.toLowerCase())) return loc;
+  }
+  return undefined;
 }
 
 // ── Translation (MyMemory – free, no key required) ─────────────────────────────
@@ -138,6 +156,8 @@ function parseComplaintsFromText(
   let currentDate: string | null = null;
   let buffer: string[] = [];
 
+  const location = detectLocation(source) ?? detectLocation(pages.join(' '));
+
   const flush = () => {
     if (!buffer.length) return;
     const rawText = buffer.join(' ').trim();
@@ -146,6 +166,7 @@ function parseComplaintsFromText(
       date: currentDate ? parseToISO(currentDate) : new Date().toISOString().slice(0, 10),
       description: rawText,
       rawText,
+      ...(location ? { location } : {}),
       source, pdfUrl,
       uploadedAt: new Date().toISOString(),
       uploadedBy, uploadedByName,
@@ -173,6 +194,7 @@ function parseComplaintsFromText(
         date: dateFound ? parseToISO(dateFound) : new Date().toISOString().slice(0, 10),
         description: para.replace(dateFound ?? '', '').trim() || para.trim(),
         rawText: para.trim(),
+        ...(location ? { location } : {}),
         source, pdfUrl,
         uploadedAt: new Date().toISOString(),
         uploadedBy, uploadedByName,
@@ -425,7 +447,8 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
     c.description.toLowerCase().includes(search.toLowerCase()) ||
     (c.translatedText ?? '').toLowerCase().includes(search.toLowerCase()) ||
     c.date.includes(search) ||
-    c.source.toLowerCase().includes(search.toLowerCase())
+    c.source.toLowerCase().includes(search.toLowerCase()) ||
+    (c.location ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
   const monthlyData  = groupByMonth(complaints);
@@ -706,6 +729,14 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
                         {displayDate(c.date)}
                       </span>
 
+                      {/* Location chip */}
+                      {c.location && LOCATION_COLORS[c.location as Location] && (
+                        <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg shrink-0 mt-0.5"
+                          style={{ background: LOCATION_COLORS[c.location as Location].bg, color: LOCATION_COLORS[c.location as Location].text }}>
+                          {c.location}
+                        </span>
+                      )}
+
                       {/* Description */}
                       <div className="flex-1 min-w-0">
                         <p className="text-xs sm:text-sm text-slate-300 leading-relaxed line-clamp-2">{displayText}</p>
@@ -773,6 +804,9 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
                         <div className="flex items-center justify-between">
                           <div className="text-[11px] text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
                             <span>By <span className="text-slate-400">{c.uploadedByName}</span></span>
+                            {c.location && (
+                              <span>Location: <span className="font-bold" style={{ color: LOCATION_COLORS[c.location as Location]?.text ?? '#94a3b8' }}>{c.location}</span></span>
+                            )}
                             <span>Source: <span className="text-slate-400">{c.source}</span></span>
                             {c.pdfUrl && (
                               <a href={c.pdfUrl} target="_blank" rel="noopener noreferrer"
