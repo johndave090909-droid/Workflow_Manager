@@ -208,6 +208,76 @@ function parseJsonBody(req) {
   return {};
 }
 
+function normalizeStr(v) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+async function resolveDriveWatcherFacebookConfig() {
+  const envRecipientId = normalizeStr(process.env.FB_DEFAULT_RECIPIENT_ID || process.env.FB_RECIPIENT_ID);
+  const envMessage = normalizeStr(process.env.FB_DEFAULT_MESSAGE) || "🆕 New PDFs found in Google Drive:";
+
+  let docConfig = null;
+  try {
+    const snap = await db.collection("automation_config").doc("drive_pdf_watcher").get();
+    if (snap.exists) docConfig = snap.data() || null;
+  } catch {
+    // Continue with env fallback if config doc isn't readable.
+  }
+
+  const fb = docConfig?.facebook || {};
+  const recipientId = normalizeStr(fb.recipientId) || envRecipientId;
+  const header = normalizeStr(fb.message) || envMessage;
+  const enabled = fb.enabled !== false;
+  return { enabled, recipientId, header, source: docConfig ? "firestore" : "env" };
+}
+
+function buildFacebookPdfMessages(header, files) {
+  const entries = files.map((f) => {
+    const name = normalizeStr(f.name) || "(Unnamed PDF)";
+    const link = normalizeStr(f.webViewLink);
+    return link ? `📄 ${name}\n${link}` : `📄 ${name}`;
+  });
+
+  const maxLen = 1800;
+  const chunks = [];
+  let current = header;
+  for (const entry of entries) {
+    const next = current ? `${current}\n\n${entry}` : entry;
+    if (next.length > maxLen && current) {
+      chunks.push(current);
+      current = entry;
+    } else if (entry.length > maxLen) {
+      chunks.push(entry.slice(0, maxLen));
+      current = "";
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.length ? chunks : [header];
+}
+
+async function sendFacebookTextMessage(recipientId, message) {
+  const token = process.env.FB_PAGE_TOKEN;
+  if (!token) throw new Error("FB_PAGE_TOKEN is not configured");
+  const fbRes = await fetch(
+    `https://graph.facebook.com/v19.0/me/messages?access_token=${token}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_type: "MESSAGE_TAG",
+        tag: "CONFIRMED_EVENT_UPDATE",
+        recipient: { id: recipientId },
+        message: { text: message },
+      }),
+    }
+  );
+  const data = await fbRes.json().catch(() => ({}));
+  if (!fbRes.ok) throw new Error(data?.error?.message || `Facebook API ${fbRes.status}`);
+  return data;
+}
+
 // ── Google Drive API ────────────────────────────────────────────────────────────
 async function getDriveAccessToken(saJson) {
   // Priority: 1) custom SA JSON from node config, 2) GOOGLE_DRIVE_SERVICE_ACCOUNT, 3) GOOGLE_SHEETS_SERVICE_ACCOUNT
@@ -443,6 +513,7 @@ exports.driveWatcherScheduled = onSchedule(
       const newFiles = files.filter((f) => !existingIds.has(f.id));
 
       const savedAt = new Date().toISOString();
+      let facebookForward = null;
       if (newFiles.length > 0) {
         const batch = db.batch();
         for (const f of newFiles) {
@@ -459,6 +530,38 @@ exports.driveWatcherScheduled = onSchedule(
         }
         await batch.commit();
         console.log(`Saved ${newFiles.length} new PDF(s) to Firestore`);
+
+        // Forward new files directly from backend (works even with no browser open)
+        try {
+          const cfg = await resolveDriveWatcherFacebookConfig();
+          if (!cfg.enabled) {
+            facebookForward = { ok: false, skipped: true, reason: "disabled" };
+          } else if (!cfg.recipientId) {
+            facebookForward = { ok: false, skipped: true, reason: "missing_recipient" };
+          } else {
+            const messages = buildFacebookPdfMessages(cfg.header, newFiles);
+            for (const msg of messages) {
+              await sendFacebookTextMessage(cfg.recipientId, msg);
+            }
+            facebookForward = {
+              ok: true,
+              sentAt: savedAt,
+              recipientId: cfg.recipientId,
+              source: cfg.source,
+              filesForwarded: newFiles.length,
+              messageCount: messages.length,
+            };
+            console.log(`Forwarded ${newFiles.length} new PDF(s) to Facebook (${messages.length} message chunk(s))`);
+          }
+        } catch (fbErr) {
+          facebookForward = {
+            ok: false,
+            skipped: false,
+            reason: "facebook_send_failed",
+            error: fbErr?.message || "Unknown Facebook send error",
+          };
+          console.error("driveWatcherScheduled Facebook forward error:", fbErr?.message || fbErr);
+        }
       } else {
         console.log(`Found ${files.length} PDF(s), all already recorded`);
       }
@@ -478,6 +581,7 @@ exports.driveWatcherScheduled = onSchedule(
           fileIds: newFiles.map((f) => f.id),
         };
       }
+      if (facebookForward) statusUpdate.facebookForward = facebookForward;
       await db.collection("drive_watcher_state").doc("status").set(statusUpdate, { merge: true });
     } catch (e) {
       console.error("driveWatcherScheduled error:", e?.message || e);
@@ -520,5 +624,59 @@ exports.sendFacebookMessage = onRequest({ region: "us-central1", cors: true }, a
     return sendJson(res, 200, { ok: true, messageId: data.message_id, recipientId: data.recipient_id });
   } catch (e) {
     return sendJson(res, 500, { error: e?.message || "Facebook send error" });
+  }
+});
+
+// Manual backend-only test trigger for Drive -> Facebook forwarding.
+// Useful to verify forwarding works even when no browser is open.
+exports.driveWatcherTestForward = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+  try {
+    const body = parseJsonBody(req);
+    const limit = Math.min(20, Math.max(1, Number(body.limit || 5)));
+    const useLatest = body.source === "latest";
+
+    const cfg = await resolveDriveWatcherFacebookConfig();
+    if (!cfg.enabled) return sendJson(res, 400, { error: "Forwarding is disabled in config" });
+    if (!cfg.recipientId) return sendJson(res, 400, { error: "No Facebook recipientId configured" });
+
+    let files = [];
+    if (!useLatest) {
+      const statusSnap = await db.collection("drive_watcher_state").doc("status").get();
+      const status = statusSnap.exists ? (statusSnap.data() || {}) : {};
+      const fileIds = (status.lastFoundFileIds?.length ? status.lastFoundFileIds : status.lastCheckWithFiles?.fileIds) || [];
+      if (fileIds.length > 0) {
+        const histSnap = await db.collection("drive_pdf_history").where("fileId", "in", fileIds.slice(0, 10)).get();
+        files = histSnap.docs.map((d) => d.data()).filter(Boolean);
+      }
+    }
+
+    if (files.length === 0) {
+      const snap = await db.collection("drive_pdf_history").orderBy("discoveredAt", "desc").limit(limit).get();
+      files = snap.docs.map((d) => d.data()).filter(Boolean);
+    }
+
+    if (files.length === 0) return sendJson(res, 400, { error: "No PDF history found to forward" });
+
+    const mapped = files.map((f) => ({
+      id: f.fileId || "",
+      name: f.name || "",
+      webViewLink: f.webViewLink || "",
+    }));
+    const messages = buildFacebookPdfMessages(`[TEST] ${cfg.header}`, mapped);
+    for (const msg of messages) {
+      await sendFacebookTextMessage(cfg.recipientId, msg);
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      recipientId: cfg.recipientId,
+      filesForwarded: mapped.length,
+      messageChunks: messages.length,
+      source: useLatest ? "latest" : "last_check_or_latest",
+      sentAt: new Date().toISOString(),
+    });
+  } catch (e) {
+    return sendJson(res, 500, { error: e?.message || "Drive forward test failed" });
   }
 });

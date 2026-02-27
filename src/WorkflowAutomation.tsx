@@ -16,6 +16,14 @@ const CANVAS_H = 800;
 
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
+function getFacebookRecipientLabel(config: Record<string, string>): string {
+  const name = (config.recipientName || '').trim();
+  const id = (config.recipientId || '').trim();
+  if (name && id) return `${name} (${id})`;
+  if (name) return `${name} (no ID)`;
+  return id || '(No recipient)';
+}
+
 // ── Type Definitions ───────────────────────────────────────────────────────────
 interface NodeTypeDef {
   type: string;
@@ -32,8 +40,8 @@ const NODE_TYPE_DEFS: NodeTypeDef[] = [
   { type: 'google_drive',  label: 'Google Drive PDF', icon: '📂', color: '#4285f4', category: 'trigger', defaultConfig: { folderId: '', apiKey: '', watchInterval: '60', serviceAccountJson: '' } },
   { type: 'save_pdf',      label: 'Save PDFs',        icon: '💾', color: '#8b5cf6', category: 'action',  defaultConfig: { collection: 'drive_pdf_history' } },
   { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', selector: '', format: 'PNG', fullPage: 'true' } },
-  { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipientId: '', message: 'Daily screenshot report' } },
-  { type: 'facebook_daily_counts', label: 'FB Daily Counts', icon: '📊', color: '#1877f2', category: 'action', defaultConfig: { recipientId: '', message: '📊 Daily Counts Report:' } },
+  { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipientName: '', recipientId: '', message: 'Daily screenshot report' } },
+  { type: 'facebook_daily_counts', label: 'FB Daily Counts', icon: '📊', color: '#1877f2', category: 'action', defaultConfig: { recipientName: '', recipientId: '', message: '📊 Daily Counts Report:' } },
   { type: 'if',            label: 'IF',             icon: '⤵', color: '#f59e0b', category: 'action',  defaultConfig: { value: 'Daily Counts' } },
   { type: 'data_transform',label: 'Data Transform', icon: '⚙️', color: '#a855f7', category: 'action', defaultConfig: { mode: 'JSON → CSV', filter: '' } },
   { type: 'email',         label: 'Send Email',     icon: '✉️', color: '#00ffff', category: 'action', defaultConfig: { to: '', cc: '', subject: 'Automated Report', body: '<p>This is an automated report from <strong>Workflow Manager</strong>.</p>', attachScreenshot: 'true' } },
@@ -41,6 +49,11 @@ const NODE_TYPE_DEFS: NodeTypeDef[] = [
 
 type NodeStatus = 'idle' | 'running' | 'success' | 'error';
 type EditorTab  = 'code' | 'params' | 'output';
+type ConfirmDialogState = {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+};
 
 interface WFNode {
   id: string; type: string; label: string; icon: string; color: string;
@@ -82,7 +95,7 @@ interface ScreenshotRecord {
 const INITIAL_NODES: WFNode[] = [
   { id: 'n1', type: 'schedule',   label: 'On Schedule', icon: '⏰', color: '#ff9500', x: 60,  y: 120, status: 'idle', config: { frequency: 'daily', time: '09:00', timezone: 'Pacific/Honolulu' } },
   { id: 'n2', type: 'screenshot', label: 'Screenshot',  icon: '🌐', color: '#00cc7a', x: 370, y: 120, status: 'idle', config: { url: 'https://nidl3r.github.io/PCC-KDS/', selector: '#current-guest-counts', format: 'PNG', fullPage: 'true' } },
-  { id: 'n3', type: 'facebook',   label: 'Facebook',    icon: '📘', color: '#1877f2', x: 680, y: 120, status: 'idle', config: { recipientId: '33484104667900049', message: 'Daily screenshot report' } },
+  { id: 'n3', type: 'facebook',   label: 'Facebook',    icon: '📘', color: '#1877f2', x: 680, y: 120, status: 'idle', config: { recipientName: '', recipientId: '33484104667900049', message: 'Daily screenshot report' } },
 ];
 const INITIAL_EDGES: WFEdge[] = [
   { id: 'e1', fromId: 'n1', toId: 'n2' },
@@ -111,6 +124,20 @@ function getExecutionOrder(nodes: WFNode[], edges: WFEdge[]): string[] {
   nodes.filter(n => !hasIncoming.has(n.id)).forEach(n => dfs(n.id));
   nodes.forEach(n => { if (!visited.has(n.id)) dfs(n.id); });
   return order;
+}
+
+function getConnectedExecutionOrder(nodes: WFNode[], edges: WFEdge[], startIds: string[]): string[] {
+  const starts = startIds.filter(Boolean);
+  if (!starts.length) return [];
+  const reachable = new Set<string>();
+  const stack = [...starts];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    edges.filter(e => e.fromId === id).forEach(e => stack.push(e.toId));
+  }
+  return getExecutionOrder(nodes, edges).filter(id => reachable.has(id));
 }
 
 const STATUS_COLOR: Record<NodeStatus, string> = {
@@ -228,6 +255,7 @@ async function execute(input) {
 }`;
 
     case 'facebook': return `// 📘  Facebook Action — sends screenshot via Messenger API
+// Recipient Name : ${c.recipientName || 'SET IN PARAMETERS TAB'}
 // Recipient PSID : ${c.recipientId || 'SET IN PARAMETERS TAB'}
 // Message        : "${c.message || 'Daily screenshot report'}"
 // Page token     : process.env.FB_PAGE_TOKEN  ← set in .env, never in code
@@ -461,8 +489,8 @@ function getNodeOutput(node: WFNode): string {
     case 'schedule': return JSON.stringify({ triggeredAt: t, timezone: node.config.timezone || 'UTC+8', frequency: node.config.frequency || 'daily', time: node.config.time || '09:00', runId: 'a3f8c2d1-...' }, null, 2);
     case 'webhook':  return JSON.stringify({ receivedAt: t, method: node.config.method || 'POST', body: { event: 'ping', data: {} }, ip: '192.168.1.1' }, null, 2);
     case 'screenshot': return JSON.stringify({ imageBase64: 'iVBORw0KGgoAAAANSUhEUgA...', format: node.config.format || 'PNG', url: node.config.url, capturedAt: t, sizeBytes: 48320 }, null, 2);
-    case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipientId || 'RECIPIENT_PSID', sentAt: t }, null, 2);
-    case 'facebook_daily_counts': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipientId || 'RECIPIENT_PSID', file: 'Daily Counts.pdf', sentAt: t }, null, 2);
+    case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientName: node.config.recipientName || '(Unnamed recipient)', recipientId: node.config.recipientId || 'RECIPIENT_PSID', sentAt: t }, null, 2);
+    case 'facebook_daily_counts': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientName: node.config.recipientName || '(Unnamed recipient)', recipientId: node.config.recipientId || 'RECIPIENT_PSID', file: 'Daily Counts.pdf', sentAt: t }, null, 2);
     case 'if': return JSON.stringify({ matched: 1, unmatched: 2, condition: `title contains "${node.config.value || 'Daily Counts'}"`, routedAt: t }, null, 2);
     case 'data_transform': return JSON.stringify({ output: 'id,name,value\n1,Alpha,100\n2,Beta,200', format: 'csv', rowCount: 2, processedAt: t }, null, 2);
     case 'email':        return JSON.stringify({ messageId: '<abc123@smtp.example.com>', to: node.config.to, sentAt: t }, null, 2);
@@ -558,7 +586,14 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     nodeStatuses: Record<string, string>;
     nodeLogs: Record<string, string[]>;
   } | null>(null);
-  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | null>(() => {
+    try {
+      const saved = localStorage.getItem('wf_active_page');
+      if (saved === 'main' || saved === 'gdrive') return saved;
+    } catch {}
+    return null;
+  });
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved           = useRef(false);
@@ -571,6 +606,21 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const executingRef        = useRef(false);
   const lastTriggeredMinRef = useRef('');
   const wasExecutingRef     = useRef(false);
+  const confirmActionRef    = useRef<(() => void) | null>(null);
+
+  const openConfirmDialog = (dialog: ConfirmDialogState, onConfirm: () => void) => {
+    confirmActionRef.current = onConfirm;
+    setConfirmDialog(dialog);
+  };
+  const closeConfirmDialog = () => {
+    confirmActionRef.current = null;
+    setConfirmDialog(null);
+  };
+  const runConfirmDialogAction = () => {
+    const action = confirmActionRef.current;
+    closeConfirmDialog();
+    action?.();
+  };
 
   const fetchScreenshots = async () => {
     const all: ScreenshotRecord[] = [];
@@ -612,15 +662,19 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   };
 
   const clearScreenshots = async () => {
-    if (!window.confirm('Delete all screenshot history? This cannot be undone.')) return;
-    // Delete Firestore records
-    try {
-      const snap = await getDocs(collection(firestoreDb, 'screenshots'));
-      await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'screenshots', d.id))));
-    } catch {}
-    // Delete local backend records
-    try { await fetch(API_BASE + '/api/screenshots', { method: 'DELETE' }); } catch {}
-    setScreenshots([]);
+    openConfirmDialog(
+      { title: 'Clear Screenshot History', message: 'Delete all screenshot history? This cannot be undone.', confirmLabel: 'Delete All' },
+      () => {
+        (async () => {
+          try {
+            const snap = await getDocs(collection(firestoreDb, 'screenshots'));
+            await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'screenshots', d.id))));
+          } catch {}
+          try { await fetch(API_BASE + '/api/screenshots', { method: 'DELETE' }); } catch {}
+          setScreenshots([]);
+        })();
+      }
+    );
   };
 
   useEffect(() => {
@@ -639,6 +693,12 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   useEffect(() => { try { localStorage.setItem('wf_nodes', JSON.stringify(nodes)); } catch {} }, [nodes]);
   useEffect(() => { try { localStorage.setItem('wf_edges', JSON.stringify(edges)); } catch {} }, [edges]);
   useEffect(() => { try { localStorage.setItem('wf_notes', JSON.stringify(notes)); } catch {} }, [notes]);
+  useEffect(() => {
+    try {
+      if (wfPage) localStorage.setItem('wf_active_page', wfPage);
+      else localStorage.removeItem('wf_active_page');
+    } catch {}
+  }, [wfPage]);
 
   // Keep screenshotsRef in sync so handleExecute can read latest count without stale closures
   useEffect(() => { screenshotsRef.current = screenshots; }, [screenshots]);
@@ -904,6 +964,14 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     setSelectedId(null); setNodeModal(null);
   };
 
+  const handleDeleteEdge = (edgeId: string) => {
+    if (viewOnly) return;
+    openConfirmDialog(
+      { title: 'Delete Connection', message: 'Remove this line between nodes?', confirmLabel: 'Delete Line' },
+      () => setEdges(prev => prev.filter(ed => ed.id !== edgeId))
+    );
+  };
+
   const handleUpdateConfig = (nodeId: string, key: string, value: string) => {
     setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, config: { ...n.config, [key]: value } } : n));
   };
@@ -941,7 +1009,13 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     setExecuting(true); setNodeLog({}); setSelectedId(null);
     setNodes(prev => prev.map(n => ({ ...n, status: 'idle' })));
     await sleep(250);
-    const order = getExecutionOrder(nodes, edges);
+    const incoming = new Set(edges.map(e => e.toId));
+    const triggerRoots = nodes
+      .filter(n => !incoming.has(n.id))
+      .filter(n => NODE_TYPE_DEFS.find(d => d.type === n.type)?.category === 'trigger')
+      .filter(n => edges.some(e => e.fromId === n.id))
+      .map(n => n.id);
+    const order = getConnectedExecutionOrder(nodes, edges, triggerRoots);
     const log = (nodeId: string, msg: string) =>
       setNodeLog(prev => ({ ...prev, [nodeId]: [...(prev[nodeId] ?? []), msg] }));
     for (const id of order) {
@@ -975,12 +1049,13 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
         const latestShot  = screenshotsRef.current[0];
         const imageUrl    = latestShot?.storage_url || '';
         const recipientId = node.config.recipientId?.trim() || '';
+        const recipientLabel = getFacebookRecipientLabel(node.config);
         const message     = node.config.message?.trim() || '';
         if (!recipientId) {
-          log(id, '⚠ No Recipient PSID set');
+          log(id, `⚠ No Recipient PSID set for ${recipientLabel}`);
         } else {
           try {
-            log(id, '📘 Sending to Messenger…');
+            log(id, `📘 Sending to Messenger: ${recipientLabel}`);
             if (imageUrl) log(id, '🖼 Attaching screenshot');
             const r = await fetch(API_BASE + '/api/send-facebook-message', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -988,7 +1063,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             });
             const data = await r.json() as any;
             if (r.ok) {
-              log(id, '✓ Message sent');
+              log(id, `✓ Message sent to ${recipientLabel}`);
             } else {
               log(id, `⚠ ${data.error || r.status}`);
             }
@@ -1312,6 +1387,14 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
                 const midX = (x1 + x2) / 2;  const midY = (y1 + y2) / 2 - 8;
                 return (
                   <g key={edge.id}>
+                    <path
+                      d={getPath(edge.fromId, edge.toId)}
+                      stroke="transparent"
+                      strokeWidth={14}
+                      fill="none"
+                      style={{ pointerEvents: viewOnly ? 'none' : 'stroke', cursor: viewOnly ? 'default' : 'context-menu' }}
+                      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); handleDeleteEdge(edge.id); }}
+                    />
                     <path d={getPath(edge.fromId, edge.toId)}
                       stroke={edgeCol} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
                       markerEnd={`url(#${mark})`}
@@ -1506,10 +1589,22 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           onUpdateConfig={handleUpdateConfig}
           onUpdateLabel={handleUpdateLabel}
           onDelete={handleDeleteNode}
+          onRequestDelete={(nodeLabel, onConfirm) =>
+            openConfirmDialog(
+              { title: 'Delete Node', message: `Delete node "${nodeLabel}"?`, confirmLabel: 'Delete Node' },
+              onConfirm
+            )
+          }
           onClose={() => { setNodeModal(null); setSelectedId(null); }}
           viewOnly={viewOnly}
         />
       )}
+      <ThemedConfirmModal
+        dialog={confirmDialog}
+        onCancel={closeConfirmDialog}
+        onConfirm={runConfirmDialogAction}
+        accent="#ff00ff"
+      />
     </div>
   );
 }
@@ -1637,6 +1732,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   const [mousePos, setMousePos]         = useState({ x: 0, y: 0 });
   const [nodeLog, setNodeLog]           = useState<Record<string, string[]>>({});
   const [historyOpen, setHistoryOpen]   = useState(true);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
   type DriveFileRecord = {
     fileId: string;
@@ -1659,6 +1755,21 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   const dragMoved       = useRef(false);
   const wrapperRef      = useRef<HTMLDivElement>(null);
   const executingRef    = useRef(false);
+  const confirmActionRef = useRef<(() => void) | null>(null);
+
+  const openConfirmDialog = (dialog: ConfirmDialogState, onConfirm: () => void) => {
+    confirmActionRef.current = onConfirm;
+    setConfirmDialog(dialog);
+  };
+  const closeConfirmDialog = () => {
+    confirmActionRef.current = null;
+    setConfirmDialog(null);
+  };
+  const runConfirmDialogAction = () => {
+    const action = confirmActionRef.current;
+    closeConfirmDialog();
+    action?.();
+  };
 
   useEffect(() => { localStorage.setItem('wf_gdrive_nodes',  JSON.stringify(nodes));  }, [nodes]);
   useEffect(() => { localStorage.setItem('wf_gdrive_edges',  JSON.stringify(edges));  }, [edges]);
@@ -1681,6 +1792,32 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     });
     return () => unsub();
   }, []);
+
+  // Sync Facebook node config for backend-only scheduler forwarding.
+  useEffect(() => {
+    if (viewOnly) return;
+    const fbNode =
+      nodes.find(n => n.type === 'facebook') ||
+      nodes.find(n => n.type === 'facebook_daily_counts');
+    if (!fbNode) return;
+
+    const recipientId = (fbNode.config.recipientId || '').trim();
+    const message = (fbNode.config.message || '').trim();
+    setDoc(doc(firestoreDb, 'automation_config', 'drive_pdf_watcher'), {
+      facebook: {
+        enabled: recipientId.length > 0,
+        recipientId,
+        message,
+      },
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }).catch(() => {});
+  }, [
+    viewOnly,
+    nodes.find(n => n.type === 'facebook')?.config.recipientId,
+    nodes.find(n => n.type === 'facebook')?.config.message,
+    nodes.find(n => n.type === 'facebook_daily_counts')?.config.recipientId,
+    nodes.find(n => n.type === 'facebook_daily_counts')?.config.message,
+  ]);
 
   // Tick every second for the countdown
   const [nowMs, setNowMs] = useState(Date.now());
@@ -1753,11 +1890,12 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
       try {
         if (node.type === 'facebook' || node.type === 'facebook_daily_counts') {
           const recipientId = node.config.recipientId?.trim() || '';
+          const recipientLabel = getFacebookRecipientLabel(node.config);
           if (!recipientId) { log(node.id, '⚠ No Recipient ID set'); setStatus(node.id, 'error'); return; }
           if (files.length === 0) {
             log(node.id, '📭 No files to send');
           } else {
-            log(node.id, `📘 Sending ${files.length} PDF${files.length > 1 ? 's' : ''} to Facebook…`);
+            log(node.id, `📘 Sending ${files.length} PDF${files.length > 1 ? 's' : ''} to Facebook: ${recipientLabel}…`);
             const header  = node.config.message?.trim() || '🆕 New PDFs found in Google Drive:';
             const message = await buildFacebookMessage(files, header, (msg) => log(node.id, msg));
             try {
@@ -1766,7 +1904,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                 body: JSON.stringify({ recipientId, message, imageUrl: '' }),
               });
               const data = await r.json() as any;
-              if (r.ok) { log(node.id, `✓ Sent to Facebook (${files.length} PDF${files.length > 1 ? 's' : ''} listed)`); }
+              if (r.ok) { log(node.id, `✓ Sent to Facebook (${files.length} PDF${files.length > 1 ? 's' : ''} listed) · ${recipientLabel}`); }
               else       { log(node.id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
             } catch { log(node.id, '⚠ Could not reach backend'); }
           }
@@ -1793,7 +1931,13 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     let foundFiles: { id: string; name: string; webViewLink?: string; createdTime?: string }[] = [];
     const branchExecuted = new Set<string>();
 
-    const order = getExecutionOrder(nodes, edges);
+    const incoming = new Set(edges.map(e => e.toId));
+    const triggerRoots = nodes
+      .filter(n => !incoming.has(n.id))
+      .filter(n => NODE_TYPE_DEFS.find(d => d.type === n.type)?.category === 'trigger')
+      .filter(n => edges.some(e => e.fromId === n.id))
+      .map(n => n.id);
+    const order = getConnectedExecutionOrder(nodes, edges, triggerRoots);
     for (const id of order) {
       if (branchExecuted.has(id)) { setStatus(id, 'success'); continue; }
       const node = nodes.find(n => n.id === id);
@@ -1903,15 +2047,16 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
 
         } else if (node.type === 'facebook') {
           const recipientId = node.config.recipientId?.trim() || '';
+          const recipientLabel = getFacebookRecipientLabel(node.config);
           if (!recipientId) {
-            log(id, '⚠ No Recipient ID set — open node settings to add one');
+            log(id, `⚠ No Recipient ID set — open node settings to add one (${recipientLabel})`);
             setStatus(id, 'error');
             break;
           }
           if (foundFiles.length === 0) {
             log(id, '📭 No PDFs to send');
           } else {
-            log(id, `📘 Sending ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Facebook…`);
+            log(id, `📘 Sending ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Facebook: ${recipientLabel}…`);
             const header  = node.config.message?.trim() || '🆕 New PDFs found in Google Drive:';
             const message = await buildFacebookMessage(foundFiles, header, (msg) => log(id, msg));
             try {
@@ -1922,7 +2067,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               });
               const data = await r.json() as any;
               if (r.ok) {
-                log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed)`);
+                log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed) · ${recipientLabel}`);
               } else {
                 log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`);
               }
@@ -1933,8 +2078,9 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
 
         } else if (node.type === 'facebook_daily_counts') {
           const recipientId = node.config.recipientId?.trim() || '';
+          const recipientLabel = getFacebookRecipientLabel(node.config);
           if (!recipientId) {
-            log(id, '⚠ No Recipient ID set — open node settings to add one');
+            log(id, `⚠ No Recipient ID set — open node settings to add one (${recipientLabel})`);
             setStatus(id, 'error');
             break;
           }
@@ -1942,7 +2088,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
           if (dailyFiles.length === 0) {
             log(id, '📭 No "Daily Counts" PDF found — skipping');
           } else {
-            log(id, `📊 Sending Daily Counts PDF to Facebook…`);
+            log(id, `📊 Sending Daily Counts PDF to Facebook: ${recipientLabel}…`);
             const header  = node.config.message?.trim() || '📊 Daily Counts Report:';
             const message = await buildFacebookMessage(dailyFiles, header, (msg) => log(id, msg));
             try {
@@ -1953,7 +2099,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               });
               const data = await r.json() as any;
               if (r.ok) {
-                log(id, `✓ Sent Daily Counts to Facebook`);
+                log(id, `✓ Sent Daily Counts to Facebook · ${recipientLabel}`);
               } else {
                 log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`);
               }
@@ -2005,11 +2151,9 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
       : history.slice(0, 10)
     ).map(f => ({ id: f.fileId, name: f.name, webViewLink: f.webViewLink, createdTime: f.discoveredAt }));
 
-    // Get execution order from save_pdf onwards
-    const fullOrder = getExecutionOrder(nodes, edges);
+    // Execute only nodes reachable from the Save PDFs node.
     const savePdfId = nodes.find(n => n.type === 'save_pdf')?.id;
-    const startIdx  = savePdfId ? fullOrder.indexOf(savePdfId) : -1;
-    const order     = startIdx >= 0 ? fullOrder.slice(startIdx) : [];
+    const order = savePdfId ? getConnectedExecutionOrder(nodes, edges, [savePdfId]) : [];
     const branchExecuted = new Set<string>();
 
     for (const id of order) {
@@ -2030,11 +2174,12 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
           }
         } else if (node.type === 'facebook') {
           const recipientId = node.config.recipientId?.trim() || '';
-          if (!recipientId) { log(id, '⚠ No Recipient ID set — open node settings'); setStatus(id, 'error'); break; }
+          const recipientLabel = getFacebookRecipientLabel(node.config);
+          if (!recipientId) { log(id, `⚠ No Recipient ID set — open node settings (${recipientLabel})`); setStatus(id, 'error'); break; }
           if (foundFiles.length === 0) {
             log(id, '📭 No PDFs to send');
           } else {
-            log(id, `📘 Sending ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Facebook…`);
+            log(id, `📘 Sending ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Facebook: ${recipientLabel}…`);
             const header  = node.config.message?.trim() || '🆕 New PDFs found in Google Drive:';
             const message = await buildFacebookMessage(foundFiles, header, (msg) => log(id, msg));
             try {
@@ -2043,18 +2188,19 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                 body: JSON.stringify({ recipientId, message, imageUrl: '' }),
               });
               const data = await r.json() as any;
-              if (r.ok) { log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed)`); }
+              if (r.ok) { log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed) · ${recipientLabel}`); }
               else       { log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
             } catch { log(id, '⚠ Could not reach backend'); }
           }
         } else if (node.type === 'facebook_daily_counts') {
           const recipientId = node.config.recipientId?.trim() || '';
-          if (!recipientId) { log(id, '⚠ No Recipient ID set — open node settings'); setStatus(id, 'error'); break; }
+          const recipientLabel = getFacebookRecipientLabel(node.config);
+          if (!recipientId) { log(id, `⚠ No Recipient ID set — open node settings (${recipientLabel})`); setStatus(id, 'error'); break; }
           const dailyFiles = foundFiles.filter(f => /daily\s*counts/i.test(f.name));
           if (dailyFiles.length === 0) {
             log(id, '📭 No "Daily Counts" PDF found — skipping');
           } else {
-            log(id, `📊 Sending Daily Counts PDF to Facebook…`);
+            log(id, `📊 Sending Daily Counts PDF to Facebook: ${recipientLabel}…`);
             const header  = node.config.message?.trim() || '📊 Daily Counts Report:';
             const message = await buildFacebookMessage(dailyFiles, header, (msg) => log(id, msg));
             try {
@@ -2063,7 +2209,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                 body: JSON.stringify({ recipientId, message, imageUrl: '' }),
               });
               const data = await r.json() as any;
-              if (r.ok) { log(id, `✓ Sent Daily Counts to Facebook`); }
+              if (r.ok) { log(id, `✓ Sent Daily Counts to Facebook · ${recipientLabel}`); }
               else       { log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
             } catch { log(id, '⚠ Could not reach backend'); }
           }
@@ -2207,6 +2353,14 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     setNodeModal(null); setSelectedId(null);
   };
 
+  const handleDeleteEdge = (edgeId: string) => {
+    if (viewOnly) return;
+    openConfirmDialog(
+      { title: 'Delete Connection', message: 'Remove this line between nodes?', confirmLabel: 'Delete Line' },
+      () => setEdges(prev => prev.filter(e => e.id !== edgeId))
+    );
+  };
+
   // SVG path helper
   const getPath = (fromId: string, toId: string) => {
     const from = nodes.find(n => n.id === fromId);
@@ -2310,6 +2464,14 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                 const midX = (x1 + x2) / 2;  const midY = (y1 + y2) / 2 - 8;
                 return (
                   <g key={edge.id}>
+                    <path
+                      d={getPath(edge.fromId, edge.toId)}
+                      stroke="transparent"
+                      strokeWidth={14}
+                      fill="none"
+                      style={{ pointerEvents: viewOnly ? 'none' : 'stroke', cursor: viewOnly ? 'default' : 'context-menu' }}
+                      onContextMenu={e => { e.preventDefault(); e.stopPropagation(); handleDeleteEdge(edge.id); }}
+                    />
                     <path d={getPath(edge.fromId, edge.toId)}
                       stroke={edgeCol} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
                       markerEnd={`url(#${mark})`}
@@ -2658,9 +2820,15 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
             </button>
             {history.length > 0 && (
               <button onClick={async () => {
-                if (!window.confirm('Clear PDF history? This cannot be undone.')) return;
-                const snap = await getDocs(collection(firestoreDb, 'drive_pdf_history'));
-                await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'drive_pdf_history', d.id))));
+                openConfirmDialog(
+                  { title: 'Clear PDF History', message: 'Clear PDF history? This cannot be undone.', confirmLabel: 'Clear History' },
+                  () => {
+                    (async () => {
+                      const snap = await getDocs(collection(firestoreDb, 'drive_pdf_history'));
+                      await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'drive_pdf_history', d.id))));
+                    })();
+                  }
+                );
               }}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
                 style={{ background: 'rgba(255,77,77,.08)', border: '1px solid rgba(255,77,77,.25)', color: '#ff4d4d' }}>
@@ -2720,10 +2888,22 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
           onUpdateConfig={handleUpdateConfig}
           onUpdateLabel={handleUpdateLabel}
           onDelete={handleDeleteNode}
+          onRequestDelete={(nodeLabel, onConfirm) =>
+            openConfirmDialog(
+              { title: 'Delete Node', message: `Delete node "${nodeLabel}"?`, confirmLabel: 'Delete Node' },
+              onConfirm
+            )
+          }
           onClose={() => { setNodeModal(null); setSelectedId(null); }}
           viewOnly={viewOnly}
         />
       )}
+      <ThemedConfirmModal
+        dialog={confirmDialog}
+        onCancel={closeConfirmDialog}
+        onConfirm={runConfirmDialogAction}
+        accent="#4285f4"
+      />
     </>
   );
 }
@@ -2878,11 +3058,12 @@ interface ModalProps {
   onUpdateConfig: (id: string, key: string, val: string) => void;
   onUpdateLabel:  (id: string, label: string) => void;
   onDelete: (id: string) => void;
+  onRequestDelete?: (nodeLabel: string, onConfirm: () => void) => void;
   viewOnly?: boolean;
   onClose: () => void;
 }
 
-function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel, onDelete, onClose, viewOnly = false }: ModalProps) {
+function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel, onDelete, onRequestDelete, onClose, viewOnly = false }: ModalProps) {
   const codeHtml = highlightCode(getNodeCode(node));
   const outputHtml = highlightCode(getNodeOutput(node));
   const [applying, setApplying]       = useState(false);
@@ -3270,6 +3451,63 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                         </p>
                       </div>
                     </>
+                  ) : (node.type === 'facebook' || node.type === 'facebook_daily_counts') ? (
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Recipient Name</label>
+                        <input
+                          type="text"
+                          value={node.config.recipientName || ''}
+                          onChange={e => onUpdateConfig(node.id, 'recipientName', e.target.value)}
+                          placeholder="e.g. John / Team Inbox"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly}
+                          disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Recipient ID (PSID) <span className="text-rose-400">*</span></label>
+                        <input
+                          type="text"
+                          value={node.config.recipientId || ''}
+                          onChange={e => onUpdateConfig(node.id, 'recipientId', e.target.value)}
+                          placeholder="e.g. 33484104667900049"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly}
+                          disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Message Header</label>
+                        <input
+                          type="text"
+                          value={node.config.message || ''}
+                          onChange={e => onUpdateConfig(node.id, 'message', e.target.value)}
+                          placeholder="Message shown before file list"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly}
+                          disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                      </div>
+                      <div className="rounded-xl p-3 text-[10px] leading-relaxed text-slate-400"
+                        style={{ background: 'rgba(24,119,242,.08)', border: '1px solid rgba(24,119,242,.22)' }}>
+                        <p className="font-bold text-[#1877f2] mb-1">Recipient Preview</p>
+                        <p>
+                          {node.config.recipientName?.trim() || '(No name)'}
+                          {' · '}
+                          <span className="text-slate-500">{node.config.recipientId?.trim() || '(No ID)'}</span>
+                        </p>
+                      </div>
+                    </>
                   ) : node.type === 'google_drive' ? (
                     <>
                       {/* Folder ID */}
@@ -3394,7 +3632,10 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
         <div className="flex items-center justify-between px-6 py-3.5 border-t border-white/8 shrink-0"
           style={{ background: 'rgba(255,255,255,.01)' }}>
           {!viewOnly ? (
-            <button onClick={() => { if (window.confirm(`Delete node "${node.label}"?`)) onDelete(node.id); }}
+            <button onClick={() => {
+              if (onRequestDelete) onRequestDelete(node.label, () => onDelete(node.id));
+              else onDelete(node.id);
+            }}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all"
               style={{ border: '1px solid rgba(255,77,77,.2)', background: 'rgba(255,77,77,.07)', color: '#ff4d4d' }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,77,77,.15)')}
@@ -3418,6 +3659,51 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
 }
 
 // ── Note Card ──────────────────────────────────────────────────────────────────
+function ThemedConfirmModal({
+  dialog,
+  onCancel,
+  onConfirm,
+  accent,
+}: {
+  dialog: ConfirmDialogState | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+  accent: string;
+}) {
+  if (!dialog) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: 'rgba(5,2,10,.72)', backdropFilter: 'blur(6px)' }}
+      onClick={onCancel}>
+      <div
+        className="w-[min(460px,calc(100vw-2rem))] rounded-3xl border overflow-hidden"
+        style={{ background: '#09051a', borderColor: `${accent}55`, boxShadow: `0 0 0 1px ${accent}33, 0 32px 80px rgba(0,0,0,.72), 0 0 44px ${accent}28` }}
+        onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-5 border-b border-white/10" style={{ background: `${accent}14` }}>
+          <p className="text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: accent }}>Confirm Action</p>
+          <h3 className="mt-1 text-lg font-black text-white tracking-tight">{dialog.title}</h3>
+          <p className="mt-2 text-sm text-slate-300 leading-relaxed">{dialog.message}</p>
+        </div>
+        <div className="px-6 py-4 flex items-center justify-end gap-2.5">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{ background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.12)', color: '#94a3b8' }}>
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-xl text-xs font-black transition-all text-white"
+            style={{ background: accent, boxShadow: `0 0 16px ${accent}66` }}>
+            {dialog.confirmLabel || 'Confirm'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface NoteCardProps {
   note: WFNote;
   viewOnly: boolean;

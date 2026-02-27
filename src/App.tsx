@@ -60,7 +60,15 @@ const DEPT_COLORS: Record<Department, string> = {
 export default function App() {
   const [currentUser,     setCurrentUser]     = useState<User | null>(null);
   const [authLoading,     setAuthLoading]     = useState(true);
-  const [currentView,     setCurrentView]     = useState<AppView>('hub');
+  const [currentView,     setCurrentView]     = useState<AppView>(() => {
+    try {
+      const saved = localStorage.getItem('app_current_view');
+      if (saved === 'hub' || saved === 'tracker' || saved === 'workflow' || saved === 'workers' || saved === 'it-admin') {
+        return saved;
+      }
+    } catch {}
+    return 'hub';
+  });
   const [systemCards,     setSystemCards]     = useState<SystemCard[]>([]);
   const [roles,           setRoles]           = useState<Role[]>([]);
   const [projects,        setProjects]        = useState<Project[]>([]);
@@ -157,6 +165,11 @@ export default function App() {
       setShowViewOnlyToast(false);
     }
   }, [currentView, systemCards]);
+
+  // Persist last opened app view so reload stays on the same page
+  useEffect(() => {
+    try { localStorage.setItem('app_current_view', currentView); } catch {}
+  }, [currentView]);
 
   // ── Data fetchers ──────────────────────────────────────────────
   const fetchData = async () => {
