@@ -30,8 +30,11 @@ const NODE_TYPE_DEFS: NodeTypeDef[] = [
   { type: 'schedule',      label: 'Schedule',      icon: '⏰', color: '#ff9500', category: 'trigger', defaultConfig: { frequency: 'daily', time: '09:00', timezone: 'Pacific/Honolulu' } },
   { type: 'webhook',       label: 'Webhook',        icon: '⚡', color: '#ff7849', category: 'trigger', defaultConfig: { path: '/webhook', method: 'POST' } },
   { type: 'google_drive',  label: 'Google Drive PDF', icon: '📂', color: '#4285f4', category: 'trigger', defaultConfig: { folderId: '', apiKey: '', watchInterval: '60', serviceAccountJson: '' } },
+  { type: 'save_pdf',      label: 'Save PDFs',        icon: '💾', color: '#8b5cf6', category: 'action',  defaultConfig: { collection: 'drive_pdf_history' } },
   { type: 'screenshot',    label: 'Screenshot',     icon: '🌐', color: '#00cc7a', category: 'action',  defaultConfig: { url: 'https://example.com', selector: '', format: 'PNG', fullPage: 'true' } },
   { type: 'facebook',      label: 'Facebook',       icon: '📘', color: '#1877f2', category: 'action',  defaultConfig: { recipientId: '', message: 'Daily screenshot report' } },
+  { type: 'facebook_daily_counts', label: 'FB Daily Counts', icon: '📊', color: '#1877f2', category: 'action', defaultConfig: { recipientId: '', message: '📊 Daily Counts Report:' } },
+  { type: 'if',            label: 'IF',             icon: '⤵', color: '#f59e0b', category: 'action',  defaultConfig: { value: 'Daily Counts' } },
   { type: 'data_transform',label: 'Data Transform', icon: '⚙️', color: '#a855f7', category: 'action', defaultConfig: { mode: 'JSON → CSV', filter: '' } },
   { type: 'email',         label: 'Send Email',     icon: '✉️', color: '#00ffff', category: 'action', defaultConfig: { to: '', cc: '', subject: 'Automated Report', body: '<p>This is an automated report from <strong>Workflow Manager</strong>.</p>', attachScreenshot: 'true' } },
 ];
@@ -43,7 +46,7 @@ interface WFNode {
   id: string; type: string; label: string; icon: string; color: string;
   x: number;  y: number;   status: NodeStatus; config: Record<string, string>;
 }
-interface WFEdge { id: string; fromId: string; toId: string; }
+interface WFEdge { id: string; fromId: string; toId: string; label?: 'yes' | 'no'; }
 
 interface WFNote {
   id: string;
@@ -89,10 +92,12 @@ const INITIAL_EDGES: WFEdge[] = [
 // ── Initial Google Drive workflow ───────────────────────────────────────────────
 const INITIAL_GDRIVE_NODES: WFNode[] = [
   { id: 'g1', type: 'google_drive', label: 'Google Drive PDF', icon: '📂', color: '#4285f4', x: 60,  y: 120, status: 'idle', config: { folderId: '', watchInterval: '60', serviceAccountJson: '' } },
-  { id: 'g2', type: 'email',        label: 'Send Email',        icon: '✉️', color: '#00ffff', x: 370, y: 120, status: 'idle', config: { to: '', cc: '', subject: 'New PDF in Drive', body: '<p>A new PDF was uploaded to your Google Drive folder.</p><p><strong>File:</strong> {{file.name}}</p>', attachScreenshot: 'false' } },
+  { id: 'g3', type: 'save_pdf',     label: 'Save PDFs',        icon: '💾', color: '#8b5cf6', x: 330, y: 120, status: 'idle', config: { collection: 'drive_pdf_history' } },
+  { id: 'g2', type: 'email',        label: 'Send Email',        icon: '✉️', color: '#00ffff', x: 600, y: 120, status: 'idle', config: { to: '', cc: '', subject: 'New PDF in Drive', body: '<p>A new PDF was uploaded to your Google Drive folder.</p><p><strong>File:</strong> {{file.name}}</p>', attachScreenshot: 'false' } },
 ];
 const INITIAL_GDRIVE_EDGES: WFEdge[] = [
-  { id: 'ge1', fromId: 'g1', toId: 'g2' },
+  { id: 'ge1', fromId: 'g1', toId: 'g3' },
+  { id: 'ge2', fromId: 'g3', toId: 'g2' },
 ];
 
 // ── Execution order ────────────────────────────────────────────────────────────
@@ -408,6 +413,43 @@ setInterval(async () => {
   }
 }, WATCH_INTERVAL);`;
 
+    case 'save_pdf': return `// 💾  Save PDFs
+// Receives PDF records from the preceding Google Drive node
+// and persists each one to Firestore — deduplicated by file ID.
+
+import { getFirestore } from 'firebase-admin/firestore';
+
+const db = getFirestore();
+const COLLECTION = '${node.config.collection || 'drive_pdf_history'}';
+
+export async function savePdfs(files) {
+  if (!files || files.length === 0) {
+    console.log('No PDFs to save — skipping');
+    return { saved: 0, skipped: 0 };
+  }
+
+  // Load existing IDs to skip duplicates
+  const existing = await db.collection(COLLECTION).select().get();
+  const existingIds = new Set(existing.docs.map(d => d.id));
+
+  const newFiles = files.filter(f => !existingIds.has(f.id));
+
+  const batch = db.batch();
+  for (const f of newFiles) {
+    batch.set(db.collection(COLLECTION).doc(f.id), {
+      fileId:      f.id,
+      name:        f.name,
+      webViewLink: f.webViewLink || '',
+      discoveredAt: f.createdTime || new Date().toISOString(),
+      size:        f.size || '',
+      mimeType:    f.mimeType || 'application/pdf',
+    }, { merge: true });
+  }
+  if (newFiles.length > 0) await batch.commit();
+
+  return { saved: newFiles.length, skipped: files.length - newFiles.length };
+}`;
+
     default: return `// Node type: ${node.type}\n// No code template available for this node.`;
   }
 }
@@ -420,9 +462,12 @@ function getNodeOutput(node: WFNode): string {
     case 'webhook':  return JSON.stringify({ receivedAt: t, method: node.config.method || 'POST', body: { event: 'ping', data: {} }, ip: '192.168.1.1' }, null, 2);
     case 'screenshot': return JSON.stringify({ imageBase64: 'iVBORw0KGgoAAAANSUhEUgA...', format: node.config.format || 'PNG', url: node.config.url, capturedAt: t, sizeBytes: 48320 }, null, 2);
     case 'facebook': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipientId || 'RECIPIENT_PSID', sentAt: t }, null, 2);
+    case 'facebook_daily_counts': return JSON.stringify({ messageId: 'mid.166023:41d13d...', recipientId: node.config.recipientId || 'RECIPIENT_PSID', file: 'Daily Counts.pdf', sentAt: t }, null, 2);
+    case 'if': return JSON.stringify({ matched: 1, unmatched: 2, condition: `title contains "${node.config.value || 'Daily Counts'}"`, routedAt: t }, null, 2);
     case 'data_transform': return JSON.stringify({ output: 'id,name,value\n1,Alpha,100\n2,Beta,200', format: 'csv', rowCount: 2, processedAt: t }, null, 2);
     case 'email':        return JSON.stringify({ messageId: '<abc123@smtp.example.com>', to: node.config.to, sentAt: t }, null, 2);
     case 'google_drive': return JSON.stringify({ files: [{ id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74O', name: 'Invoice_2024_001.pdf', createdTime: t, webViewLink: 'https://drive.google.com/file/d/1BxiMVs.../view', size: '245760', mimeType: 'application/pdf' }], folderId: node.config.folderId || 'YOUR_FOLDER_ID', triggeredAt: t }, null, 2);
+    case 'save_pdf':     return JSON.stringify({ saved: 2, skipped: 1, collection: node.config.collection || 'drive_pdf_history', savedAt: t, files: [{ id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74O', name: 'Invoice_2024_001.pdf' }, { id: '2CyjNWt1YSB6oGNLwCeCaAkhnVVrqumuXjp1P', name: 'Report_Q4.pdf' }] }, null, 2);
     default:             return '{}';
   }
 }
@@ -499,6 +544,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const [executing, setExecuting]   = useState(false);
   const [liveMode, setLiveMode]     = useState(false);
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
+  const [connectingPortLabel, setConnectingPortLabel] = useState<'yes' | 'no' | null>(null);
   const [mousePos, setMousePos]     = useState({ x: 0, y: 0 });
   const [nodeLog, setNodeLog]           = useState<Record<string, string[]>>({});
   const [screenshots, setScreenshots]   = useState<ScreenshotRecord[]>([]);
@@ -512,7 +558,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     nodeStatuses: Record<string, string>;
     nodeLogs: Record<string, string[]>;
   } | null>(null);
-  const [wfPage, setWfPage] = useState<'main' | 'gdrive'>('main');
+  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | null>(null);
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
   const dragMoved           = useRef(false);
@@ -781,20 +827,32 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     if (node) { setNodeModal(node); setEditorTab('code'); }
   };
 
-  const handleOutputPortClick = (e: React.MouseEvent, nodeId: string) => {
+  const handleOutputPortClick = (e: React.MouseEvent, nodeId: string, portLabel?: 'yes' | 'no') => {
     if (viewOnly) return;
     e.stopPropagation();
-    setConnectingFrom(prev => prev === nodeId ? null : nodeId);
+    if (connectingFrom === nodeId && connectingPortLabel === (portLabel ?? null)) {
+      setConnectingFrom(null); setConnectingPortLabel(null);
+    } else {
+      setConnectingFrom(nodeId);
+      setConnectingPortLabel(portLabel ?? null);
+    }
   };
 
   const handleInputPortClick = (e: React.MouseEvent, nodeId: string) => {
     if (viewOnly) return;
     e.stopPropagation();
     if (connectingFrom && connectingFrom !== nodeId) {
-      if (!edges.some(ed => ed.fromId === connectingFrom && ed.toId === nodeId)) {
-        setEdges(prev => [...prev, { id: `e-${Date.now()}`, fromId: connectingFrom, toId: nodeId }]);
+      const duplicate = edges.some(ed =>
+        ed.fromId === connectingFrom && ed.toId === nodeId &&
+        ed.label === (connectingPortLabel ?? undefined)
+      );
+      if (!duplicate) {
+        const newEdge: WFEdge = { id: `e-${Date.now()}`, fromId: connectingFrom, toId: nodeId };
+        if (connectingPortLabel) newEdge.label = connectingPortLabel;
+        setEdges(prev => [...prev, newEdge]);
       }
       setConnectingFrom(null);
+      setConnectingPortLabel(null);
     }
   };
 
@@ -1053,23 +1111,41 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
           )}
         </div>
         <div className="w-px h-5 bg-white/10 shrink-0" />
-        {/* ── Workflow tabs ── */}
-        <div className="flex items-center gap-1 p-0.5 rounded-xl shrink-0" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}>
-          {([
-            { key: 'main',   label: '📸 Screenshot Reporter' },
-            { key: 'gdrive', label: '📂 Drive PDF Watcher' },
-          ] as const).map(tab => (
-            <button key={tab.key} onClick={() => setWfPage(tab.key)}
+        {wfPage ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setWfPage(null);
+                setNodeModal(null);
+                setSelectedId(null);
+              }}
               className="px-3 py-1 rounded-lg text-[10px] font-bold transition-all"
-              style={{
-                background: wfPage === tab.key ? 'rgba(255,0,255,.25)' : 'transparent',
-                color:      wfPage === tab.key ? '#ff00ff' : '#64748b',
-                boxShadow:  wfPage === tab.key ? '0 0 10px rgba(255,0,255,.2)' : 'none',
-              }}>
-              {tab.label}
+              style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: '#94a3b8' }}>
+              ← All Workflows
             </button>
-          ))}
-        </div>
+            <div className="flex items-center gap-1 p-0.5 rounded-xl" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}>
+              {([
+                { key: 'main',   label: '📸 Screenshot Reporter' },
+                { key: 'gdrive', label: '📂 Drive PDF Watcher' },
+              ] as const).map(tab => (
+                <button key={tab.key} onClick={() => setWfPage(tab.key)}
+                  className="px-3 py-1 rounded-lg text-[10px] font-bold transition-all"
+                  style={{
+                    background: wfPage === tab.key ? 'rgba(255,0,255,.25)' : 'transparent',
+                    color:      wfPage === tab.key ? '#ff00ff' : '#64748b',
+                    boxShadow:  wfPage === tab.key ? '0 0 10px rgba(255,0,255,.2)' : 'none',
+                  }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md"
+            style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', color: '#94a3b8' }}>
+            Select A Workflow To Open
+          </span>
+        )}
         <div className="flex-1" />
         {wfPage === 'main' && !viewOnly && <button onClick={handleReset}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all text-xs font-bold">
@@ -1162,7 +1238,9 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden">
 
-      {wfPage === 'gdrive' ? (
+      {wfPage === null ? (
+        <WorkflowPicker onSelect={(page) => setWfPage(page)} />
+      ) : wfPage === 'gdrive' ? (
         <GDriveWorkflowPage viewOnly={viewOnly} />
       ) : (<>
 
@@ -1227,13 +1305,25 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
                 const to   = displayNodes.find(n => n.id === edge.toId);
                 if (!from || !to) return null;
                 const isRun = from.status === 'running'; const isOk = from.status === 'success';
-                const col = isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)';
+                const edgeCol = edge.label === 'yes' ? '#22c55e' : edge.label === 'no' ? '#ef4444' : (isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)');
                 const mark = isOk ? 'arrSuccess' : isRun ? 'arrRunning' : 'arrIdle';
+                const x1 = from.x + NODE_W; const y1 = from.y + NODE_H / 2;
+                const x2 = to.x;             const y2 = to.y + NODE_H / 2;
+                const midX = (x1 + x2) / 2;  const midY = (y1 + y2) / 2 - 8;
                 return (
-                  <path key={edge.id} d={getPath(edge.fromId, edge.toId)}
-                    stroke={col} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
-                    markerEnd={`url(#${mark})`}
-                    style={{ transition: 'stroke .5s,stroke-width .3s' }} />
+                  <g key={edge.id}>
+                    <path d={getPath(edge.fromId, edge.toId)}
+                      stroke={edgeCol} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
+                      markerEnd={`url(#${mark})`}
+                      style={{ transition: 'stroke .5s,stroke-width .3s' }} />
+                    {edge.label && (
+                      <text x={midX} y={midY} textAnchor="middle" fontSize="9" fontWeight="800"
+                        fill={edge.label === 'yes' ? '#22c55e' : '#ef4444'}
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                        {edge.label.toUpperCase()}
+                      </text>
+                    )}
+                  </g>
                 );
               })}
               {connectingFrom && getTempPath() && (
@@ -1424,22 +1514,120 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   );
 }
 
+function WorkflowPicker({ onSelect }: { onSelect: (page: 'main' | 'gdrive') => void }) {
+  const workflows: Array<{ key: 'main' | 'gdrive'; title: string; subtitle: string; points: string[]; accent: string }> = [
+    {
+      key: 'main',
+      title: 'Screenshot Reporter',
+      subtitle: 'Capture a page and send screenshot updates through your workflow nodes.',
+      points: [
+        'Uses Schedule, Screenshot, and delivery/action nodes.',
+        'Includes screenshot history and manual capture/upload tools.',
+      ],
+      accent: '#ff00ff',
+    },
+    {
+      key: 'gdrive',
+      title: 'Drive PDF Watcher',
+      subtitle: 'Watch a Google Drive folder for PDFs and trigger downstream actions.',
+      points: [
+        'Polls Drive folder and tracks file history in Firestore.',
+        'Supports IF branches, Facebook notifications, and email delivery.',
+      ],
+      accent: '#4285f4',
+    },
+  ];
+
+  return (
+    <div className="flex-1 overflow-auto" style={{ background: 'radial-gradient(circle at 10% 10%, rgba(168,85,247,.12), transparent 45%), #0a0510' }}>
+      <div className="max-w-5xl mx-auto px-6 py-10">
+        <div className="mb-7">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Workflow Automation</p>
+          <h2 className="mt-2 text-2xl font-black tracking-tight text-white">Choose a workflow</h2>
+          <p className="mt-2 text-sm text-slate-400">Select one of the available workflows below to open its editor.</p>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {workflows.map((wf) => (
+            <button
+              key={wf.key}
+              onClick={() => onSelect(wf.key)}
+              className="text-left rounded-2xl p-5 transition-all border"
+              style={{ background: 'rgba(255,255,255,.03)', borderColor: 'rgba(255,255,255,.1)' }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = wf.accent + '66';
+                e.currentTarget.style.boxShadow = `0 0 22px ${wf.accent}2e`;
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)';
+                e.currentTarget.style.boxShadow = 'none';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-base font-black" style={{ color: wf.accent }}>{wf.title}</p>
+                  <p className="mt-1 text-xs text-slate-400 leading-relaxed">{wf.subtitle}</p>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-md"
+                  style={{ color: wf.accent, border: `1px solid ${wf.accent}55`, background: `${wf.accent}1a` }}>
+                  Open
+                </span>
+              </div>
+              <div className="mt-4 space-y-1">
+                {wf.points.map(point => (
+                  <p key={point} className="text-[11px] text-slate-300 leading-relaxed">• {point}</p>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Google Drive Workflow Page ─────────────────────────────────────────────────
 function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   const [nodes, setNodes] = useState<WFNode[]>(() => {
     try {
       const s = localStorage.getItem('wf_gdrive_nodes');
       if (!s) return INITIAL_GDRIVE_NODES;
-      const saved: WFNode[] = JSON.parse(s);
-      return saved.map(node => {
+      const saved: WFNode[] = JSON.parse(s).map((node: WFNode) => {
         const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
-        if (!def) return node;
-        return { ...node, config: { ...def.defaultConfig, ...node.config } };
+        return def ? { ...node, config: { ...def.defaultConfig, ...node.config } } : node;
       });
+      // Auto-migrate: insert save_pdf node if missing
+      if (!saved.some(n => n.type === 'save_pdf')) {
+        const driveNode = saved.find(n => n.type === 'google_drive');
+        if (driveNode) {
+          saved.push({ id: 'g3', type: 'save_pdf', label: 'Save PDFs', icon: '💾', color: '#8b5cf6', x: driveNode.x + 270, y: driveNode.y, status: 'idle', config: { collection: 'drive_pdf_history' } });
+        }
+      }
+      return saved;
     } catch { return INITIAL_GDRIVE_NODES; }
   });
   const [edges, setEdges] = useState<WFEdge[]>(() => {
-    try { const s = localStorage.getItem('wf_gdrive_edges'); return s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES; } catch { return INITIAL_GDRIVE_EDGES; }
+    try {
+      const s = localStorage.getItem('wf_gdrive_edges');
+      const saved: WFEdge[] = s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES;
+      // Auto-migrate: wire save_pdf between google_drive and its existing target
+      const hasSavePdf = saved.some(e => e.fromId === 'g3' || e.toId === 'g3');
+      if (!hasSavePdf) {
+        const driveEdge = saved.find(e => {
+          return (JSON.parse(localStorage.getItem('wf_gdrive_nodes') || '[]') as WFNode[])
+            .find(n => n.id === e.fromId && n.type === 'google_drive');
+        });
+        if (driveEdge) {
+          const originalTo = driveEdge.toId;
+          driveEdge.toId = 'g3';
+          saved.push({ id: 'ge_save', fromId: 'g3', toId: originalTo });
+        } else {
+          saved.push({ id: 'ge_save', fromId: 'g3', toId: 'g2' });
+        }
+      }
+      return saved;
+    } catch { return INITIAL_GDRIVE_EDGES; }
   });
   const [selectedId, setSelectedId]     = useState<string | null>(null);
   const [nodeModal, setNodeModal]       = useState<WFNode | null>(null);
@@ -1455,26 +1643,144 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     name: string;
     webViewLink?: string;
     discoveredAt: string;
+    savedAt?: string;
     size?: string;
   };
-  const [history, setHistory] = useState<DriveFileRecord[]>(() => {
-    try { return JSON.parse(localStorage.getItem('wf_gdrive_history') || '[]'); } catch { return []; }
-  });
+  const [history, setHistory] = useState<DriveFileRecord[]>([]);
 
-  const dragging     = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
-  const dragMoved    = useRef(false);
-  const wrapperRef   = useRef<HTMLDivElement>(null);
-  const executingRef = useRef(false);
+  type WatcherStatus = { lastRun: string; status: 'ok' | 'error'; newFilesFound: number; totalInFolder: number; lastFoundFileIds?: string[]; lastCheckWithFiles?: { runAt: string; fileIds: string[] }; error?: string };
+  const [watcherStatus, setWatcherStatus] = useState<WatcherStatus | null>(null);
 
-  useEffect(() => { localStorage.setItem('wf_gdrive_nodes', JSON.stringify(nodes)); }, [nodes]);
-  useEffect(() => { localStorage.setItem('wf_gdrive_edges', JSON.stringify(edges)); }, [edges]);
-  useEffect(() => { localStorage.setItem('wf_gdrive_history', JSON.stringify(history)); }, [history]);
+  const [paBoxPos,  setPaBoxPos]  = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_pabox')  || 'null') ?? {x:30,  y:360}; } catch { return {x:30,  y:360}; } });
+  const [notePos,   setNotePos]   = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_note')   || 'null') ?? {x:310, y:360}; } catch { return {x:310, y:360}; } });
+
+  const dragging        = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const draggingOverlay = useRef<{ id: 'paBox' | 'note'; offX: number; offY: number } | null>(null);
+  const dragMoved       = useRef(false);
+  const wrapperRef      = useRef<HTMLDivElement>(null);
+  const executingRef    = useRef(false);
+
+  useEffect(() => { localStorage.setItem('wf_gdrive_nodes',  JSON.stringify(nodes));  }, [nodes]);
+  useEffect(() => { localStorage.setItem('wf_gdrive_edges',  JSON.stringify(edges));  }, [edges]);
+  useEffect(() => { localStorage.setItem('wf_gdrive_pabox',  JSON.stringify(paBoxPos)); }, [paBoxPos]);
+  useEffect(() => { localStorage.setItem('wf_gdrive_note',   JSON.stringify(notePos));  }, [notePos]);
+
+  // Live Firestore history — updated by the scheduled Cloud Function every 10 min
+  useEffect(() => {
+    const q = query(collection(firestoreDb, 'drive_pdf_history'), orderBy('discoveredAt', 'desc'));
+    const unsub = onSnapshot(q, snap => {
+      setHistory(snap.docs.map(d => d.data() as DriveFileRecord));
+    });
+    return () => unsub();
+  }, []);
+
+  // Live watcher status — shows last time the scheduler ran
+  useEffect(() => {
+    const unsub = onSnapshot(doc(firestoreDb, 'drive_watcher_state', 'status'), snap => {
+      if (snap.exists()) setWatcherStatus(snap.data() as WatcherStatus);
+    });
+    return () => unsub();
+  }, []);
+
+  // Tick every second for the countdown
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const log = (nodeId: string, msg: string) =>
     setNodeLog(prev => ({ ...prev, [nodeId]: [...(prev[nodeId] || []), `[${new Date().toLocaleTimeString()}] ${msg}`] }));
 
   const setStatus = (id: string, s: WFNode['status']) =>
     setNodes(prev => prev.map(n => n.id === id ? { ...n, status: s } : n));
+
+  // Builds the Messenger message for a list of files.
+  // If a file is named "Daily Counts" it downloads and parses the PDF to extract counts.
+  const buildFacebookMessage = async (
+    files: { id: string; name: string; webViewLink?: string }[],
+    headerMsg: string,
+    logFn: (msg: string) => void
+  ): Promise<string> => {
+    const parts: string[] = [];
+    for (const f of files) {
+      const isDailyCounts = /daily\s*counts/i.test(f.name);
+      if (isDailyCounts) {
+        logFn(`🔍 Extracting guest counts from "${f.name}"…`);
+        try {
+          const r = await fetch(API_BASE + '/api/google-drive/parse-daily-counts', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileId: f.id }),
+          });
+          const data = await r.json() as any;
+          console.log('[DailyCounts] rawText:', data.rawText);
+          if (r.ok && data.summary) {
+            logFn(`✓ Counts extracted: ${data.summary.replace(/\n/g, ', ')}`);
+            const link = f.webViewLink ? `\n${f.webViewLink}` : '';
+            parts.push(`📄 ${f.name}${link}\n\n${data.summary}`);
+          } else {
+            logFn(`⚠ Could not extract counts — including PDF link only`);
+            if (data.rawText) logFn(`📋 PDF text sample: ${data.rawText.slice(0, 300)}`);
+            parts.push(f.webViewLink ? `📄 ${f.name}\n${f.webViewLink}` : `📄 ${f.name}`);
+          }
+        } catch {
+          logFn(`⚠ Parse request failed — including PDF link only`);
+          parts.push(f.webViewLink ? `📄 ${f.name}\n${f.webViewLink}` : `📄 ${f.name}`);
+        }
+      } else {
+        parts.push(f.webViewLink ? `📄 ${f.name}\n${f.webViewLink}` : `📄 ${f.name}`);
+      }
+    }
+    return `${headerMsg}\n\n${parts.join('\n\n')}`;
+  };
+
+  // Recursively executes a chain of nodes (for IF yes/no branches) with a specific file set
+  const executeBranchChain = async (
+    targetIds: string[],
+    files: { id: string; name: string; webViewLink?: string; createdTime?: string }[],
+    allNodes: WFNode[],
+    allEdges: WFEdge[],
+    executedSet: Set<string>
+  ): Promise<void> => {
+    for (const targetId of targetIds) {
+      if (executedSet.has(targetId)) continue;
+      executedSet.add(targetId);
+      const node = allNodes.find(n => n.id === targetId);
+      if (!node) continue;
+      setStatus(node.id, 'running');
+      log(node.id, `▶ Starting ${node.label}…`);
+      await sleep(400);
+      try {
+        if (node.type === 'facebook' || node.type === 'facebook_daily_counts') {
+          const recipientId = node.config.recipientId?.trim() || '';
+          if (!recipientId) { log(node.id, '⚠ No Recipient ID set'); setStatus(node.id, 'error'); return; }
+          if (files.length === 0) {
+            log(node.id, '📭 No files to send');
+          } else {
+            log(node.id, `📘 Sending ${files.length} PDF${files.length > 1 ? 's' : ''} to Facebook…`);
+            const header  = node.config.message?.trim() || '🆕 New PDFs found in Google Drive:';
+            const message = await buildFacebookMessage(files, header, (msg) => log(node.id, msg));
+            try {
+              const r = await fetch(API_BASE + '/api/send-facebook-message', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipientId, message, imageUrl: '' }),
+              });
+              const data = await r.json() as any;
+              if (r.ok) { log(node.id, `✓ Sent to Facebook (${files.length} PDF${files.length > 1 ? 's' : ''} listed)`); }
+              else       { log(node.id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
+            } catch { log(node.id, '⚠ Could not reach backend'); }
+          }
+        } else {
+          log(node.id, `✓ ${node.label} completed`);
+        }
+        setStatus(node.id, 'success');
+        const nextIds = allEdges.filter(e => e.fromId === targetId && !e.label).map(e => e.toId);
+        await executeBranchChain(nextIds, files, allNodes, allEdges, executedSet);
+      } catch {
+        log(node.id, `✗ ${node.label} failed`); setStatus(node.id, 'error');
+      }
+    }
+  };
 
   const handleExecute = async () => {
     if (executingRef.current) return;
@@ -1485,9 +1791,11 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
 
     // Collect found PDF files so the email node can reference them
     let foundFiles: { id: string; name: string; webViewLink?: string; createdTime?: string }[] = [];
+    const branchExecuted = new Set<string>();
 
     const order = getExecutionOrder(nodes, edges);
     for (const id of order) {
+      if (branchExecuted.has(id)) { setStatus(id, 'success'); continue; }
       const node = nodes.find(n => n.id === id);
       if (!node) continue;
       setStatus(id, 'running');
@@ -1571,6 +1879,101 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
             }
           }
 
+        } else if (node.type === 'save_pdf') {
+          if (foundFiles.length === 0) {
+            log(id, '📭 No PDFs to save — skipping');
+          } else {
+            log(id, `💾 Saving ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Firestore…`);
+            try {
+              await Promise.all(foundFiles.map(f =>
+                setDoc(doc(firestoreDb, 'drive_pdf_history', f.id), {
+                  fileId:       f.id,
+                  name:         f.name,
+                  webViewLink:  f.webViewLink || '',
+                  discoveredAt: f.createdTime || new Date().toISOString(),
+                  size:         (f as any).size || '',
+                  mimeType:     (f as any).mimeType || 'application/pdf',
+                }, { merge: true })
+              ));
+              log(id, `✓ Saved ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to history`);
+            } catch {
+              log(id, '⚠ Could not save to Firestore');
+            }
+          }
+
+        } else if (node.type === 'facebook') {
+          const recipientId = node.config.recipientId?.trim() || '';
+          if (!recipientId) {
+            log(id, '⚠ No Recipient ID set — open node settings to add one');
+            setStatus(id, 'error');
+            break;
+          }
+          if (foundFiles.length === 0) {
+            log(id, '📭 No PDFs to send');
+          } else {
+            log(id, `📘 Sending ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Facebook…`);
+            const header  = node.config.message?.trim() || '🆕 New PDFs found in Google Drive:';
+            const message = await buildFacebookMessage(foundFiles, header, (msg) => log(id, msg));
+            try {
+              const r = await fetch(API_BASE + '/api/send-facebook-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipientId, message, imageUrl: '' }),
+              });
+              const data = await r.json() as any;
+              if (r.ok) {
+                log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed)`);
+              } else {
+                log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`);
+              }
+            } catch {
+              log(id, '⚠ Could not reach backend — Facebook message not sent');
+            }
+          }
+
+        } else if (node.type === 'facebook_daily_counts') {
+          const recipientId = node.config.recipientId?.trim() || '';
+          if (!recipientId) {
+            log(id, '⚠ No Recipient ID set — open node settings to add one');
+            setStatus(id, 'error');
+            break;
+          }
+          const dailyFiles = foundFiles.filter(f => /daily\s*counts/i.test(f.name));
+          if (dailyFiles.length === 0) {
+            log(id, '📭 No "Daily Counts" PDF found — skipping');
+          } else {
+            log(id, `📊 Sending Daily Counts PDF to Facebook…`);
+            const header  = node.config.message?.trim() || '📊 Daily Counts Report:';
+            const message = await buildFacebookMessage(dailyFiles, header, (msg) => log(id, msg));
+            try {
+              const r = await fetch(API_BASE + '/api/send-facebook-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipientId, message, imageUrl: '' }),
+              });
+              const data = await r.json() as any;
+              if (r.ok) {
+                log(id, `✓ Sent Daily Counts to Facebook`);
+              } else {
+                log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`);
+              }
+            } catch {
+              log(id, '⚠ Could not reach backend — Facebook message not sent');
+            }
+          }
+
+        } else if (node.type === 'if') {
+          const cond = node.config.value?.trim() || '';
+          const yesFiles = foundFiles.filter(f => f.name.toLowerCase().includes(cond.toLowerCase()));
+          const noFiles  = foundFiles.filter(f => !f.name.toLowerCase().includes(cond.toLowerCase()));
+          log(id, `🔀 Condition: title contains "${cond}"`);
+          log(id, `   ✅ YES: ${yesFiles.length} file(s)   ❌ NO: ${noFiles.length} file(s)`);
+          const yesTargets = edges.filter(e => e.fromId === id && e.label === 'yes').map(e => e.toId);
+          const noTargets  = edges.filter(e => e.fromId === id && e.label === 'no').map(e => e.toId);
+          if (!yesTargets.length) log(id, '⚠ No YES path connected');
+          if (!noTargets.length)  log(id, '⚠ No NO path connected');
+          if (yesTargets.length && yesFiles.length)  await executeBranchChain(yesTargets, yesFiles, nodes, edges, branchExecuted);
+          if (noTargets.length  && noFiles.length)   await executeBranchChain(noTargets,  noFiles,  nodes, edges, branchExecuted);
         } else {
           log(id, `✓ ${node.label} completed`);
         }
@@ -1581,23 +1984,124 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
       }
     }
 
-    // Merge newly found files into history (deduplicate by fileId, keep newest 200)
-    if (foundFiles.length > 0) {
-      setHistory(prev => {
-        const existingIds = new Set(prev.map(r => r.fileId));
-        const newEntries: DriveFileRecord[] = foundFiles
-          .filter(f => !existingIds.has(f.id))
-          .map(f => ({
-            fileId:       f.id,
-            name:         f.name,
-            webViewLink:  f.webViewLink,
-            discoveredAt: f.createdTime || new Date().toISOString(),
-            size:         (f as any).size,
-          }));
-        return [...newEntries, ...prev].slice(0, 200);
-      });
-    }
+    executingRef.current = false;
+    setExecuting(false);
+  };
 
+  // Execute workflow starting from the save_pdf node (uses files already in Firestore history)
+  const handleExecuteFromSavePdf = async () => {
+    if (executingRef.current) return;
+    executingRef.current = true;
+    setExecuting(true);
+    setNodeLog({});
+    setNodes(prev => prev.map(n => ({ ...n, status: 'idle' })));
+
+    // Determine which files to use — prefer last found IDs, fall back to most recent history
+    const fileIds = (watcherStatus?.lastFoundFileIds?.length
+      ? watcherStatus.lastFoundFileIds
+      : watcherStatus?.lastCheckWithFiles?.fileIds) ?? [];
+    const foundFiles = (fileIds.length > 0
+      ? history.filter(f => fileIds.includes(f.fileId))
+      : history.slice(0, 10)
+    ).map(f => ({ id: f.fileId, name: f.name, webViewLink: f.webViewLink, createdTime: f.discoveredAt }));
+
+    // Get execution order from save_pdf onwards
+    const fullOrder = getExecutionOrder(nodes, edges);
+    const savePdfId = nodes.find(n => n.type === 'save_pdf')?.id;
+    const startIdx  = savePdfId ? fullOrder.indexOf(savePdfId) : -1;
+    const order     = startIdx >= 0 ? fullOrder.slice(startIdx) : [];
+    const branchExecuted = new Set<string>();
+
+    for (const id of order) {
+      if (branchExecuted.has(id)) { setStatus(id, 'success'); continue; }
+      const node = nodes.find(n => n.id === id);
+      if (!node) continue;
+      setStatus(id, 'running');
+      log(id, `▶ Starting ${node.label}…`);
+      await sleep(400);
+      try {
+        if (node.type === 'save_pdf') {
+          if (foundFiles.length === 0) {
+            log(id, '📭 No PDFs in history to forward');
+          } else {
+            log(id, `💾 Using ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} from last check`);
+            foundFiles.slice(0, 5).forEach(f => log(id, `   • ${f.name}`));
+            if (foundFiles.length > 5) log(id, `   … and ${foundFiles.length - 5} more`);
+          }
+        } else if (node.type === 'facebook') {
+          const recipientId = node.config.recipientId?.trim() || '';
+          if (!recipientId) { log(id, '⚠ No Recipient ID set — open node settings'); setStatus(id, 'error'); break; }
+          if (foundFiles.length === 0) {
+            log(id, '📭 No PDFs to send');
+          } else {
+            log(id, `📘 Sending ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Facebook…`);
+            const header  = node.config.message?.trim() || '🆕 New PDFs found in Google Drive:';
+            const message = await buildFacebookMessage(foundFiles, header, (msg) => log(id, msg));
+            try {
+              const r = await fetch(API_BASE + '/api/send-facebook-message', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipientId, message, imageUrl: '' }),
+              });
+              const data = await r.json() as any;
+              if (r.ok) { log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed)`); }
+              else       { log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
+            } catch { log(id, '⚠ Could not reach backend'); }
+          }
+        } else if (node.type === 'facebook_daily_counts') {
+          const recipientId = node.config.recipientId?.trim() || '';
+          if (!recipientId) { log(id, '⚠ No Recipient ID set — open node settings'); setStatus(id, 'error'); break; }
+          const dailyFiles = foundFiles.filter(f => /daily\s*counts/i.test(f.name));
+          if (dailyFiles.length === 0) {
+            log(id, '📭 No "Daily Counts" PDF found — skipping');
+          } else {
+            log(id, `📊 Sending Daily Counts PDF to Facebook…`);
+            const header  = node.config.message?.trim() || '📊 Daily Counts Report:';
+            const message = await buildFacebookMessage(dailyFiles, header, (msg) => log(id, msg));
+            try {
+              const r = await fetch(API_BASE + '/api/send-facebook-message', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipientId, message, imageUrl: '' }),
+              });
+              const data = await r.json() as any;
+              if (r.ok) { log(id, `✓ Sent Daily Counts to Facebook`); }
+              else       { log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
+            } catch { log(id, '⚠ Could not reach backend'); }
+          }
+        } else if (node.type === 'email') {
+          const to = node.config.to?.trim() || '';
+          if (!to) { log(id, '⚠ No recipient configured'); setStatus(id, 'error'); break; }
+          if (foundFiles.length === 0) { log(id, '📭 No PDFs to send'); }
+          else {
+            log(id, `✉️ Sending email to ${to}…`);
+            const fileList = foundFiles.map(f => f.webViewLink ? `<li><a href="${f.webViewLink}">${f.name}</a></li>` : `<li>${f.name}</li>`).join('');
+            const body = (node.config.body || '<p>New PDFs found in your Drive folder:</p>').replace('{{file.name}}', foundFiles[0]?.name ?? '') + `<ul>${fileList}</ul>`;
+            try {
+              const res = await fetch(API_BASE + '/api/send-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to, cc: node.config.cc || '', subject: node.config.subject || 'New PDF in Drive', body }) });
+              if (res.ok) log(id, `✓ Email sent to ${to}`);
+              else { const err = await res.json().catch(() => ({})) as any; log(id, `⚠ Email API: ${err.error || res.status}`); }
+            } catch { log(id, '⚠ Could not reach backend'); }
+          }
+        } else if (node.type === 'if') {
+          const cond = node.config.value?.trim() || '';
+          const yesFiles = foundFiles.filter(f => f.name.toLowerCase().includes(cond.toLowerCase()));
+          const noFiles  = foundFiles.filter(f => !f.name.toLowerCase().includes(cond.toLowerCase()));
+          log(id, `🔀 Condition: title contains "${cond}"`);
+          log(id, `   ✅ YES: ${yesFiles.length} file(s)   ❌ NO: ${noFiles.length} file(s)`);
+          const yesTargets = edges.filter(e => e.fromId === id && e.label === 'yes').map(e => e.toId);
+          const noTargets  = edges.filter(e => e.fromId === id && e.label === 'no').map(e => e.toId);
+          if (!yesTargets.length) log(id, '⚠ No YES path connected');
+          if (!noTargets.length)  log(id, '⚠ No NO path connected');
+          if (yesTargets.length && yesFiles.length)  await executeBranchChain(yesTargets, yesFiles, nodes, edges, branchExecuted);
+          if (noTargets.length  && noFiles.length)   await executeBranchChain(noTargets,  noFiles,  nodes, edges, branchExecuted);
+        } else {
+          log(id, `✓ ${node.label} completed`);
+        }
+        setStatus(id, 'success');
+      } catch {
+        log(id, `✗ ${node.label} failed`);
+        setStatus(id, 'error');
+      }
+    }
     executingRef.current = false;
     setExecuting(false);
   };
@@ -1636,9 +2140,15 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
       const { nodeId, offX, offY } = dragging.current;
       setNodes(prev => prev.map(n => n.id === nodeId ? { ...n, x: pos.x - offX, y: pos.y - offY } : n));
     }
+    if (draggingOverlay.current) {
+      dragMoved.current = true;
+      const { id, offX, offY } = draggingOverlay.current;
+      if (id === 'paBox') setPaBoxPos({ x: pos.x - offX, y: pos.y - offY });
+      else                setNotePos ({ x: pos.x - offX, y: pos.y - offY });
+    }
   };
 
-  const handleCanvasMouseUp = () => { dragging.current = null; };
+  const handleCanvasMouseUp = () => { dragging.current = null; draggingOverlay.current = null; };
 
   const handleCanvasClick = () => {
     if (connectingFrom) { setConnectingFrom(null); return; }
@@ -1793,13 +2303,25 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                 const to   = nodes.find(n => n.id === edge.toId);
                 if (!from || !to) return null;
                 const isRun = from.status === 'running'; const isOk = from.status === 'success';
-                const col  = isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)';
+                const edgeCol = edge.label === 'yes' ? '#22c55e' : edge.label === 'no' ? '#ef4444' : (isOk ? '#00cc7a' : isRun ? '#ffd700' : 'rgba(255,255,255,.13)');
                 const mark = isOk ? 'garrSuccess' : isRun ? 'garrRunning' : 'garrIdle';
+                const x1 = from.x + NODE_W; const y1 = from.y + NODE_H / 2;
+                const x2 = to.x;             const y2 = to.y + NODE_H / 2;
+                const midX = (x1 + x2) / 2;  const midY = (y1 + y2) / 2 - 8;
                 return (
-                  <path key={edge.id} d={getPath(edge.fromId, edge.toId)}
-                    stroke={col} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
-                    markerEnd={`url(#${mark})`}
-                    style={{ transition: 'stroke .5s,stroke-width .3s' }} />
+                  <g key={edge.id}>
+                    <path d={getPath(edge.fromId, edge.toId)}
+                      stroke={edgeCol} strokeWidth={isRun||isOk?2.5:1.8} fill="none"
+                      markerEnd={`url(#${mark})`}
+                      style={{ transition: 'stroke .5s,stroke-width .3s' }} />
+                    {edge.label && (
+                      <text x={midX} y={midY} textAnchor="middle" fontSize="9" fontWeight="800"
+                        fill={edge.label === 'yes' ? '#22c55e' : '#ef4444'}
+                        style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                        {edge.label.toUpperCase()}
+                      </text>
+                    )}
+                  </g>
                 );
               })}
               {connectingFrom && getTempPath() && (
@@ -1818,6 +2340,298 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                 onOutputPortClick={handleOutputPortClick}
                 onInputPortClick={handleInputPortClick} />
             ))}
+
+            {/* Scheduler indicator — pinned below the google_drive node */}
+            {(() => {
+              const driveNode = nodes.find(n => n.type === 'google_drive');
+              if (!driveNode) return null;
+              const ok = watcherStatus?.status === 'ok';
+              const isErr = watcherStatus?.status === 'error';
+              const nextRunMs = watcherStatus
+                ? new Date(watcherStatus.lastRun).getTime() + 5 * 60 * 1000
+                : null;
+              const overdueSec = nextRunMs !== null ? Math.floor((nowMs - nextRunMs) / 1000) : null;
+              const remSec = nextRunMs !== null ? Math.max(0, Math.floor((nextRunMs - nowMs) / 1000)) : null;
+              const isOverdue = overdueSec !== null && overdueSec > 15;
+              const countdownStr = remSec === null
+                ? 'Waiting for first run…'
+                : remSec === 0 && !isOverdue
+                  ? 'Running now…'
+                  : remSec === 0 && isOverdue
+                    ? 'Scheduled — running soon…'
+                    : `${Math.floor(remSec / 60)}:${String(remSec % 60).padStart(2, '0')}`;
+              const dotColor = !watcherStatus ? '#64748b' : ok ? '#34d399' : '#f87171';
+              const label = isErr
+                ? `Error · retry in ${countdownStr}`
+                : remSec === null
+                  ? countdownStr
+                  : `Next check in ${countdownStr}`;
+              const lastChecked = watcherStatus
+                ? `Last checked ${new Date(watcherStatus.lastRun).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}${ok && watcherStatus.newFilesFound > 0 ? ` · +${watcherStatus.newFilesFound} new` : ''}`
+                : null;
+              const lastPdf = history[0]
+                ? (() => {
+                    const d = new Date(history[0].discoveredAt);
+                    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    return `Last PDF: ${date} ${time} — ${history[0].name}`;
+                  })()
+                : null;
+              return (
+                <div style={{ position: 'absolute', left: driveNode.x, top: driveNode.y + NODE_H + 10, width: NODE_W, zIndex: 4, pointerEvents: 'none' }}>
+                  <div style={{ background: 'rgba(5,2,12,.92)', border: `1px solid ${dotColor}28`, borderRadius: 8, padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <span style={{
+                        width: 7, height: 7, borderRadius: '50%', background: dotColor, flexShrink: 0,
+                        boxShadow: remSec === 0 ? `0 0 6px ${dotColor}` : 'none',
+                      }} />
+                      <span style={{ fontSize: 10, fontWeight: 700, color: isErr ? '#f87171cc' : '#e2e8f0cc', letterSpacing: '-.01em' }}>
+                        {label}
+                      </span>
+                    </div>
+                    {lastChecked && (
+                      <span style={{ fontSize: 9, color: '#475569', paddingLeft: 14 }}>{lastChecked}</span>
+                    )}
+                    {lastPdf && (
+                      <span style={{ fontSize: 9, color: '#334155', paddingLeft: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lastPdf}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Save PDFs node overlay ── */}
+            {(() => {
+              const saveNode = nodes.find(n => n.type === 'save_pdf');
+              if (!saveNode) return null;
+              const logs      = nodeLog[saveNode.id] ?? [];
+              const isRunning = saveNode.status === 'running';
+              const isError   = saveNode.status === 'error';
+              const accentColor = isRunning ? '#ffd700' : isError ? '#f87171' : '#8b5cf620';
+
+              if (!watcherStatus && logs.length === 0 && history.length === 0) return null;
+
+              // Current check files
+              const lastIds        = watcherStatus?.lastFoundFileIds ?? [];
+              const lastCheckFiles = lastIds.length > 0 ? history.filter(f => lastIds.includes(f.fileId)) : [];
+              const lastRunTime    = watcherStatus?.lastRun
+                ? new Date(watcherStatus.lastRun).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                : null;
+
+              // Previous check that had files (only shown when current check was empty)
+              const prevCheck      = watcherStatus?.lastCheckWithFiles;
+              const showPrevCheck  = lastCheckFiles.length === 0 && prevCheck && prevCheck.fileIds.length > 0;
+              const prevCheckFiles = showPrevCheck ? history.filter(f => prevCheck!.fileIds.includes(f.fileId)) : [];
+              const prevCheckTime  = prevCheck
+                ? new Date(prevCheck.runAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                : null;
+
+              const fileRow = (file: DriveFileRecord) => (
+                <div key={file.fileId} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 9, flexShrink: 0 }}>📄</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {file.webViewLink
+                      ? <a href={file.webViewLink} target="_blank" rel="noreferrer" style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', textDecoration: 'none', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</a>
+                      : <p style={{ fontSize: 9, fontWeight: 600, color: '#94a3b8', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{file.name}</p>
+                    }
+                    {file.size && <p style={{ fontSize: 8, color: '#334155', margin: 0 }}>{Math.round(Number(file.size) / 1024)} KB</p>}
+                  </div>
+                </div>
+              );
+
+              const sectionHeader = (label: string, time: string | null, count: number, active: boolean) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                  <p style={{ fontSize: 8, fontWeight: 800, color: active ? '#64748b' : '#334155', letterSpacing: '.06em', textTransform: 'uppercase', margin: 0 }}>{label}</p>
+                  {time && <span style={{ fontSize: 8, color: '#334155' }}>· {time}</span>}
+                  {count > 0 && (
+                    <span style={{ marginLeft: 'auto', fontSize: 8, fontWeight: 700, color: active ? '#a78bfa' : '#475569', background: active ? '#8b5cf615' : 'rgba(255,255,255,.04)', border: `1px solid ${active ? '#8b5cf625' : 'rgba(255,255,255,.07)'}`, borderRadius: 4, padding: '1px 5px' }}>
+                      +{count}
+                    </span>
+                  )}
+                </div>
+              );
+
+              return (
+                <div style={{ position: 'absolute', left: saveNode.x, top: saveNode.y + NODE_H + 10, width: NODE_W, zIndex: 4, pointerEvents: 'auto' }}>
+                  <div style={{ background: 'rgba(5,2,12,.93)', border: `1px solid ${accentColor}`, borderRadius: 8, overflow: 'hidden' }}>
+
+                    {/* Execute button */}
+                    {!viewOnly && (
+                      <div style={{ padding: '7px 10px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                        <button
+                          onClick={e => { e.stopPropagation(); handleExecuteFromSavePdf(); }}
+                          disabled={executing}
+                          style={{
+                            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                            padding: '5px 0', borderRadius: 6, border: 'none', cursor: executing ? 'not-allowed' : 'pointer',
+                            background: executing ? 'rgba(139,92,246,.15)' : 'rgba(139,92,246,.25)',
+                            color: executing ? '#7c3aed99' : '#c4b5fd',
+                            fontSize: 10, fontWeight: 700, transition: 'all .2s',
+                            boxShadow: executing ? 'none' : '0 0 10px rgba(139,92,246,.2)',
+                          }}>
+                          <Play size={9} fill="currentColor" />
+                          {executing ? 'Running…' : 'Send to Facebook →'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Execution log */}
+                    {logs.length > 0 && (
+                      <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                        <p style={{ fontSize: 8, fontWeight: 800, color: '#475569', letterSpacing: '.06em', textTransform: 'uppercase', margin: '0 0 4px' }}>Execution</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {logs.slice(-3).map((line, i) => {
+                            const c = line.includes('✓') ? '#34d399' : line.includes('✗') || line.includes('⚠') ? '#f87171' : line.includes('💾') ? '#a78bfa' : '#475569';
+                            return <span key={i} style={{ fontSize: 9, color: c, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{line.replace(/\[\d+:\d+:\d+\s[AP]M\]\s/, '')}</span>;
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Last check */}
+                    <div style={{ padding: '6px 10px', borderBottom: showPrevCheck ? '1px solid rgba(255,255,255,.05)' : 'none' }}>
+                      {sectionHeader('Last check', lastRunTime, lastCheckFiles.length, true)}
+                      {lastCheckFiles.length > 0
+                        ? <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{lastCheckFiles.map(fileRow)}</div>
+                        : <p style={{ fontSize: 9, color: '#334155', margin: 0 }}>No new PDFs</p>
+                      }
+                    </div>
+
+                    {/* Previous check that had PDFs */}
+                    {showPrevCheck && (
+                      <div style={{ padding: '6px 10px' }}>
+                        {sectionHeader('Last check with PDFs', prevCheckTime, prevCheckFiles.length, false)}
+                        {prevCheckFiles.length > 0
+                          ? <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{prevCheckFiles.map(fileRow)}</div>
+                          : <p style={{ fontSize: 9, color: '#334155', margin: 0 }}>—</p>
+                        }
+                      </div>
+                    )}
+
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ── Power Automate external flow ── */}
+            {(() => {
+              const boxX = paBoxPos.x, boxY = paBoxPos.y;
+              const noteX = notePos.x, noteY = notePos.y;
+              const cardStyle = (color: string): React.CSSProperties => ({
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: 'rgba(255,255,255,.045)', border: '1px solid rgba(255,255,255,.07)',
+                borderRadius: 7, padding: '6px 9px', position: 'relative',
+              });
+              const iconBox = (bg: string, content: React.ReactNode): React.ReactNode => (
+                <div style={{ width: 26, height: 26, borderRadius: 5, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>{content}</div>
+              );
+              const connector = (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', margin: '2px 0', gap: 0 }}>
+                  <div style={{ width: 1, height: 8, background: 'rgba(255,255,255,.12)' }} />
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.04)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ fontSize: 9, color: '#475569', lineHeight: 1 }}>+</span>
+                  </div>
+                  <div style={{ width: 1, height: 8, background: 'rgba(255,255,255,.12)' }} />
+                </div>
+              );
+              return (
+                <>
+                  {/* Power Automate box */}
+                  <div style={{ position: 'absolute', left: boxX, top: boxY, width: 248, zIndex: 3, pointerEvents: 'auto', cursor: 'grab', userSelect: 'none' }}
+                    onMouseDown={e => { e.stopPropagation(); dragMoved.current = false; const pos = getCanvasPos(e); draggingOverlay.current = { id: 'paBox', offX: pos.x - boxX, offY: pos.y - boxY }; }}>
+                    {/* Outer dashed container */}
+                    <div style={{ border: '1.5px dashed rgba(255,255,255,.1)', borderRadius: 12, padding: '10px 10px 12px', background: 'rgba(255,255,255,.012)' }}>
+                      {/* Header */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                        <span style={{ fontSize: 12 }}>⚡</span>
+                        <span style={{ fontSize: 9, fontWeight: 800, color: '#475569', letterSpacing: '.07em', textTransform: 'uppercase' }}>Power Automate</span>
+                        <div style={{ marginLeft: 'auto', fontSize: 8, fontWeight: 700, color: '#334155', border: '1px solid rgba(255,255,255,.07)', borderRadius: 4, padding: '2px 6px', background: 'rgba(255,255,255,.03)' }}>EXTERNAL</div>
+                      </div>
+
+                      {/* Step 1: When a new email arrives */}
+                      <div style={cardStyle('#0078d4')}>
+                        {iconBox('rgba(0,120,212,.25)', <span style={{ fontSize: 12 }}>📨</span>)}
+                        <div>
+                          <p style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', margin: 0 }}>When a new email arrives</p>
+                          <p style={{ fontSize: 8, color: '#475569', margin: 0 }}>Outlook (V3)</p>
+                        </div>
+                        <span style={{ marginLeft: 'auto', fontSize: 9, color: '#334155' }}>🔗</span>
+                      </div>
+
+                      {connector}
+
+                      {/* ForEachAttachment container */}
+                      <div style={{ border: '1px solid rgba(255,255,255,.07)', borderRadius: 8, padding: '8px 8px 8px', background: 'rgba(0,0,0,.18)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+                          <span style={{ fontSize: 10, color: '#475569' }}>⟳</span>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: '#475569', letterSpacing: '.04em' }}>ForEachAttachment</span>
+                        </div>
+
+                        {/* Step 2: Get Attachment */}
+                        <div style={cardStyle('#0078d4')}>
+                          {iconBox('rgba(0,120,212,.25)', <span style={{ fontSize: 12 }}>📨</span>)}
+                          <div>
+                            <p style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', margin: 0 }}>Get Attachment</p>
+                            <p style={{ fontSize: 8, color: '#475569', margin: 0 }}>Outlook (V2)</p>
+                          </div>
+                          <span style={{ marginLeft: 'auto', fontSize: 9, color: '#334155' }}>🔗</span>
+                        </div>
+
+                        {connector}
+
+                        {/* Step 3: Create file in Drive */}
+                        <div style={cardStyle('#4285f4')}>
+                          {iconBox('rgba(66,133,244,.2)', (
+                            <svg width="14" height="12" viewBox="0 0 87.3 78" style={{ display: 'block' }}>
+                              <path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L28 48H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                              <path d="M43.65 25L29.4 0c-1.35.8-2.5 1.9-3.3 3.3L1.2 43.5C.4 44.9 0 46.45 0 48h28z" fill="#00ac47"/>
+                              <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75L86.1 57c.8-1.4 1.2-2.95 1.2-4.5H59.3l5.9 11.7z" fill="#ea4335"/>
+                              <path d="M43.65 25L57.9 0H29.4z" fill="#00832d"/>
+                              <path d="M59.3 48H87.3L73.55 23.5H45.05z" fill="#2684fc"/>
+                              <path d="M28 48L13.75 76.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2L59.3 48z" fill="#ffba00"/>
+                            </svg>
+                          ))}
+                          <div>
+                            <p style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', margin: 0 }}>Create file</p>
+                            <p style={{ fontSize: 8, color: '#475569', margin: 0 }}>Google Drive</p>
+                          </div>
+                          <span style={{ marginLeft: 'auto', fontSize: 9, color: '#334155' }}>🔗</span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 2 }}>
+                        <div style={{ width: 1, height: 8, background: 'rgba(255,255,255,.08)' }} />
+                        <div style={{ width: 14, height: 14, borderRadius: '50%', border: '1px solid rgba(255,255,255,.1)', background: 'rgba(255,255,255,.03)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span style={{ fontSize: 9, color: '#334155' }}>+</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Note beside the PA flow */}
+                  <div style={{ position: 'absolute', left: noteX, top: noteY, width: 240, zIndex: 3, pointerEvents: 'auto', cursor: 'grab', userSelect: 'none' }}
+                    onMouseDown={e => { e.stopPropagation(); dragMoved.current = false; const pos = getCanvasPos(e); draggingOverlay.current = { id: 'note', offX: pos.x - noteX, offY: pos.y - noteY }; }}>
+                    <div style={{ background: 'rgba(250,220,60,.04)', border: '1px solid rgba(250,220,60,.15)', borderRadius: 10, padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <span style={{ fontSize: 12 }}>📋</span>
+                        <span style={{ fontSize: 9, fontWeight: 800, color: '#d4a800', letterSpacing: '.06em', textTransform: 'uppercase' }}>How This Connects</span>
+                      </div>
+                      <p style={{ fontSize: 10, color: '#94a3b8', margin: '0 0 8px', lineHeight: 1.6 }}>
+                        Emails with PDF attachments received in <span style={{ color: '#cbd5e1', fontWeight: 600 }}>Outlook</span> are automatically saved to a <span style={{ color: '#cbd5e1', fontWeight: 600 }}>Google Drive folder</span> via the Power Automate flow on the left.
+                      </p>
+                      <p style={{ fontSize: 10, color: '#94a3b8', margin: '0 0 8px', lineHeight: 1.6 }}>
+                        The <span style={{ color: '#34d399', fontWeight: 600 }}>Firebase scheduler above</span> then polls that Drive folder every 5 minutes and records any new PDFs found here.
+                      </p>
+                      <div style={{ borderTop: '1px solid rgba(255,255,255,.06)', paddingTop: 8, marginTop: 4 }}>
+                        <p style={{ fontSize: 9, color: '#475569', margin: 0, lineHeight: 1.5 }}>
+                          ⚠ The Power Automate flow is managed separately in Microsoft 365 and is not controlled by this system.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             {nodes.length === 0 && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
@@ -1843,7 +2657,11 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               {historyOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
             </button>
             {history.length > 0 && (
-              <button onClick={() => { if (window.confirm('Clear PDF history?')) setHistory([]); }}
+              <button onClick={async () => {
+                if (!window.confirm('Clear PDF history? This cannot be undone.')) return;
+                const snap = await getDocs(collection(firestoreDb, 'drive_pdf_history'));
+                await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'drive_pdf_history', d.id))));
+              }}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
                 style={{ background: 'rgba(255,77,77,.08)', border: '1px solid rgba(255,77,77,.25)', color: '#ff4d4d' }}>
                 <X size={9} /> Clear
@@ -1853,7 +2671,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
           {historyOpen && (
             <div className="flex-1 overflow-y-auto">
               {history.length === 0 ? (
-                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — click Execute to poll the Drive folder.</p>
+                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — the Drive folder is polled automatically every 10 minutes.</p>
               ) : (
                 <div className="divide-y divide-white/5">
                   {history.map(file => {
@@ -1932,7 +2750,7 @@ interface WFNodeCardProps {
   logs?: string[];
   onMouseDown: (e: React.MouseEvent, id: string) => void;
   onClick: (e: React.MouseEvent, id: string) => void;
-  onOutputPortClick: (e: React.MouseEvent, id: string) => void;
+  onOutputPortClick: (e: React.MouseEvent, id: string, portLabel?: 'yes' | 'no') => void;
   onInputPortClick:  (e: React.MouseEvent, id: string) => void;
 }
 
@@ -1985,16 +2803,43 @@ function WFNodeCard({ node, selected, connecting, logs, onMouseDown, onClick, on
           border: '2px solid rgba(255,255,255,.18)', cursor: 'pointer', zIndex: 3, transition: 'border-color .15s,transform .15s' }}
         onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor='#ff00ff'; (e.currentTarget as HTMLDivElement).style.transform='scale(1.35)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor='rgba(255,255,255,.18)'; (e.currentTarget as HTMLDivElement).style.transform='scale(1)'; }} />
-      {/* Output port */}
-      <div data-port="output" onClick={e => onOutputPortClick(e, node.id)} title="Click to connect"
-        style={{ position: 'absolute', right: -(PORT_R + .5), top: NODE_H / 2 - PORT_R,
-          width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
-          background: connecting ? node.color : '#0a0510',
-          border: `2px solid ${connecting ? node.color : selected ? node.color + '80' : 'rgba(255,255,255,.18)'}`,
-          cursor: 'crosshair', zIndex: 3, boxShadow: connecting ? `0 0 12px ${node.color}` : 'none',
-          transition: 'border-color .15s,background .15s,transform .15s,box-shadow .2s' }}
-        onMouseEnter={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1.35)'; d.style.background=node.color; d.style.boxShadow=`0 0 10px ${node.color}80`; }}
-        onMouseLeave={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1)'; d.style.background=connecting?node.color:'#0a0510'; d.style.boxShadow=connecting?`0 0 12px ${node.color}`:'none'; }} />
+      {/* Output port(s) */}
+      {node.type === 'if' ? (
+        <>
+          {/* YES port (top) */}
+          <div onClick={e => onOutputPortClick(e, node.id, 'yes')} title="YES — connect true path"
+            style={{ position: 'absolute', right: -(PORT_R + .5), top: NODE_H / 2 - PORT_R - 11,
+              width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
+              background: '#22c55e', border: '2px solid #16a34a',
+              cursor: 'crosshair', zIndex: 3, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 6px #22c55e60', transition: 'transform .15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform='scale(1.4)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform='scale(1)'; }}>
+            <span style={{ fontSize: 6, fontWeight: 900, color: '#fff', lineHeight: 1 }}>Y</span>
+          </div>
+          {/* NO port (bottom) */}
+          <div onClick={e => onOutputPortClick(e, node.id, 'no')} title="NO — connect false path"
+            style={{ position: 'absolute', right: -(PORT_R + .5), top: NODE_H / 2 + PORT_R - 3,
+              width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
+              background: '#ef4444', border: '2px solid #b91c1c',
+              cursor: 'crosshair', zIndex: 3, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 6px #ef444460', transition: 'transform .15s' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform='scale(1.4)'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform='scale(1)'; }}>
+            <span style={{ fontSize: 6, fontWeight: 900, color: '#fff', lineHeight: 1 }}>N</span>
+          </div>
+        </>
+      ) : (
+        <div data-port="output" onClick={e => onOutputPortClick(e, node.id)} title="Click to connect"
+          style={{ position: 'absolute', right: -(PORT_R + .5), top: NODE_H / 2 - PORT_R,
+            width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
+            background: connecting ? node.color : '#0a0510',
+            border: `2px solid ${connecting ? node.color : selected ? node.color + '80' : 'rgba(255,255,255,.18)'}`,
+            cursor: 'crosshair', zIndex: 3, boxShadow: connecting ? `0 0 12px ${node.color}` : 'none',
+            transition: 'border-color .15s,background .15s,transform .15s,box-shadow .2s' }}
+          onMouseEnter={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1.35)'; d.style.background=node.color; d.style.boxShadow=`0 0 10px ${node.color}80`; }}
+          onMouseLeave={e => { const d = e.currentTarget as HTMLDivElement; d.style.transform='scale(1)'; d.style.background=connecting?node.color:'#0a0510'; d.style.boxShadow=connecting?`0 0 12px ${node.color}`:'none'; }} />
+      )}
       {/* Per-node execution log — appears below node, moves with drag */}
       {logs && logs.length > 0 && (
         <div style={{
@@ -2467,6 +3312,27 @@ function NodeEditorModal({ node, tab, onTabChange, onUpdateConfig, onUpdateLabel
                       <div className="rounded-xl p-3 text-[10px] leading-relaxed text-slate-400" style={{ background: 'rgba(66,133,244,.08)', border: '1px solid rgba(66,133,244,.2)' }}>
                         <p className="font-bold text-[#4285f4] mb-1">📂 How it works</p>
                         <p>This trigger polls the specified Google Drive folder every <strong>{node.config.watchInterval || 60}s</strong>. When a new PDF is detected it passes the file metadata to the next node in the workflow (e.g. Send Email with the file link).</p>
+                      </div>
+                    </>
+                  ) : node.type === 'if' ? (
+                    <>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-wider">File title contains <span className="text-rose-400">*</span></label>
+                        <input
+                          type="text" value={node.config.value || ''}
+                          onChange={e => onUpdateConfig(node.id, 'value', e.target.value)}
+                          placeholder="e.g. Daily Counts"
+                          className="w-full rounded-xl px-4 py-2.5 text-sm text-white outline-none transition-all disabled:opacity-50 disabled:cursor-default"
+                          style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', fontFamily: 'inherit' }}
+                          onClick={e => e.stopPropagation()}
+                          readOnly={viewOnly} disabled={viewOnly}
+                          onFocus={e => { if (!viewOnly) { e.currentTarget.style.borderColor = node.color + '60'; e.currentTarget.style.boxShadow = `0 0 0 3px ${node.color}14`; } }}
+                          onBlur={e  => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; e.currentTarget.style.boxShadow = 'none'; }} />
+                        <p className="mt-2 text-[10px] text-slate-600 leading-relaxed">Files whose names contain this text go to the <span className="font-bold text-green-500">YES</span> path. All others go to the <span className="font-bold text-red-400">NO</span> path.</p>
+                      </div>
+                      <div className="rounded-xl p-3 text-[10px] leading-relaxed text-slate-400" style={{ background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.2)' }}>
+                        <p className="font-bold text-amber-400 mb-1">⤵ How to connect</p>
+                        <p>Click the green <span className="font-bold text-green-400">Y</span> port to draw the YES path. Click the red <span className="font-bold text-red-400">N</span> port to draw the NO path.</p>
                       </div>
                     </>
                   ) : (
