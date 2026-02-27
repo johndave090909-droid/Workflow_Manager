@@ -149,6 +149,7 @@ async function extractTextFromPDF(file: File): Promise<string[]> {
 function parseComplaintsFromText(
   pages: string[], source: string, pdfUrl: string,
   uploadedBy: string, uploadedByName: string,
+  overrideLocation?: string,
 ): Omit<Complaint, 'id'>[] {
   const fullText = pages.join('\n\n');
   const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -156,7 +157,7 @@ function parseComplaintsFromText(
   let currentDate: string | null = null;
   let buffer: string[] = [];
 
-  const location = detectLocation(source) ?? detectLocation(pages.join(' '));
+  const location = overrideLocation || (detectLocation(source) ?? detectLocation(pages.join(' ')));
 
   const flush = () => {
     if (!buffer.length) return;
@@ -256,6 +257,7 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
   const [translatingAll, setTranslatingAll] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<string>('');
   const [mergeResult,    setMergeResult]    = useState<{ added: number; merged: number } | null>(null);
   // AI Insights
   const [aiQuery,        setAiQuery]        = useState('');
@@ -386,7 +388,7 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
       const pages = await extractTextFromPDF(file);
 
       setProgress('Parsing complaints...');
-      const parsed = parseComplaintsFromText(pages, file.name, pdfUrl, currentUser.id, currentUser.name);
+      const parsed = parseComplaintsFromText(pages, file.name, pdfUrl, currentUser.id, currentUser.name, selectedLocation || undefined);
 
       if (!parsed.length) {
         setUploadError('No complaint entries could be extracted. The PDF may be image-based or have an unrecognised format.');
@@ -479,6 +481,46 @@ export default function ComplaintsView({ currentUser, roleColor }: Props) {
               : <>🌐 Translate All ({untranslatedCount})</>
             }
           </button>
+        )}
+      </div>
+
+      {/* Location picker */}
+      <div className="rounded-xl border border-white/8 px-3 sm:px-5 py-3 sm:py-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+        <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-500 mb-2 sm:mb-3">Location <span className="font-normal normal-case tracking-normal text-slate-600">(where are these complaints from?)</span></p>
+        <div className="flex flex-wrap gap-2">
+          {LOCATIONS.map(loc => {
+            const col = LOCATION_COLORS[loc];
+            const active = selectedLocation === loc;
+            return (
+              <button key={loc} onClick={() => setSelectedLocation(active ? '' : loc)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+                style={{
+                  background: active ? col.bg : 'rgba(255,255,255,0.05)',
+                  color: active ? col.text : '#64748b',
+                  border: `1px solid ${active ? col.text + '60' : 'rgba(255,255,255,0.08)'}`,
+                  boxShadow: active ? `0 0 8px ${col.text}30` : 'none',
+                }}>
+                {loc}
+              </button>
+            );
+          })}
+          <button onClick={() => setSelectedLocation('')}
+            className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+            style={{
+              background: !selectedLocation ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)',
+              color: !selectedLocation ? '#e2e8f0' : '#475569',
+              border: `1px solid ${!selectedLocation ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)'}`,
+            }}>
+            Auto-detect
+          </button>
+        </div>
+        {selectedLocation && (
+          <p className="text-[10px] text-slate-500 mt-2">
+            All complaints from the uploaded PDF will be tagged as <span style={{ color: LOCATION_COLORS[selectedLocation as Location]?.text, fontWeight: 700 }}>{selectedLocation}</span>.
+          </p>
+        )}
+        {!selectedLocation && (
+          <p className="text-[10px] text-slate-600 mt-2">Location will be detected from the PDF filename or content.</p>
         )}
       </div>
 
