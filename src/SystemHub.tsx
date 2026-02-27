@@ -410,7 +410,7 @@ type OrgCardTone = 'blue' | 'red' | 'green' | 'purple';
 interface OrgCardItem {
   id: string;
   name: string;
-  role?: string;
+  personName?: string;
   tone: OrgCardTone;
   x: number;
   y: number;
@@ -440,9 +440,9 @@ const ORG_TONE_STYLES: Record<OrgCardTone, { border: string; bg: string; glow: s
 };
 
 const ORG_CARD_WIDTH = 86;
-const ORG_CARD_HEIGHT = 92;
+const ORG_CARD_HEIGHT = 112;
 const ORG_CANVAS_WIDTH = 2200;
-const ORG_CANVAS_HEIGHT = 1200;
+const ORG_CANVAS_HEIGHT = 1450;
 
 function buildOrgChartDefaults(): OrgCardItem[] {
   const items: OrgCardItem[] = [];
@@ -465,71 +465,73 @@ function buildOrgChartDefaults(): OrgCardItem[] {
   const greenGap = 96;
   const purpleStartX = 1498;
   const purpleGap = 96;
+  const yOffset = 120;
+  const topY = (y: number) => y + yOffset;
 
   // Top leadership rows
-  push('Culinary Director/Executive Chef', 'blue', 1040, 18);
-  push('Sous Chef', 'blue', 1040, 122);
-  placeRow(['Accountant', 'Leadership', 'Supply Chain'], 'blue', 430, 180, 104);
-  placeRow(['Junior Sous Chef', 'Junior Sous Chef', 'Junior Sous Chef'], 'blue', 935, 180, 96);
-  push('Pastry Chef', 'blue', 1668, 180);
+  push('Culinary Director/Executive Chef', 'blue', 1040, topY(18));
+  push('Sous Chef', 'blue', 1040, topY(144));
+  placeRow(['Accountant', 'Leadership', 'Supply Chain'], 'blue', 430, topY(218), 104);
+  placeRow(['Junior Sous Chef', 'Junior Sous Chef', 'Junior Sous Chef'], 'blue', 935, topY(218), 96);
+  push('Pastry Chef', 'blue', 1668, topY(218));
 
   // Lead row
-  push('CDP', 'red', 1040, 236);
+  push('CDP', 'red', 1040, topY(344));
   placeRow(
     ['Student Lead Morning', 'Student Lead Afternoon', 'Front of the House Lead', 'Student Lead Kitchen Pass', 'Student Lead Prep Team'],
     'red',
     60,
-    290,
+    topY(436),
     274
   );
-  push('Pantry Lead', 'green', greenStartX, 290);
-  placeRow(['Student Lead Morning', 'Student Lead Morning', 'Student Lead Afternoon', 'Student Lead Morning'], 'purple', purpleStartX, 290, purpleGap * 2);
+  push('Pantry Lead', 'green', greenStartX, topY(436));
+  placeRow(['Student Lead Morning', 'Student Lead Morning', 'Student Lead Afternoon', 'Student Lead Morning'], 'purple', purpleStartX, topY(436), purpleGap * 2);
 
   // Main matrix rows (exact rows/columns pattern)
   placeRow(
     ['Beef & Ribs Prep', 'Luau Prep', 'Gateway Braiser', 'Oven & Wok Prep', 'Student Expo', 'Wok', 'Poke Bar 1', 'Poke Bar 2', 'Night Prep 1', 'Garnish Prep', 'Prep Cook 1', 'Prep Cook 2'],
     'red',
     redStartX,
-    392,
+    topY(548),
     redGap
   );
-  placeRow(['Pantry Prep 1', 'Pantry Prep 2'], 'green', greenStartX, 392, greenGap);
-  placeRow(['Student Early Morning 1', 'Student Early Morning 2', 'Student Morning 1', 'Student Morning 2', 'Student Afternoon 1', 'Student Night 1', 'Student Night 2'], 'purple', purpleStartX, 392, purpleGap);
+  placeRow(['Pantry Prep 1', 'Pantry Prep 2'], 'green', greenStartX, topY(548), greenGap);
+  placeRow(['Student Early Morning 1', 'Student Early Morning 2', 'Student Morning 1', 'Student Morning 2', 'Student Afternoon 1', 'Student Night 1', 'Student Night 2'], 'purple', purpleStartX, topY(548), purpleGap);
 
   placeRow(
     ['Veg Prep', 'Sauce Prep', 'AM Fryer 1', 'AM Fryer 2', 'Grill Station', 'Sashimi Station', 'Poke Bar 3', 'Imu Carver', 'Night Oven 1', 'Night Oven 2', 'Prep Cook 3', 'Prep Cook 4'],
     'red',
     redStartX,
-    488,
+    topY(670),
     redGap
   );
-  placeRow(['Pantry Prep 3', 'Pantry Prep 4'], 'green', greenStartX, 488, greenGap);
-  placeRow(['Student Early Morning 3', 'Student Early Morning 4', 'Student Morning 3', 'Student Morning 4', 'Student Afternoon 2', 'Student Night 3', 'Student Night 4'], 'purple', purpleStartX, 488, purpleGap);
+  placeRow(['Pantry Prep 3', 'Pantry Prep 4'], 'green', greenStartX, topY(670), greenGap);
+  placeRow(['Student Early Morning 3', 'Student Early Morning 4', 'Student Morning 3', 'Student Morning 4', 'Student Afternoon 2', 'Student Night 3', 'Student Night 4'], 'purple', purpleStartX, topY(670), purpleGap);
 
   placeRow(
     ['Luau Braiser', 'Rice Prep', 'Sauces & Soup', 'Oven & Weight', 'Chicken Carver', 'Kampachi Carver', 'Imu Carver', 'Imu Carver', 'Night Garnish 1', 'Night Garnish 2', 'Prep Cook 5', 'Prep Cook 6'],
     'red',
     redStartX,
-    584,
+    topY(792),
     redGap
   );
-  placeRow(['Pantry Prep 5', 'Pantry Prep 6'], 'green', greenStartX, 584, greenGap);
-  placeRow(['Student Early Morning 5', 'Student Morning 5', 'Student Afternoon 3', 'Student Night 5'], 'purple', purpleStartX, 584, purpleGap * 2);
+  placeRow(['Pantry Prep 5', 'Pantry Prep 6'], 'green', greenStartX, topY(792), greenGap);
+  placeRow(['Student Early Morning 5', 'Student Morning 5', 'Student Afternoon 3', 'Student Night 5'], 'purple', purpleStartX, topY(792), purpleGap * 2);
 
   placeRow(
     ['Imu Student', 'Imu Student', 'Chicken & Fish Prep', 'Poisson Cru 1', 'Poisson Cru 2', 'Kampachi Carver', 'Kampachi Carver', 'PM Fryer 1', 'PM Fryer 2', 'Prep Cook 7', 'Prep Cook 8'],
     'red',
     redStartX,
-    680,
+    topY(914),
     redGap
   );
-  placeRow(['Pantry Prep 7', 'Pantry Prep 8'], 'green', greenStartX, 680, greenGap);
-  placeRow(['Student Afternoon 4'], 'purple', purpleStartX + purpleGap * 4, 680, purpleGap);
+  placeRow(['Pantry Prep 7', 'Pantry Prep 8'], 'green', greenStartX, topY(914), greenGap);
+  placeRow(['Student Afternoon 4'], 'purple', purpleStartX + purpleGap * 4, topY(914), purpleGap);
 
   // Lowest row offsets shown in reference
-  placeRow(['Stock Carver 1', 'Stock Carver 2'], 'red', redStartX + redGap * 3, 776, redGap);
-  placeRow(['Kampachi Carver'], 'red', redStartX + redGap * 7, 776, redGap);
-  placeRow(['Pantry Prep 9', 'Pantry Prep 10'], 'green', greenStartX, 776, greenGap);
+  placeRow(['Stock Carver 1', 'Stock Carver 2'], 'red', redStartX + redGap * 3, topY(1036), redGap);
+  placeRow(['Kampachi Carver'], 'red', redStartX + redGap * 7, topY(1036), redGap);
+  placeRow(['Pantry Prep 9', 'Pantry Prep 10'], 'green', greenStartX, topY(1036), greenGap);
 
   return items;
 }
@@ -689,7 +691,7 @@ function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, 
 // ── SystemCardTile ─────────────────────────────────────────────────────────────
 
 function OrgChartView({ roleColor }: { roleColor: string }) {
-  const storageKey = 'workflow_manager_org_chart_canvas_v3';
+  const storageKey = 'workflow_manager_org_chart_canvas_v4';
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<{
     ids: string[];
@@ -702,9 +704,13 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
     try {
       const saved = window.localStorage.getItem(storageKey);
       if (!saved) return buildOrgChartDefaults();
-      const parsed = JSON.parse(saved) as OrgCardItem[];
+      const parsed = JSON.parse(saved) as (OrgCardItem & { role?: string })[];
       if (!Array.isArray(parsed)) throw new Error('Invalid org chart');
-      return parsed;
+      // Backward compatibility for previously saved cards that used `role`.
+      return parsed.map(card => ({
+        ...card,
+        personName: card.personName ?? card.role ?? '',
+      }));
     } catch {
       return buildOrgChartDefaults();
     }
@@ -735,6 +741,7 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
       {
         id: `org-card-${Date.now()}`,
         name: 'New Card',
+        personName: '',
         tone,
         x: 20,
         y: 20,
@@ -886,15 +893,33 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                   )}
                   <div className="w-7 h-7 rounded-md border border-white/25 bg-white/10 mx-auto mb-2" />
                   {isEditing ? (
-                    <input
-                      value={card.name}
-                      onChange={(event) => updateCard(card.id, { name: event.target.value })}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => event.stopPropagation()}
-                      className="w-full text-[9px] font-semibold text-white text-center leading-tight bg-black/30 border border-white/20 rounded px-1 py-1"
-                    />
+                    <div className="space-y-1">
+                      <input
+                        value={card.name}
+                        onChange={(event) => updateCard(card.id, { name: event.target.value })}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        placeholder="Position"
+                        className="w-full text-[9px] font-semibold text-white text-center leading-tight bg-black/30 border border-white/20 rounded px-1 py-1"
+                      />
+                      <input
+                        value={card.personName ?? ''}
+                        onChange={(event) => updateCard(card.id, { personName: event.target.value })}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => event.stopPropagation()}
+                        placeholder="Name"
+                        className="w-full text-[8px] font-medium text-cyan-200 text-center leading-tight bg-black/25 border border-cyan-300/25 rounded px-1 py-0.5"
+                      />
+                    </div>
                   ) : (
-                    <p className="text-[9px] font-semibold text-white text-center leading-tight">{card.name}</p>
+                    <div className="space-y-0.5">
+                      <p className="text-[9px] font-semibold text-white text-center leading-tight">{card.name}</p>
+                      {card.personName && (
+                        <p className="text-[8px] font-medium italic tracking-wide text-cyan-200/95 text-center leading-tight">
+                          {card.personName}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -906,11 +931,18 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
           <div className="px-3 sm:px-4 pb-5 sm:pb-6">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 mb-3">Selected Card</p>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
                 <input
                   value={selectedCard.name}
                   onChange={e => updateCard(selectedCard.id, { name: e.target.value })}
+                  placeholder="Position"
                   className="sm:col-span-2 w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
+                />
+                <input
+                  value={selectedCard.personName ?? ''}
+                  onChange={e => updateCard(selectedCard.id, { personName: e.target.value })}
+                  placeholder="Name"
+                  className="w-full text-xs text-cyan-200 bg-black/30 border border-cyan-300/30 rounded px-2 py-2"
                 />
                 <select
                   value={selectedCard.tone}
