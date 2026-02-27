@@ -634,6 +634,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   const dragMoved           = useRef(false);
   const draggingNote        = useRef<{ noteId: string; offX: number; offY: number } | null>(null);
   const resizingNote        = useRef<{ noteId: string; startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const pendingLocalChange  = useRef(false);
   const wrapperRef          = useRef<HTMLDivElement>(null);
   const fileInputRef        = useRef<HTMLInputElement>(null);
   const screenshotsRef      = useRef<ScreenshotRecord[]>([]);
@@ -739,6 +740,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   useEffect(() => {
     const ref = doc(firestoreDb, 'workflow_layouts', 'main');
     const unsub = onSnapshot(ref, snap => {
+      // Skip remote updates while the user is dragging or has unsaved local changes
+      if (dragging.current || pendingLocalChange.current) return;
       if (snap.exists()) {
         const d = snap.data() as WorkflowLayoutDoc;
         if (Array.isArray(d.nodes) && d.nodes.length) setNodes(hydrateNodes(d.nodes, INITIAL_NODES));
@@ -750,14 +753,22 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     return () => unsub();
   }, []);
 
+  // Debounced save — waits 700ms after last change before writing to Firestore.
+  // pendingLocalChange blocks the onSnapshot echo until 500ms after the save completes.
   useEffect(() => {
     if (!mainLayoutReady || viewOnly) return;
-    setDoc(doc(firestoreDb, 'workflow_layouts', 'main'), {
-      nodes,
-      edges,
-      notes,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true }).catch(() => {});
+    pendingLocalChange.current = true;
+    const timer = setTimeout(() => {
+      setDoc(doc(firestoreDb, 'workflow_layouts', 'main'), {
+        nodes,
+        edges,
+        notes,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true })
+        .then(() => { setTimeout(() => { pendingLocalChange.current = false; }, 500); })
+        .catch(() => { pendingLocalChange.current = false; });
+    }, 700);
+    return () => clearTimeout(timer);
   }, [mainLayoutReady, viewOnly, nodes, edges, notes]);
 
   // Keep screenshotsRef in sync so handleExecute can read latest count without stale closures
@@ -1792,7 +1803,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   const [notePos,   setNotePos]   = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_note')   || 'null') ?? {x:310, y:360}; } catch { return {x:310, y:360}; } });
   const [gdriveLayoutReady, setGdriveLayoutReady] = useState(false);
 
-  const dragging        = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const dragging              = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
+  const pendingLocalChange    = useRef(false);
   const draggingOverlay = useRef<{ id: 'paBox' | 'note'; offX: number; offY: number } | null>(null);
   const dragMoved       = useRef(false);
   const wrapperRef      = useRef<HTMLDivElement>(null);
@@ -1822,6 +1834,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   useEffect(() => {
     const ref = doc(firestoreDb, 'workflow_layouts', 'gdrive');
     const unsub = onSnapshot(ref, snap => {
+      // Skip remote updates while the user is dragging or has unsaved local changes
+      if (dragging.current || pendingLocalChange.current) return;
       if (snap.exists()) {
         const d = snap.data() as WorkflowLayoutDoc;
         if (Array.isArray(d.nodes) && d.nodes.length) {
@@ -1841,15 +1855,22 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     return () => unsub();
   }, []);
 
+  // Debounced save — pendingLocalChange blocks the onSnapshot echo until 500ms after save.
   useEffect(() => {
     if (!gdriveLayoutReady || viewOnly) return;
-    setDoc(doc(firestoreDb, 'workflow_layouts', 'gdrive'), {
-      nodes,
-      edges,
-      paBoxPos,
-      notePos,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true }).catch(() => {});
+    pendingLocalChange.current = true;
+    const timer = setTimeout(() => {
+      setDoc(doc(firestoreDb, 'workflow_layouts', 'gdrive'), {
+        nodes,
+        edges,
+        paBoxPos,
+        notePos,
+        updatedAt: new Date().toISOString(),
+      }, { merge: true })
+        .then(() => { setTimeout(() => { pendingLocalChange.current = false; }, 500); })
+        .catch(() => { pendingLocalChange.current = false; });
+    }, 700);
+    return () => clearTimeout(timer);
   }, [gdriveLayoutReady, viewOnly, nodes, edges, paBoxPos, notePos]);
 
   // Live Firestore history — updated by the scheduled Cloud Function every 10 min

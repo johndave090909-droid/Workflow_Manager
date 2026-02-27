@@ -278,6 +278,66 @@ async function sendFacebookTextMessage(recipientId, message) {
   return data;
 }
 
+// ── Workflow-based backend execution ────────────────────────────────────────────
+// Reads the visual workflow layout from Firestore and executes IF node routing,
+// sending files to the correct Facebook recipients — no browser needed.
+async function executeWorkflowNodes(nodes, edges, files) {
+  const results = [];
+
+  const savePdfNode = nodes.find((n) => n.type === "save_pdf");
+  if (!savePdfNode) {
+    console.log("executeWorkflowNodes: no save_pdf node found");
+    return { ok: false, reason: "no_save_pdf_node", results };
+  }
+
+  async function executeBranch(nodeIds, branchFiles) {
+    for (const nodeId of nodeIds) {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) continue;
+
+      if (node.type === "if") {
+        const cond = ((node.config && node.config.value) || "").trim().toLowerCase();
+        const yesFiles = branchFiles.filter((f) => f.name.toLowerCase().includes(cond));
+        const noFiles  = branchFiles.filter((f) => !f.name.toLowerCase().includes(cond));
+        console.log(`IF node condition="${cond}": YES=${yesFiles.length} NO=${noFiles.length}`);
+        const yesTargets = edges.filter((e) => e.fromId === nodeId && e.label === "yes").map((e) => e.toId);
+        const noTargets  = edges.filter((e) => e.fromId === nodeId && e.label === "no").map((e) => e.toId);
+        if (yesTargets.length && yesFiles.length) await executeBranch(yesTargets, yesFiles);
+        if (noTargets.length  && noFiles.length)  await executeBranch(noTargets,  noFiles);
+
+      } else if (node.type === "facebook" || node.type === "facebook_daily_counts") {
+        const recipientId = ((node.config && node.config.recipientId) || "").trim();
+        if (!recipientId) {
+          console.log(`Facebook node ${nodeId}: no recipientId — skipping`);
+          results.push({ nodeId, ok: false, reason: "missing_recipient" });
+          continue;
+        }
+        let filesToSend = branchFiles;
+        if (node.type === "facebook_daily_counts") {
+          filesToSend = branchFiles.filter((f) => /daily\s*counts/i.test(f.name));
+        }
+        if (filesToSend.length === 0) {
+          console.log(`Facebook node ${nodeId}: no matching files — skipping`);
+          results.push({ nodeId, ok: true, skipped: true, reason: "no_files" });
+        } else {
+          const header = ((node.config && node.config.message) || "").trim() || "🆕 New PDFs found in Google Drive:";
+          const messages = buildFacebookPdfMessages(header, filesToSend);
+          for (const msg of messages) await sendFacebookTextMessage(recipientId, msg);
+          console.log(`Facebook node ${nodeId}: sent ${filesToSend.length} file(s) to ${recipientId}`);
+          results.push({ nodeId, ok: true, recipientId, filesSent: filesToSend.length });
+        }
+        // Follow unlabelled edges onward
+        const next = edges.filter((e) => e.fromId === nodeId && !e.label).map((e) => e.toId);
+        if (next.length) await executeBranch(next, branchFiles);
+      }
+    }
+  }
+
+  const firstIds = edges.filter((e) => e.fromId === savePdfNode.id && !e.label).map((e) => e.toId);
+  await executeBranch(firstIds, files);
+  return { ok: true, results };
+}
+
 // ── Google Drive API ────────────────────────────────────────────────────────────
 async function getDriveAccessToken(saJson) {
   // Priority: 1) custom SA JSON from node config, 2) GOOGLE_DRIVE_SERVICE_ACCOUNT, 3) GOOGLE_SHEETS_SERVICE_ACCOUNT
@@ -531,27 +591,32 @@ exports.driveWatcherScheduled = onSchedule(
         await batch.commit();
         console.log(`Saved ${newFiles.length} new PDF(s) to Firestore`);
 
-        // Forward new files directly from backend (works even with no browser open)
+        // Forward new files using the visual workflow layout stored in Firestore.
+        // Executes IF node routing and sends to the correct Facebook recipients.
         try {
-          const cfg = await resolveDriveWatcherFacebookConfig();
-          if (!cfg.enabled) {
-            facebookForward = { ok: false, skipped: true, reason: "disabled" };
-          } else if (!cfg.recipientId) {
-            facebookForward = { ok: false, skipped: true, reason: "missing_recipient" };
+          const layoutSnap = await db.collection("workflow_layouts").doc("gdrive").get();
+          if (layoutSnap.exists) {
+            const layout = layoutSnap.data();
+            const wfNodes = Array.isArray(layout.nodes) ? layout.nodes : [];
+            const wfEdges = Array.isArray(layout.edges) ? layout.edges : [];
+            facebookForward = await executeWorkflowNodes(wfNodes, wfEdges, newFiles);
+            facebookForward.sentAt = savedAt;
+            facebookForward.source = "workflow";
+            facebookForward.filesForwarded = newFiles.length;
+            console.log(`Workflow execution done:`, JSON.stringify(facebookForward.results));
           } else {
-            const messages = buildFacebookPdfMessages(cfg.header, newFiles);
-            for (const msg of messages) {
-              await sendFacebookTextMessage(cfg.recipientId, msg);
+            // Fallback: no workflow layout saved yet — use simple env-based config
+            const cfg = await resolveDriveWatcherFacebookConfig();
+            if (!cfg.enabled) {
+              facebookForward = { ok: false, skipped: true, reason: "disabled" };
+            } else if (!cfg.recipientId) {
+              facebookForward = { ok: false, skipped: true, reason: "missing_recipient" };
+            } else {
+              const messages = buildFacebookPdfMessages(cfg.header, newFiles);
+              for (const msg of messages) await sendFacebookTextMessage(cfg.recipientId, msg);
+              facebookForward = { ok: true, sentAt: savedAt, recipientId: cfg.recipientId, source: "env", filesForwarded: newFiles.length };
+              console.log(`Fallback: forwarded ${newFiles.length} PDF(s) to ${cfg.recipientId}`);
             }
-            facebookForward = {
-              ok: true,
-              sentAt: savedAt,
-              recipientId: cfg.recipientId,
-              source: cfg.source,
-              filesForwarded: newFiles.length,
-              messageCount: messages.length,
-            };
-            console.log(`Forwarded ${newFiles.length} new PDF(s) to Facebook (${messages.length} message chunk(s))`);
           }
         } catch (fbErr) {
           facebookForward = {
