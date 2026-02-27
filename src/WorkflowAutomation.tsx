@@ -2936,6 +2936,8 @@ interface WFNodeCardProps {
 
 function WFNodeCard({ node, selected, connecting, logs, onMouseDown, onClick, onOutputPortClick, onInputPortClick }: WFNodeCardProps) {
   const sc = STATUS_COLOR[node.status];
+  const showRecipientName = (node.type === 'facebook' || node.type === 'facebook_daily_counts');
+  const recipientName = (node.config.recipientName || '').trim();
   return (
     <div className="wf-node"
       style={{ position: 'absolute', left: node.x, top: node.y, width: NODE_W, height: NODE_H, zIndex: selected ? 20 : 5, userSelect: 'none', cursor: 'grab' }}
@@ -2962,6 +2964,22 @@ function WFNodeCard({ node, selected, connecting, logs, onMouseDown, onClick, on
         {/* Text */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontSize: 12, fontWeight: 700, color: '#f1f5f9', margin: 0, letterSpacing: '-.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{node.label}</p>
+          {showRecipientName && (
+            <p
+              title={recipientName || 'No recipient name set'}
+              style={{
+                fontSize: 9,
+                margin: '3px 0 0',
+                color: recipientName ? '#93c5fd' : '#64748b',
+                fontWeight: 700,
+                letterSpacing: '.01em',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}>
+              {recipientName || 'No recipient name'}
+            </p>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6 }}>
             <div className={node.status === 'running' ? 'wf-running-dot' : ''}
               style={{ width: 5, height: 5, borderRadius: '50%', background: sc,

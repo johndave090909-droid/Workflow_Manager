@@ -40,7 +40,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -52,6 +52,7 @@ const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
   { id: 'home',         label: 'Home',         emoji: '🏠' },
   { id: 'complaints',   label: 'Complaints',   emoji: '📋' },
   { id: 'deliverables', label: 'Deliverables', emoji: '📁' },
+  { id: 'org-chart',    label: 'Org Chart',    emoji: '🧭' },
 ];
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -332,6 +333,11 @@ export default function SystemHub({
             </div>
           )}
 
+          {/* ORG CHART */}
+          {activeSection === 'org-chart' && (
+            <OrgChartView roleColor={roleColor} />
+          )}
+
         </main>
       </div>
 
@@ -397,6 +403,135 @@ interface DeliverableGroupsProps {
   isDirector: boolean;
   onToggleShared: (d: DeliverableWithProject) => void;
   onView: (d: DeliverableWithProject) => void;
+}
+
+type OrgCardTone = 'blue' | 'red' | 'green' | 'purple';
+
+interface OrgCardItem {
+  id: string;
+  name: string;
+  role?: string;
+  tone: OrgCardTone;
+  x: number;
+  y: number;
+}
+
+const ORG_TONE_STYLES: Record<OrgCardTone, { border: string; bg: string; glow: string }> = {
+  blue: {
+    border: 'rgba(96, 165, 250, 0.7)',
+    bg: 'linear-gradient(180deg, rgba(30,58,138,0.2), rgba(15,23,42,0.75))',
+    glow: 'rgba(96, 165, 250, 0.35)',
+  },
+  red: {
+    border: 'rgba(248, 113, 113, 0.75)',
+    bg: 'linear-gradient(180deg, rgba(153,27,27,0.2), rgba(15,23,42,0.75))',
+    glow: 'rgba(248, 113, 113, 0.35)',
+  },
+  green: {
+    border: 'rgba(74, 222, 128, 0.75)',
+    bg: 'linear-gradient(180deg, rgba(20,83,45,0.2), rgba(15,23,42,0.75))',
+    glow: 'rgba(74, 222, 128, 0.3)',
+  },
+  purple: {
+    border: 'rgba(196, 181, 253, 0.8)',
+    bg: 'linear-gradient(180deg, rgba(88,28,135,0.2), rgba(15,23,42,0.75))',
+    glow: 'rgba(196, 181, 253, 0.35)',
+  },
+};
+
+const ORG_CARD_WIDTH = 86;
+const ORG_CARD_HEIGHT = 92;
+const ORG_CANVAS_WIDTH = 2200;
+const ORG_CANVAS_HEIGHT = 1200;
+
+function buildOrgChartDefaults(): OrgCardItem[] {
+  const items: OrgCardItem[] = [];
+  const push = (name: string, tone: OrgCardTone, x: number, y: number) => {
+    items.push({
+      id: `org-card-${items.length + 1}`,
+      name,
+      tone,
+      x,
+      y,
+    });
+  };
+  const placeRow = (names: string[], tone: OrgCardTone, startX: number, y: number, gapX = 96) => {
+    names.forEach((name, idx) => push(name, tone, startX + idx * gapX, y));
+  };
+
+  const redStartX = 10;
+  const redGap = 96;
+  const greenStartX = 1210;
+  const greenGap = 96;
+  const purpleStartX = 1498;
+  const purpleGap = 96;
+
+  // Top leadership rows
+  push('Culinary Director/Executive Chef', 'blue', 1040, 18);
+  push('Sous Chef', 'blue', 1040, 122);
+  placeRow(['Accountant', 'Leadership', 'Supply Chain'], 'blue', 430, 180, 104);
+  placeRow(['Junior Sous Chef', 'Junior Sous Chef', 'Junior Sous Chef'], 'blue', 935, 180, 96);
+  push('Pastry Chef', 'blue', 1668, 180);
+
+  // Lead row
+  push('CDP', 'red', 1040, 236);
+  placeRow(
+    ['Student Lead Morning', 'Student Lead Afternoon', 'Front of the House Lead', 'Student Lead Kitchen Pass', 'Student Lead Prep Team'],
+    'red',
+    60,
+    290,
+    274
+  );
+  push('Pantry Lead', 'green', greenStartX, 290);
+  placeRow(['Student Lead Morning', 'Student Lead Morning', 'Student Lead Afternoon', 'Student Lead Morning'], 'purple', purpleStartX, 290, purpleGap * 2);
+
+  // Main matrix rows (exact rows/columns pattern)
+  placeRow(
+    ['Beef & Ribs Prep', 'Luau Prep', 'Gateway Braiser', 'Oven & Wok Prep', 'Student Expo', 'Wok', 'Poke Bar 1', 'Poke Bar 2', 'Night Prep 1', 'Garnish Prep', 'Prep Cook 1', 'Prep Cook 2'],
+    'red',
+    redStartX,
+    392,
+    redGap
+  );
+  placeRow(['Pantry Prep 1', 'Pantry Prep 2'], 'green', greenStartX, 392, greenGap);
+  placeRow(['Student Early Morning 1', 'Student Early Morning 2', 'Student Morning 1', 'Student Morning 2', 'Student Afternoon 1', 'Student Night 1', 'Student Night 2'], 'purple', purpleStartX, 392, purpleGap);
+
+  placeRow(
+    ['Veg Prep', 'Sauce Prep', 'AM Fryer 1', 'AM Fryer 2', 'Grill Station', 'Sashimi Station', 'Poke Bar 3', 'Imu Carver', 'Night Oven 1', 'Night Oven 2', 'Prep Cook 3', 'Prep Cook 4'],
+    'red',
+    redStartX,
+    488,
+    redGap
+  );
+  placeRow(['Pantry Prep 3', 'Pantry Prep 4'], 'green', greenStartX, 488, greenGap);
+  placeRow(['Student Early Morning 3', 'Student Early Morning 4', 'Student Morning 3', 'Student Morning 4', 'Student Afternoon 2', 'Student Night 3', 'Student Night 4'], 'purple', purpleStartX, 488, purpleGap);
+
+  placeRow(
+    ['Luau Braiser', 'Rice Prep', 'Sauces & Soup', 'Oven & Weight', 'Chicken Carver', 'Kampachi Carver', 'Imu Carver', 'Imu Carver', 'Night Garnish 1', 'Night Garnish 2', 'Prep Cook 5', 'Prep Cook 6'],
+    'red',
+    redStartX,
+    584,
+    redGap
+  );
+  placeRow(['Pantry Prep 5', 'Pantry Prep 6'], 'green', greenStartX, 584, greenGap);
+  placeRow(['Student Early Morning 5', 'Student Morning 5', 'Student Afternoon 3', 'Student Night 5'], 'purple', purpleStartX, 584, purpleGap * 2);
+
+  placeRow(
+    ['Imu Student', 'Imu Student', 'Chicken & Fish Prep', 'Poisson Cru 1', 'Poisson Cru 2', 'Kampachi Carver', 'Kampachi Carver', 'PM Fryer 1', 'PM Fryer 2', 'Prep Cook 7', 'Prep Cook 8'],
+    'red',
+    redStartX,
+    680,
+    redGap
+  );
+  placeRow(['Pantry Prep 7', 'Pantry Prep 8'], 'green', greenStartX, 680, greenGap);
+  placeRow(['Student Afternoon 4'], 'purple', purpleStartX + purpleGap * 4, 680, purpleGap);
+
+  // Lowest row offsets shown in reference
+  placeRow(['Stock Carver 1', 'Stock Carver 2'], 'red', redStartX + redGap * 3, 776, redGap);
+  placeRow(['Kampachi Carver'], 'red', redStartX + redGap * 7, 776, redGap);
+  placeRow(['Pantry Prep 9', 'Pantry Prep 10'], 'green', greenStartX, 776, greenGap);
+
+  return items;
 }
 
 function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, onView }: DeliverableGroupsProps) {
@@ -552,6 +687,298 @@ function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, 
 }
 
 // ── SystemCardTile ─────────────────────────────────────────────────────────────
+
+function OrgChartView({ roleColor }: { roleColor: string }) {
+  const storageKey = 'workflow_manager_org_chart_canvas_v3';
+  const canvasRef = React.useRef<HTMLDivElement | null>(null);
+  const dragRef = React.useRef<{
+    ids: string[];
+    startPointerX: number;
+    startPointerY: number;
+    startPositions: Record<string, { x: number; y: number }>;
+  } | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [cards, setCards] = useState<OrgCardItem[]>(() => {
+    try {
+      const saved = window.localStorage.getItem(storageKey);
+      if (!saved) return buildOrgChartDefaults();
+      const parsed = JSON.parse(saved) as OrgCardItem[];
+      if (!Array.isArray(parsed)) throw new Error('Invalid org chart');
+      return parsed;
+    } catch {
+      return buildOrgChartDefaults();
+    }
+  });
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    window.localStorage.setItem(storageKey, JSON.stringify(cards));
+  }, [cards]);
+
+  const selectedCard = selectedCardIds.length === 1
+    ? cards.find(card => card.id === selectedCardIds[0]) ?? null
+    : null;
+
+  const updateCard = (id: string, patch: Partial<OrgCardItem>) => {
+    setCards(prev => prev.map(card => (card.id === id ? { ...card, ...patch } : card)));
+  };
+
+  const deleteCard = (id: string) => {
+    setCards(prev => prev.filter(card => card.id !== id));
+    setSelectedCardIds(prev => prev.filter(cardId => cardId !== id));
+  };
+
+  const addCard = () => {
+    const tone = selectedCard?.tone ?? 'blue';
+    setCards(prev => [
+      ...prev,
+      {
+        id: `org-card-${Date.now()}`,
+        name: 'New Card',
+        tone,
+        x: 20,
+        y: 20,
+      },
+    ]);
+  };
+
+  const resetChart = () => {
+    setCards(buildOrgChartDefaults());
+    setSelectedCardIds([]);
+  };
+
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+  const onPointerMove = (event: PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = event.clientX - drag.startPointerX;
+    const dy = event.clientY - drag.startPointerY;
+    setCards(prev =>
+      prev.map(card => {
+        const start = drag.startPositions[card.id];
+        if (!start) return card;
+        return {
+          ...card,
+          x: clamp(start.x + dx, 0, ORG_CANVAS_WIDTH - ORG_CARD_WIDTH),
+          y: clamp(start.y + dy, 0, ORG_CANVAS_HEIGHT - ORG_CARD_HEIGHT),
+        };
+      })
+    );
+  };
+
+  const stopDragging = () => {
+    dragRef.current = null;
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', stopDragging);
+  };
+
+  const startDragging = (event: React.PointerEvent<HTMLDivElement>, id: string) => {
+    if (!isEditing || event.button !== 0) return;
+
+    const isMultiSelectKey = event.ctrlKey || event.metaKey;
+    if (isMultiSelectKey) {
+      event.preventDefault();
+      setSelectedCardIds(prev => (prev.includes(id) ? prev.filter(cardId => cardId !== id) : [...prev, id]));
+      return;
+    }
+
+    const idsToMove = selectedCardIds.includes(id) ? selectedCardIds : [id];
+    setSelectedCardIds(idsToMove);
+    const startPositions: Record<string, { x: number; y: number }> = {};
+    cards.forEach(card => {
+      if (idsToMove.includes(card.id)) startPositions[card.id] = { x: card.x, y: card.y };
+    });
+
+    dragRef.current = {
+      ids: idsToMove,
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startPositions,
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', stopDragging);
+  };
+
+  useEffect(() => () => stopDragging(), []);
+
+  return (
+    <section
+      className="px-2 sm:px-4 pb-6"
+      style={{
+        background:
+          'radial-gradient(1200px 600px at 5% 10%, rgba(250,204,21,0.08), transparent 45%), radial-gradient(1000px 500px at 95% 0%, rgba(236,72,153,0.08), transparent 50%), linear-gradient(180deg, rgba(10,5,16,0.96), rgba(6,3,11,0.98))',
+      }}
+    >
+      <div className="w-full">
+        <div className="px-3 sm:px-4 py-5 sm:py-6 border-b border-white/10">
+          <p className="text-[10px] sm:text-xs font-black tracking-[0.28em] uppercase text-slate-400">Culinary Department</p>
+          <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="text-2xl sm:text-4xl font-display font-bold text-white">Organizational Chart</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsEditing(v => !v)}
+                className="px-3 py-1.5 text-[10px] sm:text-xs font-black uppercase tracking-[0.14em] rounded-full border"
+                style={{
+                  color: isEditing ? '#fda4af' : roleColor,
+                  borderColor: isEditing ? 'rgba(244,63,94,0.5)' : `${roleColor}66`,
+                  background: isEditing ? 'rgba(244,63,94,0.14)' : `${roleColor}1A`,
+                }}
+              >
+                {isEditing ? 'Done Editing' : 'Edit Chart'}
+              </button>
+              <button
+                onClick={addCard}
+                className="px-3 py-1.5 text-[10px] sm:text-xs font-black uppercase tracking-[0.14em] rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+              >
+                + Add Card
+              </button>
+              <button
+                onClick={resetChart}
+                className="px-3 py-1.5 text-[10px] sm:text-xs font-black uppercase tracking-[0.14em] rounded-full border border-white/20 bg-white/10 text-white hover:bg-white/15"
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="py-3 sm:py-4 overflow-auto">
+          <div
+            ref={canvasRef}
+            className="relative bg-black/10"
+            style={{ width: ORG_CANVAS_WIDTH, height: ORG_CANVAS_HEIGHT, minWidth: ORG_CANVAS_WIDTH, minHeight: ORG_CANVAS_HEIGHT }}
+          >
+            {cards.map(card => {
+              const cardTone = ORG_TONE_STYLES[card.tone];
+              const selected = selectedCardIds.includes(card.id);
+              return (
+                <div
+                  key={card.id}
+                  onPointerDown={(event) => startDragging(event, card.id)}
+                  onClick={() => {
+                    if (!isEditing) setSelectedCardIds([card.id]);
+                  }}
+                  className="absolute rounded-xl border px-2 py-2 select-none"
+                  style={{
+                    width: ORG_CARD_WIDTH,
+                    minHeight: ORG_CARD_HEIGHT,
+                    transform: `translate(${card.x}px, ${card.y}px)`,
+                    borderColor: selected ? '#fef3c7' : cardTone.border,
+                    background: cardTone.bg,
+                    boxShadow: selected
+                      ? 'inset 0 1px 0 rgba(255,255,255,0.08), 0 0 18px rgba(254,243,199,0.45)'
+                      : `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 14px ${cardTone.glow}`,
+                    cursor: isEditing ? 'grab' : 'pointer',
+                  }}
+                >
+                  {isEditing && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteCard(card.id);
+                      }}
+                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full text-[10px] font-black bg-rose-500 text-white border border-rose-200/50"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  )}
+                  <div className="w-7 h-7 rounded-md border border-white/25 bg-white/10 mx-auto mb-2" />
+                  {isEditing ? (
+                    <input
+                      value={card.name}
+                      onChange={(event) => updateCard(card.id, { name: event.target.value })}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => event.stopPropagation()}
+                      className="w-full text-[9px] font-semibold text-white text-center leading-tight bg-black/30 border border-white/20 rounded px-1 py-1"
+                    />
+                  ) : (
+                    <p className="text-[9px] font-semibold text-white text-center leading-tight">{card.name}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {selectedCard && (
+          <div className="px-3 sm:px-4 pb-5 sm:pb-6">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 mb-3">Selected Card</p>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <input
+                  value={selectedCard.name}
+                  onChange={e => updateCard(selectedCard.id, { name: e.target.value })}
+                  className="sm:col-span-2 w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
+                />
+                <select
+                  value={selectedCard.tone}
+                  onChange={e => updateCard(selectedCard.id, { tone: e.target.value as OrgCardTone })}
+                  className="w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
+                >
+                  <option value="blue">Blue</option>
+                  <option value="red">Red</option>
+                  <option value="green">Green</option>
+                  <option value="purple">Purple</option>
+                </select>
+                <button
+                  onClick={() => deleteCard(selectedCard.id)}
+                  className="w-full text-xs font-black uppercase tracking-[0.1em] px-2 py-2 rounded border border-rose-400/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25"
+                >
+                  Delete Card
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedCardIds.length > 1 && (
+          <div className="px-3 sm:px-4 pb-5 sm:pb-6">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-3 sm:p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 mb-3">
+                {selectedCardIds.length} Cards Selected
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <select
+                  defaultValue=""
+                  onChange={e => {
+                    const tone = e.target.value as OrgCardTone;
+                    if (!tone) return;
+                    setCards(prev => prev.map(card => (selectedCardIds.includes(card.id) ? { ...card, tone } : card)));
+                    e.currentTarget.value = '';
+                  }}
+                  className="w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
+                >
+                  <option value="" disabled>Change color</option>
+                  <option value="blue">Blue</option>
+                  <option value="red">Red</option>
+                  <option value="green">Green</option>
+                  <option value="purple">Purple</option>
+                </select>
+                <button
+                  onClick={() => {
+                    setCards(prev => prev.filter(card => !selectedCardIds.includes(card.id)));
+                    setSelectedCardIds([]);
+                  }}
+                  className="w-full text-xs font-black uppercase tracking-[0.1em] px-2 py-2 rounded border border-rose-400/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25"
+                >
+                  Delete Selected
+                </button>
+                <button
+                  onClick={() => setSelectedCardIds([])}
+                  className="w-full text-xs font-black uppercase tracking-[0.1em] px-2 py-2 rounded border border-white/30 bg-white/10 text-white hover:bg-white/20"
+                >
+                  Clear Selection
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (view: AppView) => void }) {
   const handleClick = () => {
