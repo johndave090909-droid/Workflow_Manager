@@ -2002,8 +2002,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               });
               const data = await r.json() as any;
               if (r.ok) { log(node.id, `✓ Sent to Facebook (${files.length} PDF${files.length > 1 ? 's' : ''} listed) · ${recipientLabel}`); }
-              else       { log(node.id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
-            } catch { log(node.id, '⚠ Could not reach backend'); }
+              else { log(node.id, `✗ Facebook API: ${data?.error?.message || data?.error || r.status}`); setStatus(node.id, 'error'); return; }
+            } catch { log(node.id, '✗ Could not reach backend'); setStatus(node.id, 'error'); return; }
           }
         } else {
           log(node.id, `✓ ${node.label} completed`);
@@ -2166,10 +2166,12 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               if (r.ok) {
                 log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed) · ${recipientLabel}`);
               } else {
-                log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`);
+                log(id, `✗ Facebook API: ${data?.error?.message || data?.error || r.status}`);
+                setStatus(id, 'error'); break;
               }
             } catch {
-              log(id, '⚠ Could not reach backend — Facebook message not sent');
+              log(id, '✗ Could not reach backend — Facebook message not sent');
+              setStatus(id, 'error'); break;
             }
           }
 
@@ -2198,10 +2200,12 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               if (r.ok) {
                 log(id, `✓ Sent Daily Counts to Facebook · ${recipientLabel}`);
               } else {
-                log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`);
+                log(id, `✗ Facebook API: ${data?.error?.message || data?.error || r.status}`);
+                setStatus(id, 'error'); break;
               }
             } catch {
-              log(id, '⚠ Could not reach backend — Facebook message not sent');
+              log(id, '✗ Could not reach backend — Facebook message not sent');
+              setStatus(id, 'error'); break;
             }
           }
 
@@ -2286,8 +2290,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               });
               const data = await r.json() as any;
               if (r.ok) { log(id, `✓ Sent to Facebook (${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} listed) · ${recipientLabel}`); }
-              else       { log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
-            } catch { log(id, '⚠ Could not reach backend'); }
+              else { log(id, `✗ Facebook API: ${data?.error?.message || data?.error || r.status}`); setStatus(id, 'error'); break; }
+            } catch { log(id, '✗ Could not reach backend'); setStatus(id, 'error'); break; }
           }
         } else if (node.type === 'facebook_daily_counts') {
           const recipientId = node.config.recipientId?.trim() || '';
@@ -2307,8 +2311,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               });
               const data = await r.json() as any;
               if (r.ok) { log(id, `✓ Sent Daily Counts to Facebook · ${recipientLabel}`); }
-              else       { log(id, `⚠ Facebook API: ${data?.error?.message || data?.error || r.status}`); }
-            } catch { log(id, '⚠ Could not reach backend'); }
+              else { log(id, `✗ Facebook API: ${data?.error?.message || data?.error || r.status}`); setStatus(id, 'error'); break; }
+            } catch { log(id, '✗ Could not reach backend'); setStatus(id, 'error'); break; }
           }
         } else if (node.type === 'email') {
           const to = node.config.to?.trim() || '';

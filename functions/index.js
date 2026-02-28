@@ -231,12 +231,67 @@ async function resolveDriveWatcherFacebookConfig() {
   return { enabled, recipientId, header, source: docConfig ? "firestore" : "env" };
 }
 
-function buildFacebookPdfMessages(header, files) {
-  const entries = files.map((f) => {
+// Downloads a Drive PDF and extracts Aloha/Ohana/Gateway guest counts.
+// Returns a summary string like "Aloha: 344\nOhana: 212\nGateway: 854", or null if not found.
+async function extractDailyCounts(fileId) {
+  try {
+    const token = await getDriveAccessToken(null);
+    const fileResp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!fileResp.ok) {
+      console.log(`extractDailyCounts: Drive download failed (${fileResp.status}) for ${fileId}`);
+      return null;
+    }
+    const buffer = Buffer.from(await fileResp.arrayBuffer());
+    const { text } = await pdfParse(buffer);
+
+    // Ohana Luau — value appears directly after "Ohana Luau" in the text stream
+    let ohana = null;
+    const ohanaM = text.match(/Ohana[\s\n]+Luau[\s\n]+(\d{2,4})/i);
+    if (ohanaM) ohana = ohanaM[1];
+
+    // Gateway Buffet — Daily Attendance Summary row sits at the top of the text
+    let gateway = null;
+    const gatewayM = text.match(/(?:\d+,\d{3}|\d{5,})\n(\d{3,4})\n\d{3,4}\n\d{3,4}\nDate/i);
+    if (gatewayM) gateway = gatewayM[1];
+
+    // Aloha Luau — Super Amb. and Aloha values are concatenated, last 3 digits = Aloha count
+    let aloha = null;
+    const alohaM = text.match(/(\d{3,7})\n\d{1,4}\nDate[\s\n]+Total[\s\n]+Luau[\s\n]*PAX/i);
+    if (alohaM) {
+      const raw = alohaM[1];
+      aloha = raw.length <= 3 ? raw : String(parseInt(raw.slice(-3)));
+    }
+
+    if (!aloha && !ohana && !gateway) return null;
+
+    const lines = [];
+    if (aloha)   lines.push(`Aloha: ${aloha}`);
+    if (ohana)   lines.push(`Ohana: ${ohana}`);
+    if (gateway) lines.push(`Gateway: ${gateway}`);
+    console.log(`extractDailyCounts (${fileId}): ${lines.join(", ")}`);
+    return lines.join("\n");
+  } catch (err) {
+    console.log(`extractDailyCounts error for ${fileId}:`, err?.message);
+    return null;
+  }
+}
+
+async function buildFacebookPdfMessages(header, files) {
+  const entries = [];
+  for (const f of files) {
     const name = normalizeStr(f.name) || "(Unnamed PDF)";
     const link = normalizeStr(f.webViewLink);
-    return link ? `📄 ${name}\n${link}` : `📄 ${name}`;
-  });
+    const isDailyCounts = /daily\s*counts/i.test(name);
+    let entry = link ? `📄 ${name}\n${link}` : `📄 ${name}`;
+    if (isDailyCounts && f.id) {
+      const summary = await extractDailyCounts(f.id);
+      if (summary) entry += `\n\n${summary}`;
+    }
+    entries.push(entry);
+  }
 
   const maxLen = 1800;
   const chunks = [];
@@ -266,8 +321,7 @@ async function sendFacebookTextMessage(recipientId, message) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messaging_type: "MESSAGE_TAG",
-        tag: "CONFIRMED_EVENT_UPDATE",
+        messaging_type: "UPDATE",
         recipient: { id: recipientId },
         message: { text: message },
       }),
@@ -321,7 +375,7 @@ async function executeWorkflowNodes(nodes, edges, files) {
           results.push({ nodeId, ok: true, skipped: true, reason: "no_files" });
         } else {
           const header = ((node.config && node.config.message) || "").trim() || "🆕 New PDFs found in Google Drive:";
-          const messages = buildFacebookPdfMessages(header, filesToSend);
+          const messages = await buildFacebookPdfMessages(header, filesToSend);
           for (const msg of messages) await sendFacebookTextMessage(recipientId, msg);
           console.log(`Facebook node ${nodeId}: sent ${filesToSend.length} file(s) to ${recipientId}`);
           results.push({ nodeId, ok: true, recipientId, filesSent: filesToSend.length });
@@ -612,7 +666,7 @@ exports.driveWatcherScheduled = onSchedule(
             } else if (!cfg.recipientId) {
               facebookForward = { ok: false, skipped: true, reason: "missing_recipient" };
             } else {
-              const messages = buildFacebookPdfMessages(cfg.header, newFiles);
+              const messages = await buildFacebookPdfMessages(cfg.header, newFiles);
               for (const msg of messages) await sendFacebookTextMessage(cfg.recipientId, msg);
               facebookForward = { ok: true, sentAt: savedAt, recipientId: cfg.recipientId, source: "env", filesForwarded: newFiles.length };
               console.log(`Fallback: forwarded ${newFiles.length} PDF(s) to ${cfg.recipientId}`);
@@ -677,8 +731,7 @@ exports.sendFacebookMessage = onRequest({ region: "us-central1", cors: true }, a
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messaging_type: "MESSAGE_TAG",
-          tag: "CONFIRMED_EVENT_UPDATE",
+          messaging_type: "UPDATE",
           recipient: { id: recipientId },
           message: { text: message },
         }),
@@ -728,7 +781,7 @@ exports.driveWatcherTestForward = onRequest({ region: "us-central1", cors: true 
       name: f.name || "",
       webViewLink: f.webViewLink || "",
     }));
-    const messages = buildFacebookPdfMessages(`[TEST] ${cfg.header}`, mapped);
+    const messages = await buildFacebookPdfMessages(`[TEST] ${cfg.header}`, mapped);
     for (const msg of messages) {
       await sendFacebookTextMessage(cfg.recipientId, msg);
     }
