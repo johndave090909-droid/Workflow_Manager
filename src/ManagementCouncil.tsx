@@ -131,13 +131,13 @@ export default function ManagementCouncil({
       </header>
 
       {/* ── Body ── */}
-      <div className="p-4 sm:p-8 overflow-x-auto pb-24">
+      <div className="p-4 sm:p-8 pb-24">
         {loading ? (
           <div className="flex items-center justify-center h-64 text-slate-500 text-sm">Loading…</div>
         ) : users.length === 0 ? (
           <div className="flex items-center justify-center h-64 text-slate-500 text-sm">No users found.</div>
         ) : (
-          <div className="flex gap-4 min-w-max items-start">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 w-full">
             {users.map(user => (
               <UserPanel
                 key={user.id}
@@ -200,7 +200,7 @@ function UserPanel({
   const initials     = user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="w-56 flex-shrink-0 rounded-2xl bg-[#130d1f] border border-white/[0.07] flex flex-col overflow-hidden">
+    <div className="w-full flex-shrink-0 rounded-2xl bg-[#130d1f] border border-white/[0.07] flex flex-col overflow-hidden">
 
       {/* ── Top bar: avatar · name · search · more ── */}
       <div className="px-4 py-3.5 flex items-center gap-2.5 border-b border-white/[0.06]">
