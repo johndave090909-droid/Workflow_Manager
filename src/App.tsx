@@ -21,6 +21,7 @@ import SystemHub from './SystemHub';
 import SystemAdminPanel from './SystemAdminPanel';
 import WorkflowAutomation from './WorkflowAutomation';
 import WorkerRoster from './WorkerRoster';
+import ManagementCouncil from './ManagementCouncil';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -63,9 +64,8 @@ export default function App() {
   const [currentView,     setCurrentView]     = useState<AppView>(() => {
     try {
       const saved = localStorage.getItem('app_current_view');
-      if (saved === 'hub' || saved === 'tracker' || saved === 'workflow' || saved === 'workers' || saved === 'it-admin') {
-        return saved;
-      }
+      const validViews: AppView[] = ['hub', 'tracker', 'workflow', 'workers', 'it-admin', 'management-council'];
+      if (validViews.includes(saved as AppView)) return saved as AppView;
     } catch {}
     return 'hub';
   });
@@ -210,8 +210,22 @@ export default function App() {
       const cards = snap.docs.map(d => ({ id: d.id, ...d.data() } as SystemCard));
 
       // Auto-seed internal systems if they don't exist yet
-      const hasWorkflow = cards.some(c => c.link === 'workflow' && c.link_type === 'internal');
-      const hasWorkers = cards.some(c => c.link === 'workers' && c.link_type === 'internal');
+      const hasWorkflow  = cards.some(c => c.link === 'workflow'            && c.link_type === 'internal');
+      const hasWorkers   = cards.some(c => c.link === 'workers'             && c.link_type === 'internal');
+      const hasMgmtCouncil = cards.some(c => c.link === 'management-council' && c.link_type === 'internal');
+      if (!hasMgmtCouncil) {
+        await addDoc(collection(db, 'system_cards'), {
+          title: 'Management Council',
+          description: 'Central space to manage user-specific links and resources for each team member.',
+          icon: '🏛️',
+          color_accent: '#f59e0b',
+          link: 'management-council',
+          link_type: 'internal',
+          is_active: true,
+          is_view_only: false,
+          sort_order: 101,
+        });
+      }
       if (!hasWorkflow) {
         await addDoc(collection(db, 'system_cards'), {
           title: 'Workflow Automation',
@@ -237,7 +251,7 @@ export default function App() {
           sort_order: 100,
         });
       }
-      if (!hasWorkflow || !hasWorkers) {
+      if (!hasWorkflow || !hasWorkers || !hasMgmtCouncil) {
         const reSnap = await getDocs(query(collection(db, 'system_cards'), orderBy('sort_order')));
         setSystemCards(reSnap.docs.map(d => ({ id: d.id, ...d.data() } as SystemCard)));
         return;
@@ -407,6 +421,19 @@ export default function App() {
       />
       <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
+    </>
+  );
+
+  if (currentView === 'management-council') return (
+    <>
+      <ManagementCouncil
+        currentUser={currentUser}
+        onBackToHub={() => setCurrentView('hub')}
+        onLogout={handleLogout}
+        roleColor={userRoleColor}
+        permissions={perms}
+      />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
     </>
   );
 
