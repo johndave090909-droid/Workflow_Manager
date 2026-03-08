@@ -210,8 +210,8 @@ export default function App() {
       const cards = snap.docs.map(d => ({ id: d.id, ...d.data() } as SystemCard));
 
       // Auto-seed internal systems if they don't exist yet
-      const hasWorkflow  = cards.some(c => c.link === 'workflow'            && c.link_type === 'internal');
-      const hasWorkers   = cards.some(c => c.link === 'workers'             && c.link_type === 'internal');
+      const hasWorkflow    = cards.some(c => c.link === 'workflow'            && c.link_type === 'internal');
+      const hasWorkers     = cards.some(c => c.link === 'workers'            && c.link_type === 'internal');
       const hasMgmtCouncil = cards.some(c => c.link === 'management-council' && c.link_type === 'internal');
       if (!hasMgmtCouncil) {
         await addDoc(collection(db, 'system_cards'), {
