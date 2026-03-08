@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Plus, ExternalLink, Pencil, Trash2, X, Check, LogOut } from 'lucide-react';
+import { ArrowLeft, Plus, ExternalLink, Pencil, Trash2, X, Check, LogOut, MoreVertical, Search, Link as LinkIcon, FileText } from 'lucide-react';
 import { User, RolePermissions } from './types';
 import { db } from './firebase';
 import {
@@ -197,52 +197,46 @@ function UserPanel({
   onDelete,
 }: UserPanelProps) {
   const isAddingHere = addingFor === user.id;
-  const count        = userItems.length;
   const initials     = user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   return (
-    <div className="w-60 flex-shrink-0 rounded-2xl bg-[#130d1f] border border-white/[0.07] flex flex-col overflow-hidden">
+    <div className="w-56 flex-shrink-0 rounded-2xl bg-[#130d1f] border border-white/[0.07] flex flex-col overflow-hidden">
 
-      {/* ── Card header — Avatar · Name · Count · Add button ── */}
-      <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
-        {/* Avatar */}
+      {/* ── Top bar: avatar · name · search · more ── */}
+      <div className="px-4 py-3.5 flex items-center gap-2.5 border-b border-white/[0.06]">
         {user.photo ? (
-          <img
-            src={user.photo}
-            alt={user.name}
-            className="w-8 h-8 rounded-full object-cover shrink-0 ring-2 ring-white/10"
-          />
+          <img src={user.photo} alt={user.name} className="w-7 h-7 rounded-lg object-cover shrink-0" />
         ) : (
-          <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold bg-[#00b4d8]/20 text-[#00b4d8]">
+          <div className="w-7 h-7 rounded-lg shrink-0 flex items-center justify-center text-[11px] font-bold bg-gradient-to-br from-[#7c3aed] to-[#a855f7] text-white">
             {initials}
           </div>
         )}
-        {/* Name + count */}
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <span className="font-bold text-white text-sm truncate">{user.name.split(' ')[0]}</span>
-          {count > 0 && (
-            <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-[#00b4d8]/20 text-[#00b4d8] text-[11px] font-bold flex items-center justify-center leading-none">
-              {count}
-            </span>
-          )}
-        </div>
-        {/* Add button */}
-        {canEdit && !isAddingHere && (
+        <span className="font-semibold text-white text-sm flex-1 truncate">{user.name}</span>
+        <Search size={13} className="text-slate-600 shrink-0 cursor-pointer hover:text-slate-400 transition-colors" />
+        {canEdit ? (
           <button
-            onClick={() => setAddingFor(user.id)}
-            className="flex-shrink-0 w-7 h-7 rounded-lg bg-[#00b4d8]/20 hover:bg-[#00b4d8]/35 text-[#00b4d8] flex items-center justify-center transition-all"
+            onClick={() => isAddingHere ? setAddingFor(null) : setAddingFor(user.id)}
+            className="text-slate-600 hover:text-slate-300 transition-colors shrink-0"
             title="Add item"
           >
-            <Plus size={14} strokeWidth={2.5} />
+            <MoreVertical size={13} />
           </button>
+        ) : (
+          <MoreVertical size={13} className="text-slate-600 shrink-0" />
         )}
       </div>
 
-      {/* ── Items ── */}
-      <div className="px-3 pb-4 space-y-2">
+      {/* ── Section label ── */}
+      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{user.role || 'Items'}</span>
+        <span className="text-slate-600 text-xs leading-none">—</span>
+      </div>
+
+      {/* ── Nav items ── */}
+      <div className="px-2 pb-3 mt-0.5">
 
         {userItems.length === 0 && !isAddingHere && (
-          <p className="text-xs text-slate-600 italic text-center py-4">No items yet</p>
+          <p className="text-[11px] text-slate-700 italic text-center py-5">No items yet</p>
         )}
 
         {userItems.map(item => {
@@ -250,11 +244,11 @@ function UserPanel({
 
           if (isEditing) {
             return (
-              <div key={item.id} className="rounded-xl bg-[#1e1530] border border-white/10 p-2.5 space-y-2">
+              <div key={item.id} className="mx-1 my-1 rounded-xl bg-[#1e1530] border border-white/10 p-2.5 space-y-2">
                 <input
                   value={editLabel}
                   onChange={e => setEditLabel(e.target.value)}
-                  className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#00b4d8]/40 placeholder:text-slate-600"
+                  className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#7c3aed]/50 placeholder:text-slate-600"
                   placeholder="Label"
                   autoFocus
                 />
@@ -262,21 +256,15 @@ function UserPanel({
                   <input
                     value={editUrl}
                     onChange={e => setEditUrl(e.target.value)}
-                    className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#00b4d8]/40 placeholder:text-slate-600"
+                    className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#7c3aed]/50 placeholder:text-slate-600"
                     placeholder="https://…"
                   />
                 )}
                 <div className="flex gap-1.5">
-                  <button
-                    onClick={() => onSaveEdit(user.id, item.id)}
-                    className="flex-1 py-1.5 rounded-lg bg-[#00b4d8]/20 hover:bg-[#00b4d8]/30 text-[#00b4d8] text-xs font-bold transition-all flex items-center justify-center gap-1"
-                  >
+                  <button onClick={() => onSaveEdit(user.id, item.id)} className="flex-1 py-1.5 rounded-lg bg-[#7c3aed]/20 hover:bg-[#7c3aed]/30 text-[#a78bfa] text-xs font-bold transition-all flex items-center justify-center gap-1">
                     <Check size={10} /> Save
                   </button>
-                  <button
-                    onClick={onCancelEdit}
-                    className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 text-xs transition-all"
-                  >
+                  <button onClick={onCancelEdit} className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 text-xs transition-all">
                     <X size={10} />
                   </button>
                 </div>
@@ -287,34 +275,30 @@ function UserPanel({
           return (
             <div
               key={item.id}
-              className="group flex items-center gap-2 rounded-xl bg-[#1a1128] border border-white/[0.06] px-3 py-2.5 hover:border-white/10 hover:bg-[#1e1530] transition-all"
+              className="group flex items-center gap-2.5 rounded-lg px-2.5 py-2 hover:bg-white/[0.05] transition-all cursor-default"
             >
+              <span className="text-slate-500 shrink-0">
+                {item.type === 'link' ? <LinkIcon size={14} strokeWidth={1.5} /> : <FileText size={14} strokeWidth={1.5} />}
+              </span>
               {item.url ? (
                 <a
                   href={item.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 text-xs text-slate-200 hover:text-[#00b4d8] truncate flex items-center gap-1.5 min-w-0 transition-colors"
+                  className="flex-1 text-[13px] text-slate-300 hover:text-white truncate flex items-center gap-1 min-w-0 transition-colors"
                 >
                   <span className="truncate">{item.label}</span>
-                  <ExternalLink size={9} className="shrink-0 opacity-40 group-hover:opacity-70" />
+                  <ExternalLink size={9} className="shrink-0 opacity-0 group-hover:opacity-40 transition-all" />
                 </a>
               ) : (
-                <span className="flex-1 text-xs text-slate-300 truncate">{item.label}</span>
+                <span className="flex-1 text-[13px] text-slate-300 truncate">{item.label}</span>
               )}
-
               {canEdit && (
                 <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
-                  <button
-                    onClick={() => setEditingItem({ userId: user.id, item })}
-                    className="p-1 rounded-lg hover:bg-white/10 text-slate-600 hover:text-slate-300 transition-all"
-                  >
+                  <button onClick={() => setEditingItem({ userId: user.id, item })} className="p-1 rounded hover:bg-white/10 text-slate-600 hover:text-slate-300 transition-all">
                     <Pencil size={10} />
                   </button>
-                  <button
-                    onClick={() => onDelete(user.id, item.id)}
-                    className="p-1 rounded-lg hover:bg-red-500/15 text-slate-600 hover:text-red-400 transition-all"
-                  >
+                  <button onClick={() => onDelete(user.id, item.id)} className="p-1 rounded hover:bg-red-500/15 text-slate-600 hover:text-red-400 transition-all">
                     <Trash2 size={10} />
                   </button>
                 </div>
@@ -323,35 +307,21 @@ function UserPanel({
           );
         })}
 
-        {/* ── Add form ── */}
+        {/* ── Add form (inline, slides in when MoreVertical clicked) ── */}
         {isAddingHere && (
-          <div className="rounded-xl bg-[#1e1530] border border-white/10 p-3 space-y-2">
+          <div className="mx-1 mt-2 rounded-xl bg-[#1e1530] border border-white/10 p-3 space-y-2">
             <div className="flex gap-1">
-              <button
-                onClick={() => setNewType('link')}
-                className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all border ${
-                  newType === 'link'
-                    ? 'bg-[#00b4d8]/15 text-[#00b4d8] border-[#00b4d8]/25'
-                    : 'bg-white/5 text-slate-500 border-white/[0.07] hover:border-white/15'
-                }`}
-              >
+              <button onClick={() => setNewType('link')} className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all border ${newType === 'link' ? 'bg-[#7c3aed]/20 text-[#a78bfa] border-[#7c3aed]/30' : 'bg-white/5 text-slate-500 border-white/[0.07]'}`}>
                 🔗 Link
               </button>
-              <button
-                onClick={() => setNewType('note')}
-                className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all border ${
-                  newType === 'note'
-                    ? 'bg-[#ffd700]/15 text-[#ffd700] border-[#ffd700]/25'
-                    : 'bg-white/5 text-slate-500 border-white/[0.07] hover:border-white/15'
-                }`}
-              >
+              <button onClick={() => setNewType('note')} className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all border ${newType === 'note' ? 'bg-[#ffd700]/15 text-[#ffd700] border-[#ffd700]/25' : 'bg-white/5 text-slate-500 border-white/[0.07]'}`}>
                 📝 Note
               </button>
             </div>
             <input
               value={newLabel}
               onChange={e => setNewLabel(e.target.value)}
-              className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#00b4d8]/40 placeholder:text-slate-600"
+              className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#7c3aed]/50 placeholder:text-slate-600"
               placeholder="Label / Title"
               autoFocus
             />
@@ -359,22 +329,16 @@ function UserPanel({
               <input
                 value={newUrl}
                 onChange={e => setNewUrl(e.target.value)}
-                className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#00b4d8]/40 placeholder:text-slate-600"
+                className="w-full bg-white/5 rounded-lg px-2.5 py-1.5 text-xs text-white border border-white/10 focus:outline-none focus:border-[#7c3aed]/50 placeholder:text-slate-600"
                 placeholder="https://…"
                 onKeyDown={e => e.key === 'Enter' && onAdd(user.id)}
               />
             )}
             <div className="flex gap-1.5">
-              <button
-                onClick={() => onAdd(user.id)}
-                className="flex-1 py-1.5 rounded-lg bg-[#00b4d8]/20 hover:bg-[#00b4d8]/30 text-[#00b4d8] text-xs font-bold transition-all flex items-center justify-center gap-1"
-              >
+              <button onClick={() => onAdd(user.id)} className="flex-1 py-1.5 rounded-lg bg-[#7c3aed]/20 hover:bg-[#7c3aed]/30 text-[#a78bfa] text-xs font-bold transition-all flex items-center justify-center gap-1">
                 <Check size={10} /> Add
               </button>
-              <button
-                onClick={() => { setAddingFor(null); setNewLabel(''); setNewUrl(''); setNewType('link'); }}
-                className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 text-xs transition-all"
-              >
+              <button onClick={() => { setAddingFor(null); setNewLabel(''); setNewUrl(''); setNewType('link'); }} className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 text-xs transition-all">
                 <X size={10} />
               </button>
             </div>
