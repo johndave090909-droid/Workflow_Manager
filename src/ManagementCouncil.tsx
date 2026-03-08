@@ -198,13 +198,27 @@ function UserPanel({
 }: UserPanelProps) {
   const isAddingHere = addingFor === user.id;
   const count        = userItems.length;
+  const initials     = user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <div className="w-60 flex-shrink-0 rounded-2xl bg-[#130d1f] border border-white/[0.07] flex flex-col overflow-hidden">
 
-      {/* ── Card header — Name · Count · Add button ── */}
-      <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      {/* ── Card header — Avatar · Name · Count · Add button ── */}
+      <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
+        {/* Avatar */}
+        {user.photo ? (
+          <img
+            src={user.photo}
+            alt={user.name}
+            className="w-8 h-8 rounded-full object-cover shrink-0 ring-2 ring-white/10"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold bg-[#00b4d8]/20 text-[#00b4d8]">
+            {initials}
+          </div>
+        )}
+        {/* Name + count */}
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
           <span className="font-bold text-white text-sm truncate">{user.name.split(' ')[0]}</span>
           {count > 0 && (
             <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-[#00b4d8]/20 text-[#00b4d8] text-[11px] font-bold flex items-center justify-center leading-none">
@@ -212,6 +226,7 @@ function UserPanel({
             </span>
           )}
         </div>
+        {/* Add button */}
         {canEdit && !isAddingHere && (
           <button
             onClick={() => setAddingFor(user.id)}
