@@ -321,7 +321,8 @@ async function sendFacebookTextMessage(recipientId, message) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messaging_type: "UPDATE",
+        messaging_type: "MESSAGE_TAG",
+        tag: "CONFIRMED_EVENT_UPDATE",
         recipient: { id: recipientId },
         message: { text: message },
       }),
@@ -731,7 +732,8 @@ exports.sendFacebookMessage = onRequest({ region: "us-central1", cors: true }, a
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messaging_type: "UPDATE",
+          messaging_type: "MESSAGE_TAG",
+          tag: "CONFIRMED_EVENT_UPDATE",
           recipient: { id: recipientId },
           message: { text: message },
         }),
