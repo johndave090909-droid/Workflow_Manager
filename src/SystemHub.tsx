@@ -381,7 +381,7 @@ export default function SystemHub({
                 <p className="hidden sm:block text-sm text-slate-400">Select a system to get started.</p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6 max-w-5xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
-                {systemCards.map(card => (
+                {systemCards.filter(c => c.link !== 'management-council').map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
                 {systemCards.length === 0 && (
