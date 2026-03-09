@@ -255,7 +255,8 @@ function buildRatioChartData(
 }
 
 function venueAverage(data: ReturnType<typeof buildRatioChartData>, loc: Location): number | null {
-  const vals = data.map(d => d[loc]).filter((v): v is number => v != null);
+  // Only average days that actually had complaints (rate > 0), ignoring guest-count days with 0 complaints
+  const vals = data.map(d => d[loc]).filter((v): v is number => v != null && v > 0);
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 

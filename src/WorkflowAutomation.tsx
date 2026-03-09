@@ -621,13 +621,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     nodeLogs: Record<string, string[]>;
   } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
-  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | null>(() => {
-    try {
-      const saved = localStorage.getItem('wf_active_page');
-      if (saved === 'main' || saved === 'gdrive') return saved;
-    } catch {}
-    return null;
-  });
+  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | null>(null); // always start at picker
   const [mainLayoutReady, setMainLayoutReady] = useState(false);
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
