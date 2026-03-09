@@ -40,7 +40,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -83,8 +83,9 @@ export default function SystemHub({
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
   const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
-  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;email?:string;phone?:string;notes?:string}[]>([]);
+  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;workerId?:string;email?:string;phone?:string;notes?:string;gender?:string;dob?:string;identityCode?:string;hometown?:string;nationality?:string;religion?:string;languages?:string;maritalStatus?:string;permanentAddress?:string;currentAddress?:string}[]>([]);
   const [dirLoading,      setDirLoading]      = useState(false);
+  const [profileUser,     setProfileUser]     = useState<User | null>(null);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
@@ -317,10 +318,10 @@ export default function SystemHub({
               </div>
             ) : (
               <div className="space-y-3">
-                {directoryUsers.slice(0, 8).map(u => {
+                {directoryUsers.filter(u => u.role !== 'Director').slice(0, 8).map(u => {
                   const rc = ROLE_PALETTE[u.role] ?? '#64748b';
                   return (
-                    <div key={u.id} className="flex items-center gap-2.5">
+                    <button key={u.id} onClick={() => { setProfileUser(u); setActiveSection('member-profile'); }} className="flex items-center gap-2.5 w-full text-left rounded-lg px-1 -mx-1 py-0.5 hover:bg-white/5 transition-colors">
                       <div className="relative shrink-0">
                         <img
                           src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`}
@@ -334,7 +335,7 @@ export default function SystemHub({
                         <p className="text-[11px] font-semibold text-slate-200 truncate leading-tight">{u.name}</p>
                         <p className="text-[9px] text-slate-500 truncate">{u.role}</p>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
                 {directoryUsers.length > 8 && (
@@ -384,7 +385,7 @@ export default function SystemHub({
                 {systemCards.filter(c => c.link !== 'management-council').map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
-                {systemCards.length === 0 && (
+                {systemCards.filter(c => c.link !== 'management-council').length === 0 && (
                   <div className="col-span-3 text-center py-20 text-slate-600 italic text-sm">
                     No systems available. Contact your IT Administrator.
                   </div>
@@ -424,6 +425,19 @@ export default function SystemHub({
           {/* DIRECTORY */}
           {activeSection === 'directory' && (
             <DirectoryView users={directoryUsers} workers={directoryWorkers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} isAdmin={permissions.manage_policies ?? (permissions.access_it_admin || permissions.view_all_projects)} />
+          )}
+
+          {/* MEMBER PROFILE */}
+          {activeSection === 'member-profile' && profileUser && (
+            <MemberProfilePage
+              key={profileUser.id}
+              profileUser={profileUser}
+              worker={directoryWorkers.find(w => w.name === profileUser.name) ?? null}
+              onBack={() => setActiveSection('home')}
+              onWorkerUpdated={(updated) =>
+                setDirectoryWorkers(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w))
+              }
+            />
           )}
 
           {/* RULES & POLICIES */}
@@ -711,6 +725,272 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
     </div>
   );
 }
+
+// ── MemberProfilePage ──────────────────────────────────────────────────────────
+
+type WorkerData = {
+  id: string; name: string; role: string; workerId?: string; email?: string;
+  phone?: string; notes?: string; gender?: string; dob?: string; identityCode?: string;
+  hometown?: string; nationality?: string; religion?: string; languages?: string;
+  maritalStatus?: string; permanentAddress?: string; currentAddress?: string;
+};
+
+interface MemberProfilePageProps {
+  profileUser: User;
+  worker: WorkerData | null;
+  onBack: () => void;
+  onWorkerUpdated: (updated: WorkerData) => void;
+}
+
+function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated }: MemberProfilePageProps) {
+  const rc = ROLE_PALETTE[profileUser.role] ?? '#64748b';
+
+  const [profileTab, setProfileTab] = React.useState<'profile' | 'work'>('profile');
+  const [editing, setEditing] = React.useState(false);
+  const [saving,  setSaving]  = React.useState(false);
+  const [form, setForm] = React.useState<Omit<WorkerData, 'id' | 'name' | 'role'>>({
+    workerId: worker?.workerId || '',
+    email: worker?.email || profileUser.email || '',
+    phone: worker?.phone || '',
+    notes: worker?.notes || '',
+    gender: worker?.gender || '',
+    dob: worker?.dob || '',
+    identityCode: worker?.identityCode || '',
+    hometown: worker?.hometown || '',
+    nationality: worker?.nationality || '',
+    religion: worker?.religion || '',
+    languages: worker?.languages || '',
+    maritalStatus: worker?.maritalStatus || '',
+    permanentAddress: worker?.permanentAddress || '',
+    currentAddress: worker?.currentAddress || '',
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      if (worker) {
+        await updateDoc(doc(db, 'workers', worker.id), form as Record<string, string>);
+        onWorkerUpdated({ ...worker, ...form });
+      } else {
+        const newData = { name: profileUser.name, role: profileUser.role, ...form };
+        const ref = await addDoc(collection(db, 'workers'), newData);
+        onWorkerUpdated({ id: ref.id, name: profileUser.name, role: profileUser.role, ...form });
+      }
+      setEditing(false);
+    } catch { /* ignore */ }
+    setSaving(false);
+  };
+
+  const renderField = (label: string, field: keyof typeof form) => (
+    <div key={field}>
+      <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">{label}</p>
+      {editing ? (
+        <input
+          className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25"
+          value={form[field] || ''}
+          onChange={e => setForm(prev => ({ ...prev, [field]: e.target.value }))}
+        />
+      ) : (
+        <p className="text-sm font-semibold text-slate-300">{(worker as any)?.[field] || form[field] || '—'}</p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 pb-32">
+      {/* Back */}
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-white transition-colors mb-6"
+      >
+        ← Back
+      </button>
+
+      {/* Tabs */}
+      <div className="flex gap-1 mb-5 bg-white/[0.03] border border-white/8 rounded-xl p-1 w-fit">
+        {(['profile', 'work'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setProfileTab(tab); setEditing(false); }}
+            className="px-4 py-1.5 rounded-lg text-xs font-bold transition-all"
+            style={profileTab === tab
+              ? { background: `${rc}20`, color: rc, border: `1px solid ${rc}30` }
+              : { color: '#64748b' }}
+          >
+            {tab === 'profile' ? 'User Profile' : 'Work Information'}
+          </button>
+        ))}
+      </div>
+
+      {profileTab === 'work' && (
+        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-8 text-center text-slate-600 text-sm">
+          Work information coming soon.
+        </div>
+      )}
+
+      {profileTab === 'profile' && <div>
+
+      {/* Header card */}
+      <div
+        className="rounded-3xl border border-white/10 overflow-hidden mb-4"
+        style={{ background: `linear-gradient(135deg, ${rc}14 0%, #0f0a1a 70%)` }}
+      >
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5 p-6">
+          {/* Photo */}
+          <div
+            className="w-24 h-24 rounded-2xl overflow-hidden shrink-0"
+            style={{ border: `2.5px solid ${rc}70` }}
+          >
+            <img
+              src={profileUser.photo || `https://picsum.photos/seed/${profileUser.id}/200/200`}
+              alt={profileUser.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          {/* Name / meta */}
+          <div className="flex-1 min-w-0 text-center sm:text-left">
+            <h2 className="text-2xl font-bold text-white mb-1">{profileUser.name}</h2>
+            <span
+              className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full inline-block mb-4"
+              style={{ background: `${rc}20`, color: rc, border: `1px solid ${rc}30` }}
+            >{profileUser.role}</span>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3">
+              {(worker?.workerId || form.workerId) && (
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-0.5">Staff ID</p>
+                  <p className="text-xs font-semibold text-slate-300">{worker?.workerId || form.workerId}</p>
+                </div>
+              )}
+              {(worker?.phone || form.phone) && (
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-0.5">Phone</p>
+                  <p className="text-xs font-semibold text-slate-300">{worker?.phone || form.phone}</p>
+                </div>
+              )}
+              {(profileUser.email || worker?.email || form.email) && (
+                <div className="col-span-2 sm:col-span-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-0.5">Email</p>
+                  <p className="text-xs font-semibold text-slate-300 truncate">{profileUser.email || worker?.email || form.email}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Personal Information card */}
+      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6">
+        <div className="flex items-center justify-between mb-5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Personal Information</p>
+          {editing ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setEditing(false); setForm({ workerId: worker?.workerId||'', email: worker?.email||profileUser.email||'', phone: worker?.phone||'', notes: worker?.notes||'', gender: worker?.gender||'', dob: worker?.dob||'', identityCode: worker?.identityCode||'', hometown: worker?.hometown||'', nationality: worker?.nationality||'', religion: worker?.religion||'', languages: worker?.languages||'', maritalStatus: worker?.maritalStatus||'', permanentAddress: worker?.permanentAddress||'', currentAddress: worker?.currentAddress||'' }); }}
+                className="text-[10px] font-bold text-slate-500 hover:text-white transition-colors px-2.5 py-1 rounded-lg border border-white/10 hover:border-white/20"
+              >Cancel</button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                style={{ background: `${rc}20`, color: rc, border: `1px solid ${rc}30` }}
+              >{saving ? 'Saving…' : 'Save'}</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setEditing(true)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/10 hover:border-white/20 hover:bg-white/5 transition-all text-slate-500 hover:text-white"
+              title="Edit personal information"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+          {/* Gender — dropdown */}
+          <div key="gender">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Gender</p>
+            {editing ? (
+              <select
+                className="w-full bg-[#1a1a2e] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25"
+                value={form.gender || ''}
+                onChange={e => setForm(prev => ({ ...prev, gender: e.target.value }))}
+              >
+                <option value="">Select…</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            ) : (
+              <p className="text-sm font-semibold text-slate-300">{form.gender || worker?.gender || '—'}</p>
+            )}
+          </div>
+
+          {/* Date of Birth — date picker */}
+          <div key="dob">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Date of Birth</p>
+            {editing ? (
+              <input
+                type="date"
+                className="w-full bg-[#1a1a2e] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25"
+                value={form.dob || ''}
+                onChange={e => setForm(prev => ({ ...prev, dob: e.target.value }))}
+              />
+            ) : (
+              <p className="text-sm font-semibold text-slate-300">{form.dob || worker?.dob || '—'}</p>
+            )}
+          </div>
+
+          {renderField('Identity Code',  'identityCode')}
+          {renderField('Hometown',       'hometown')}
+          {renderField('Nationality',    'nationality')}
+          <div key="maritalStatus">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Marital Status</p>
+            {editing ? (
+              <select
+                className="w-full bg-[#1a1a2e] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25"
+                value={form.maritalStatus || ''}
+                onChange={e => setForm(prev => ({ ...prev, maritalStatus: e.target.value }))}
+              >
+                <option value="">Select…</option>
+                <option value="Single">Single</option>
+                <option value="Married">Married</option>
+                <option value="Divorced">Divorced</option>
+                <option value="Widowed">Widowed</option>
+                <option value="Separated">Separated</option>
+              </select>
+            ) : (
+              <p className="text-sm font-semibold text-slate-300">{form.maritalStatus || worker?.maritalStatus || '—'}</p>
+            )}
+          </div>
+          {(editing || worker?.phone) && renderField('Phone', 'phone')}
+          {(editing || worker?.notes) && (
+            <div className="col-span-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Notes</p>
+              {editing ? (
+                <textarea
+                  rows={3}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25 resize-none"
+                  value={form.notes || ''}
+                  onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
+                />
+              ) : (
+                <p className="text-sm text-slate-400 leading-relaxed">{worker?.notes || '—'}</p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      </div>}
+    </div>
+  );
+}
+
+// ── DirectorySectionProps ───────────────────────────────────────────────────────
 
 interface DirectorySectionProps {
   title: string; icon: string; accentColor: string;
