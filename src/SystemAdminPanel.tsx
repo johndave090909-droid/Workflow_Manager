@@ -45,6 +45,9 @@ const EMPTY_USER_FORM = {
   email: '', password: '', newPassword: '', photo: '',
 };
 
+interface WorkerRecord { id: string; name: string; role: string; email?: string; }
+const EMPTY_WORKER_FORM = { name: '', role: '', email: '' };
+
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
   // Guard
   if (!permissions.access_it_admin) { onBackToHub(); return null; }
@@ -68,6 +71,15 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [userSubmitting, setUserSubmitting] = useState(false);
   const [userFormError,  setUserFormError]  = useState('');
   const [userForm,     setUserForm]     = useState({ ...EMPTY_USER_FORM });
+
+  // ── Workers state ──────────────────────────────────────────────
+  const [workerRecords,    setWorkerRecords]    = useState<WorkerRecord[]>([]);
+  const [workersLoading,   setWorkersLoading]   = useState(true);
+  const [showWorkerForm,   setShowWorkerForm]   = useState(false);
+  const [editingWorker,    setEditingWorker]    = useState<WorkerRecord | null>(null);
+  const [workerSubmitting, setWorkerSubmitting] = useState(false);
+  const [workerFormError,  setWorkerFormError]  = useState('');
+  const [workerForm,       setWorkerForm]       = useState({ ...EMPTY_WORKER_FORM });
 
   // ── Roles state ────────────────────────────────────────────────
   const [roles,        setRoles]        = useState<Role[]>([]);
@@ -164,7 +176,13 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     setRolesLoading(false);
   };
 
-  useEffect(() => { fetchCards(); fetchUsers(); fetchRoles(); }, []);
+  const fetchWorkers = async () => {
+    const snap = await getDocs(collection(db, 'workers'));
+    setWorkerRecords(snap.docs.map(d => ({ id: d.id, ...d.data() } as WorkerRecord)));
+    setWorkersLoading(false);
+  };
+
+  useEffect(() => { fetchCards(); fetchUsers(); fetchRoles(); fetchWorkers(); }, []);
 
   // ── System card handlers ───────────────────────────────────────
   const openAddCard = () => { setEditingCard(null); setCardForm({ ...EMPTY_CARD_FORM }); setCardFormError(''); setShowCardForm(true); };
@@ -329,6 +347,38 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     if (!window.confirm(`Delete role "${role.name}"? This cannot be undone.`)) return;
     await deleteDoc(doc(db, 'roles', role.id));
     fetchRoles(); onRolesChanged();
+  };
+
+  // ── Worker handlers ────────────────────────────────────────────
+  const openAddWorker = () => {
+    setEditingWorker(null);
+    setWorkerForm({ ...EMPTY_WORKER_FORM });
+    setWorkerFormError(''); setShowWorkerForm(true);
+  };
+  const openEditWorker = (w: WorkerRecord) => {
+    setEditingWorker(w);
+    setWorkerForm({ name: w.name, role: w.role, email: w.email || '' });
+    setWorkerFormError(''); setShowWorkerForm(true);
+  };
+  const handleWorkerSubmit = async () => {
+    if (!workerForm.name.trim()) { setWorkerFormError('Name is required.'); return; }
+    if (!workerForm.role.trim()) { setWorkerFormError('Role is required.'); return; }
+    setWorkerSubmitting(true); setWorkerFormError('');
+    try {
+      const data = { name: workerForm.name.trim(), role: workerForm.role.trim(), email: workerForm.email.trim() || null };
+      if (editingWorker) {
+        await updateDoc(doc(db, 'workers', editingWorker.id), data);
+      } else {
+        await addDoc(collection(db, 'workers'), { ...data, createdAt: new Date().toISOString() });
+      }
+      fetchWorkers(); setShowWorkerForm(false);
+    } catch { setWorkerFormError('Failed to save. Please try again.'); }
+    finally { setWorkerSubmitting(false); }
+  };
+  const handleDeleteWorker = async (w: WorkerRecord) => {
+    if (!window.confirm(`Remove "${w.name}" from the directory? This cannot be undone.`)) return;
+    await deleteDoc(doc(db, 'workers', w.id));
+    fetchWorkers();
   };
 
   // ── Shared styles ──────────────────────────────────────────────
@@ -570,6 +620,61 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
             )}
           </div>
         </div>
+
+        {/* ── Workers (Directory Records) ── */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>Workers</h2>
+              <p className="text-sm text-slate-400 mt-1">Non-account staff records visible in the Directory tab.</p>
+            </div>
+            <button onClick={openAddWorker} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white hover:opacity-90 transition-opacity" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
+              <Plus size={15} /> Add Worker
+            </button>
+          </div>
+          <div className="glass-card rounded-[2rem] overflow-hidden border border-white/10">
+            {workersLoading ? (
+              <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#a855f7]" /></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.15em] font-black border-b border-white/5">
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Name</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Role</th>
+                      <th className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4">Email</th>
+                      <th className="px-3 sm:px-6 py-3 sm:py-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {workerRecords.map(w => (
+                      <tr key={w.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-white">{w.name}</span>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded-full">No account</span>
+                          </div>
+                        </td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-400">{w.role}</span>
+                        </td>
+                        <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4"><span className="text-xs text-slate-500">{w.email || '—'}</span></td>
+                        <td className="px-3 sm:px-6 py-3 sm:py-4">
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => openEditWorker(w)} className="p-1.5 text-slate-500 hover:text-[#a855f7] transition-colors rounded-lg hover:bg-[#a855f7]/10"><Edit2 size={14} /></button>
+                            <button onClick={() => handleDeleteWorker(w)} className="p-1.5 text-slate-500 hover:text-[#ff4d4d] transition-colors rounded-lg hover:bg-[#ff4d4d]/10"><Trash2 size={14} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {workerRecords.length === 0 && <tr><td colSpan={4} className="text-center py-16 text-slate-600 italic text-sm">No worker records yet. Click "Add Worker" to create one.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
 
       {/* ── System Card Modal ── */}
@@ -810,6 +915,39 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               <button onClick={() => setShowUserForm(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-sm font-bold">Cancel</button>
               <button onClick={handleUserSubmit} disabled={userSubmitting} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
                 {userSubmitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : editingUser ? 'Save Changes' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Worker Modal ── */}
+      {showWorkerForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowWorkerForm(false)}>
+          <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl" style={{ boxShadow: '0 0 60px rgba(168,85,247,0.15)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6 border-b border-white/5">
+              <h3 className="text-lg font-bold text-white">{editingWorker ? 'Edit Worker' : 'Add Worker'}</h3>
+              <button onClick={() => setShowWorkerForm(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors"><X size={18} /></button>
+            </div>
+            <div className="px-4 sm:px-8 py-4 sm:py-6 space-y-5">
+              <div>
+                <label className={labelCls}>Full Name</label>
+                <input type="text" className={inputCls} placeholder="e.g. Jane Smith" value={workerForm.name} onChange={e => setWorkerForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Role / Position</label>
+                <input type="text" className={inputCls} placeholder="e.g. Line Cook" value={workerForm.role} onChange={e => setWorkerForm(f => ({ ...f, role: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Email (optional)</label>
+                <input type="email" className={inputCls} placeholder="email@company.com" value={workerForm.email} onChange={e => setWorkerForm(f => ({ ...f, email: e.target.value }))} />
+              </div>
+              {workerFormError && <p className="text-[11px] text-[#ff4d4d] font-semibold">{workerFormError}</p>}
+            </div>
+            <div className="flex gap-3 px-4 sm:px-8 py-4 sm:py-5 border-t border-white/5">
+              <button onClick={() => setShowWorkerForm(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-sm font-bold">Cancel</button>
+              <button onClick={handleWorkerSubmit} disabled={workerSubmitting} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
+                {workerSubmitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : editingWorker ? 'Save Changes' : 'Add Worker'}
               </button>
             </div>
           </div>

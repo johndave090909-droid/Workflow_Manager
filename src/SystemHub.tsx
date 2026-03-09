@@ -82,6 +82,7 @@ export default function SystemHub({
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
   const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
+  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;email?:string}[]>([]);
   const [dirLoading,      setDirLoading]      = useState(false);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
@@ -149,14 +150,20 @@ export default function SystemHub({
     fetchAll();
   }, [activeSection, projects, allProjects, isDirector]);
 
-  // Fetch directory users when that tab is active
+  // Fetch directory users + workers when that tab is active
   useEffect(() => {
     if (activeSection !== 'directory' || directoryUsers.length > 0) return;
     setDirLoading(true);
-    getDocs(collection(db, 'users')).then(snap => {
-      const users = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+    Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'workers')),
+    ]).then(([usersSnap, workersSnap]) => {
+      const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User));
       users.sort((a, b) => a.name.localeCompare(b.name));
       setDirectoryUsers(users);
+      const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() } as {id:string;name:string;role:string;email?:string}));
+      workers.sort((a, b) => a.name.localeCompare(b.name));
+      setDirectoryWorkers(workers);
       setDirLoading(false);
     }).catch(() => setDirLoading(false));
   }, [activeSection]);
@@ -355,7 +362,7 @@ export default function SystemHub({
 
           {/* DIRECTORY */}
           {activeSection === 'directory' && (
-            <DirectoryView users={directoryUsers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} />
+            <DirectoryView users={directoryUsers} workers={directoryWorkers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} />
           )}
 
         </main>
@@ -558,8 +565,14 @@ function buildOrgChartDefaults(): OrgCardItem[] {
 
 // ── DirectoryView ──────────────────────────────────────────────────────────────
 
+interface DirectoryEntry extends Omit<User, 'id'> {
+  id: string;
+  isWorkerRecord?: boolean;
+}
+
 interface DirectoryViewProps {
   users: User[];
+  workers: { id: string; name: string; role: string; email?: string }[];
   loading: boolean;
   roleColor: string;
   currentUserId: string;
@@ -585,7 +598,7 @@ function classifyRole(role: string): 'leadership' | 'team-leaders' | 'workers' {
   return 'workers';
 }
 
-interface EmployeeCardProps { u: User; isMe: boolean; }
+interface EmployeeCardProps { u: DirectoryEntry; isMe: boolean; }
 function EmployeeCard({ u, isMe }: EmployeeCardProps) {
   const rc = getRoleColor(u.role);
   return (
@@ -600,6 +613,9 @@ function EmployeeCard({ u, isMe }: EmployeeCardProps) {
       {isMe && (
         <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
           style={{ background: `${rc}25`, color: rc }}>You</span>
+      )}
+      {u.isWorkerRecord && !isMe && (
+        <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-600">No account</span>
       )}
       <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden mb-2 sm:mb-2.5 shrink-0"
         style={{ border: `2px solid ${rc}60` }}>
@@ -624,7 +640,7 @@ function EmployeeCard({ u, isMe }: EmployeeCardProps) {
 
 interface DirectorySectionProps {
   title: string; icon: string; accentColor: string;
-  users: User[]; currentUserId: string; defaultOpen?: boolean;
+  users: DirectoryEntry[]; currentUserId: string; defaultOpen?: boolean;
 }
 function DirectorySection({ title, icon, accentColor, users, currentUserId, defaultOpen = true }: DirectorySectionProps) {
   const [open, setOpen] = React.useState(defaultOpen);
@@ -652,18 +668,24 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
   );
 }
 
-function DirectoryView({ users, loading, roleColor, currentUserId }: DirectoryViewProps) {
+function DirectoryView({ users, workers: workerRecords, loading, roleColor, currentUserId }: DirectoryViewProps) {
   const [search, setSearch] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'sections' | 'all'>('sections');
 
+  // Merge users and worker records into a unified list
+  const allEntries: DirectoryEntry[] = [
+    ...users,
+    ...workerRecords.map(w => ({ ...w, photo: '', isWorkerRecord: true as const })),
+  ];
+
   const q = search.toLowerCase();
-  const matchesSearch = (u: User) =>
+  const matchesSearch = (u: DirectoryEntry) =>
     !q || u.name.toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q) || u.role.toLowerCase().includes(q);
 
-  const leadership   = users.filter(u => classifyRole(u.role) === 'leadership'    && matchesSearch(u));
-  const teamLeaders  = users.filter(u => classifyRole(u.role) === 'team-leaders'  && matchesSearch(u));
-  const workers      = users.filter(u => classifyRole(u.role) === 'workers'       && matchesSearch(u));
-  const allFiltered  = users.filter(matchesSearch);
+  const leadership   = allEntries.filter(u => classifyRole(u.role) === 'leadership'    && matchesSearch(u));
+  const teamLeaders  = allEntries.filter(u => classifyRole(u.role) === 'team-leaders'  && matchesSearch(u));
+  const workers      = allEntries.filter(u => classifyRole(u.role) === 'workers'       && matchesSearch(u));
+  const allFiltered  = allEntries.filter(matchesSearch);
 
   if (loading) {
     return (
@@ -679,7 +701,7 @@ function DirectoryView({ users, loading, roleColor, currentUserId }: DirectoryVi
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6 sm:mb-8">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">Directory</h2>
-          <p className="text-xs sm:text-sm text-slate-400">All employees in the department · <span className="font-bold text-slate-300">{users.length}</span> total</p>
+          <p className="text-xs sm:text-sm text-slate-400">All employees in the department · <span className="font-bold text-slate-300">{allEntries.length}</span> total</p>
         </div>
         {/* View toggle */}
         <div className="flex gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
