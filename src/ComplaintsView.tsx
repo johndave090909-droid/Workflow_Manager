@@ -287,6 +287,10 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
   const [uploadError,    setUploadError]    = useState('');
   const [progress,       setProgress]       = useState('');
   const [search,         setSearch]         = useState('');
+  const [selectedMonth,  setSelectedMonth]  = useState(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [dragOver,       setDragOver]       = useState(false);
   const [expandedId,     setExpandedId]     = useState<string | null>(null);
   const [translatingIds, setTranslatingIds] = useState<Set<string>>(new Set());
@@ -514,9 +518,9 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
     (c.location ?? '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const monthlyData  = groupByMonth(complaints);
-  const totalThisYear = complaints.filter(c => c.date.startsWith(String(new Date().getFullYear()))).length;
-  const latestDate    = complaints[0]?.date;
+  const monthlyData    = groupByMonth(complaints);
+  const totalThisMonth = complaints.filter(c => c.date.startsWith(selectedMonth)).length;
+  const latestDate     = complaints[0]?.date;
   const untranslatedCount = complaints.filter(c => !c.translatedText && !looksEnglish(c.rawText)).length;
   const ratioData    = buildRatioChartData(complaints, guestCounts);
   const venueAvgs    = { Aloha: venueAverage(ratioData, 'Aloha'), Ohana: venueAverage(ratioData, 'Ohana'), Gateway: venueAverage(ratioData, 'Gateway') };
@@ -738,18 +742,29 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
 
       {/* Stats */}
       {complaints.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-          {[
-            { label: 'Total Entries', value: complaints.length,                           color: roleColor },
-            { label: 'This Year',        value: totalThisYear,                               color: '#00ffff' },
-            { label: 'This Month',       value: monthlyData.at(-1)?.count ?? 0,              color: '#ffd700' },
-            { label: 'Most Recent',      value: latestDate ? displayDate(latestDate) : '—',  color: '#ff4d4d', small: true },
-          ].map(stat => (
-            <div key={stat.label} className="rounded-xl sm:rounded-2xl p-2.5 sm:p-5 border border-white/8" style={{ background: 'rgba(255,255,255,0.03)' }}>
-              <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 sm:mb-2">{stat.label}</p>
-              <p className={`font-bold ${stat.small ? 'text-sm sm:text-lg' : 'text-xl sm:text-3xl'}`} style={{ color: stat.color }}>{stat.value}</p>
+        <div className="grid grid-cols-2 gap-2 sm:gap-4">
+
+          {/* This Month — with month picker */}
+          <div className="rounded-xl sm:rounded-2xl p-2.5 sm:p-5 border border-white/8" style={{ background: 'rgba(255,255,255,0.03)' }}>
+            <div className="flex items-center justify-between gap-2 mb-1 sm:mb-2">
+              <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Complaints</p>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="text-[8px] sm:text-[10px] font-bold bg-transparent border border-white/10 rounded-lg px-1.5 py-0.5 text-slate-400 focus:outline-none focus:border-yellow-400/50 cursor-pointer"
+                style={{ colorScheme: 'dark' }}
+              />
             </div>
-          ))}
+            <p className="font-bold text-xl sm:text-3xl" style={{ color: '#ffd700' }}>{totalThisMonth}</p>
+          </div>
+
+          {/* Most Recent */}
+          <div className="rounded-xl sm:rounded-2xl p-2.5 sm:p-5 border border-white/8" style={{ background: 'rgba(255,255,255,0.03)' }}>
+            <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1 sm:mb-2">Most Recent</p>
+            <p className="font-bold text-sm sm:text-lg" style={{ color: '#ff4d4d' }}>{latestDate ? displayDate(latestDate) : '—'}</p>
+          </div>
+
         </div>
       )}
 

@@ -151,9 +151,9 @@ export default function SystemHub({
     fetchAll();
   }, [activeSection, projects, allProjects, isDirector]);
 
-  // Fetch directory users + workers when that tab is active
+  // Fetch directory users + workers on mount (powers sidebar Members + Directory tab)
   useEffect(() => {
-    if (activeSection !== 'directory' || directoryUsers.length > 0) return;
+    if (directoryUsers.length > 0) return;
     setDirLoading(true);
     Promise.all([
       getDocs(collection(db, 'users')),
@@ -253,12 +253,12 @@ export default function SystemHub({
 
         {/* Sidebar */}
         <aside
-          className="hidden md:flex w-56 shrink-0 border-r border-white/8 sticky top-16 h-[calc(100vh-4rem)] flex-col py-6 overflow-y-auto"
-          style={{ background: 'rgba(6,3,11,0.95)' }}
+          className="hidden md:flex w-60 shrink-0 border-r border-white/8 sticky top-16 h-[calc(100vh-4rem)] flex-col overflow-y-auto"
+          style={{ background: 'rgba(6,3,11,0.98)' }}
         >
           {/* User block */}
-          <div className="px-4 mb-6 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full overflow-hidden shrink-0" style={{ border: `2px solid ${roleColor}` }}>
+          <div className="px-5 pt-6 pb-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full overflow-hidden shrink-0" style={{ border: `2px solid ${roleColor}` }}>
               <img
                 src={currentUser.photo || `https://picsum.photos/seed/${currentUser.id}/100/100`}
                 className="w-full h-full object-cover"
@@ -273,38 +273,98 @@ export default function SystemHub({
             </div>
           </div>
 
-          {/* Divider */}
-          <div className="mx-4 mb-4 border-t border-white/8" />
+          {/* MENU section */}
+          <div className="px-5 pt-4 pb-1">
+            <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-600 mb-2">Menu</p>
+            <nav className="flex flex-col gap-0.5">
+              {NAV_ITEMS.map(item => {
+                const active = activeSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveSection(item.id)}
+                    className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 text-left w-full"
+                    style={active
+                      ? { backgroundColor: roleColor, color: '#fff', boxShadow: `0 2px 12px ${roleColor}40` }
+                      : { color: '#64748b' }
+                    }
+                    onMouseEnter={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#cbd5e1'; } }}
+                    onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#64748b'; } }}
+                  >
+                    <span className="text-base leading-none w-5 text-center shrink-0">{item.emoji}</span>
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
 
-          {/* Nav label */}
-          <p className="px-4 mb-2 text-[9px] font-black uppercase tracking-[0.25em] text-slate-600">Menu</p>
-
-          {/* Nav items */}
-          <nav className="flex flex-col gap-0.5 px-2">
-            {NAV_ITEMS.map(item => {
-              const active = activeSection === item.id;
-              return (
+          {/* MEMBERS section */}
+          <div className="px-5 pt-6 pb-2">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-600">Members</p>
+              {permissions.access_it_admin && (
                 <button
-                  key={item.id}
-                  onClick={() => setActiveSection(item.id)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left w-full"
-                  style={
-                    active
-                      ? { backgroundColor: `${roleColor}22`, color: roleColor }
-                      : { color: '#94a3b8' }
-                  }
-                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.05)'; (e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'; }}
-                  onMouseLeave={e => { if (!active) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'; } }}
-                >
-                  <span className="text-base leading-none">{item.emoji}</span>
-                  <span>{item.label}</span>
-                  {active && (
-                    <span className="ml-auto w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: roleColor }} />
-                  )}
-                </button>
-              );
-            })}
-          </nav>
+                  onClick={() => onNavigate('it-admin')}
+                  title="Manage users"
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-black text-slate-500 hover:text-white hover:bg-white/10 transition-all border border-white/10"
+                >+</button>
+              )}
+            </div>
+            {dirLoading ? (
+              <div className="flex justify-center py-3">
+                <div className="w-3 h-3 border border-white/20 border-t-white/60 rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {directoryUsers.slice(0, 8).map(u => {
+                  const rc = ROLE_PALETTE[u.role] ?? '#64748b';
+                  return (
+                    <div key={u.id} className="flex items-center gap-2.5">
+                      <div className="relative shrink-0">
+                        <img
+                          src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`}
+                          className="w-7 h-7 rounded-full object-cover"
+                          style={{ border: `1.5px solid ${rc}70` }}
+                          alt={u.name}
+                        />
+                        <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-[#06030b]" style={{ backgroundColor: rc }} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-slate-200 truncate leading-tight">{u.name}</p>
+                        <p className="text-[9px] text-slate-500 truncate">{u.role}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {directoryUsers.length > 8 && (
+                  <button
+                    onClick={() => setActiveSection('directory')}
+                    className="text-[9px] font-bold text-slate-600 hover:text-slate-400 transition-colors"
+                  >
+                    +{directoryUsers.length - 8} more
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* GENERAL section */}
+          <div className="px-5 pt-6 pb-4 mt-auto border-t border-white/8">
+            <p className="text-[9px] font-black uppercase tracking-[0.22em] text-slate-600 mb-2">General</p>
+            <nav className="flex flex-col gap-0.5">
+              <button
+                onClick={onLogout}
+                className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 text-left w-full"
+                style={{ color: '#64748b' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.06)'; (e.currentTarget as HTMLButtonElement).style.color = '#cbd5e1'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#64748b'; }}
+              >
+                <span className="text-base leading-none w-5 text-center shrink-0">🚪</span>
+                <span>Sign Out</span>
+              </button>
+            </nav>
+          </div>
         </aside>
 
         {/* ── Main content ── */}

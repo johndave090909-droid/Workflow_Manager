@@ -21,7 +21,6 @@ import SystemHub from './SystemHub';
 import SystemAdminPanel from './SystemAdminPanel';
 import WorkflowAutomation from './WorkflowAutomation';
 import WorkerRoster from './WorkerRoster';
-import ManagementCouncil from './ManagementCouncil';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -64,7 +63,7 @@ export default function App() {
   const [currentView,     setCurrentView]     = useState<AppView>(() => {
     try {
       const saved = localStorage.getItem('app_current_view');
-      const validViews: AppView[] = ['hub', 'tracker', 'workflow', 'workers', 'it-admin', 'management-council'];
+      const validViews: AppView[] = ['hub', 'tracker', 'workflow', 'workers', 'it-admin'];
       if (validViews.includes(saved as AppView)) return saved as AppView;
     } catch {}
     return 'hub';
@@ -212,20 +211,6 @@ export default function App() {
       // Auto-seed internal systems if they don't exist yet
       const hasWorkflow    = cards.some(c => c.link === 'workflow'            && c.link_type === 'internal');
       const hasWorkers     = cards.some(c => c.link === 'workers'            && c.link_type === 'internal');
-      const hasMgmtCouncil = cards.some(c => c.link === 'management-council' && c.link_type === 'internal');
-      if (!hasMgmtCouncil) {
-        await addDoc(collection(db, 'system_cards'), {
-          title: 'Management Council',
-          description: 'Central space to manage user-specific links and resources for each team member.',
-          icon: '🏛️',
-          color_accent: '#f59e0b',
-          link: 'management-council',
-          link_type: 'internal',
-          is_active: true,
-          is_view_only: false,
-          sort_order: 101,
-        });
-      }
       if (!hasWorkflow) {
         await addDoc(collection(db, 'system_cards'), {
           title: 'Workflow Automation',
@@ -424,18 +409,6 @@ export default function App() {
     </>
   );
 
-  if (currentView === 'management-council') return (
-    <>
-      <ManagementCouncil
-        currentUser={currentUser}
-        onBackToHub={() => setCurrentView('hub')}
-        onLogout={handleLogout}
-        roleColor={userRoleColor}
-        permissions={perms}
-      />
-      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
-    </>
-  );
 
   if (currentView === 'it-admin') {
     if (!perms.access_it_admin) { setCurrentView('hub'); return null; }
