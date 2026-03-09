@@ -40,7 +40,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -49,10 +49,11 @@ type DeliverableWithProject = Deliverable & {
 };
 
 const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
-  { id: 'home',         label: 'Home',         emoji: '🏠' },
-  { id: 'complaints',   label: 'Guest Experience',   emoji: '📋' },
-  { id: 'deliverables', label: 'Deliverables', emoji: '📁' },
-  { id: 'org-chart',    label: 'Org Chart',    emoji: '🧭' },
+  { id: 'home',         label: 'Home',            emoji: '🏠' },
+  { id: 'complaints',   label: 'Guest Experience', emoji: '📋' },
+  { id: 'deliverables', label: 'Deliverables',     emoji: '📁' },
+  { id: 'org-chart',    label: 'Org Chart',        emoji: '🧭' },
+  { id: 'directory',    label: 'Directory',        emoji: '👥' },
 ];
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -80,6 +81,8 @@ export default function SystemHub({
   const [allDeliverables, setAllDeliverables] = useState<DeliverableWithProject[]>([]);
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
+  const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
+  const [dirLoading,      setDirLoading]      = useState(false);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
@@ -145,6 +148,18 @@ export default function SystemHub({
     };
     fetchAll();
   }, [activeSection, projects, allProjects, isDirector]);
+
+  // Fetch directory users when that tab is active
+  useEffect(() => {
+    if (activeSection !== 'directory' || directoryUsers.length > 0) return;
+    setDirLoading(true);
+    getDocs(collection(db, 'users')).then(snap => {
+      const users = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+      users.sort((a, b) => a.name.localeCompare(b.name));
+      setDirectoryUsers(users);
+      setDirLoading(false);
+    }).catch(() => setDirLoading(false));
+  }, [activeSection]);
 
   // Director toggle: share/unshare a deliverable with all accounts
   const handleToggleShared = async (deliv: DeliverableWithProject) => {
@@ -336,6 +351,11 @@ export default function SystemHub({
           {/* ORG CHART */}
           {activeSection === 'org-chart' && (
             <OrgChartView roleColor={roleColor} />
+          )}
+
+          {/* DIRECTORY */}
+          {activeSection === 'directory' && (
+            <DirectoryView users={directoryUsers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} />
           )}
 
         </main>
@@ -534,6 +554,134 @@ function buildOrgChartDefaults(): OrgCardItem[] {
   placeRow(['Pantry Prep 9', 'Pantry Prep 10'], 'green', greenStartX, topY(1036), greenGap);
 
   return items;
+}
+
+// ── DirectoryView ──────────────────────────────────────────────────────────────
+
+interface DirectoryViewProps {
+  users: User[];
+  loading: boolean;
+  roleColor: string;
+  currentUserId: string;
+}
+
+const ROLE_PALETTE: Record<string, string> = {
+  Director:       '#ff00ff',
+  'IT Admin':     '#a855f7',
+  'Office Admin': '#00ffff',
+  Manager:        '#ffd700',
+  Staff:          '#22c55e',
+};
+
+function getRoleColor(role: string): string {
+  return ROLE_PALETTE[role] ?? '#64748b';
+}
+
+function DirectoryView({ users, loading, roleColor, currentUserId }: DirectoryViewProps) {
+  const [search, setSearch] = React.useState('');
+  const [filterRole, setFilterRole] = React.useState('');
+
+  const roles = Array.from(new Set(users.map(u => u.role))).sort();
+
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase();
+    return (
+      (!q || u.name.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) &&
+      (!filterRole || u.role === filterRole)
+    );
+  });
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2" style={{ borderColor: roleColor }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="mb-6 sm:mb-8">
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">Directory</h2>
+        <p className="text-xs sm:text-sm text-slate-400">All employees in the department.</p>
+      </div>
+
+      {/* Search + filter */}
+      <div className="flex flex-wrap gap-3 mb-6">
+        <input
+          type="text"
+          placeholder="Search by name, role, or email…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1"
+          style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
+        />
+        <select
+          value={filterRole}
+          onChange={e => setFilterRole(e.target.value)}
+          className="bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none focus:ring-1 cursor-pointer"
+          style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
+        >
+          <option value="">All Roles</option>
+          {roles.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <span className="self-center text-[10px] text-slate-600 font-mono">{filtered.length} of {users.length}</span>
+      </div>
+
+      {/* Grid */}
+      {filtered.length === 0 ? (
+        <p className="text-center py-20 text-slate-600 italic text-sm">No employees found.</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+          {filtered.map(u => {
+            const rc = getRoleColor(u.role);
+            const isMe = u.id === currentUserId;
+            return (
+              <div
+                key={u.id}
+                className="relative flex flex-col items-center text-center rounded-2xl border p-3 sm:p-5 transition-all hover:scale-[1.02]"
+                style={{
+                  background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
+                  borderColor: isMe ? `${rc}50` : 'rgba(255,255,255,0.08)',
+                  boxShadow: isMe ? `0 0 18px ${rc}20` : 'none',
+                }}
+              >
+                {isMe && (
+                  <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
+                    style={{ background: `${rc}25`, color: rc }}>You</span>
+                )}
+                {/* Avatar */}
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden mb-2.5 sm:mb-3 shrink-0"
+                  style={{ border: `2px solid ${rc}60` }}>
+                  <img
+                    src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`}
+                    alt={u.name}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                {/* Name */}
+                <p className="text-xs sm:text-sm font-bold text-white leading-snug">{u.name}</p>
+                {/* Role badge */}
+                <span className="mt-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+                  style={{ background: `${rc}20`, color: rc }}>
+                  {u.role}
+                </span>
+                {/* Email */}
+                {u.email && (
+                  <a href={`mailto:${u.email}`}
+                    className="mt-1.5 text-[9px] text-slate-600 hover:text-slate-400 transition-colors truncate max-w-full"
+                    onClick={e => e.stopPropagation()}>
+                    {u.email}
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, onView }: DeliverableGroupsProps) {
