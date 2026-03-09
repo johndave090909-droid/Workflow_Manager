@@ -82,7 +82,7 @@ export default function SystemHub({
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
   const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
-  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;email?:string}[]>([]);
+  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;email?:string;phone?:string;notes?:string}[]>([]);
   const [dirLoading,      setDirLoading]      = useState(false);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
@@ -161,7 +161,7 @@ export default function SystemHub({
       const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User));
       users.sort((a, b) => a.name.localeCompare(b.name));
       setDirectoryUsers(users);
-      const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() } as {id:string;name:string;role:string;email?:string}));
+      const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() } as {id:string;name:string;role:string;email?:string;phone?:string;notes?:string}));
       workers.sort((a, b) => a.name.localeCompare(b.name));
       setDirectoryWorkers(workers);
       setDirLoading(false);
@@ -568,6 +568,8 @@ function buildOrgChartDefaults(): OrgCardItem[] {
 interface DirectoryEntry extends Omit<User, 'id'> {
   id: string;
   isWorkerRecord?: boolean;
+  phone?: string;
+  notes?: string;
 }
 
 interface DirectoryViewProps {
@@ -598,12 +600,13 @@ function classifyRole(role: string): 'leadership' | 'team-leaders' | 'workers' {
   return 'workers';
 }
 
-interface EmployeeCardProps { u: DirectoryEntry; isMe: boolean; }
-function EmployeeCard({ u, isMe }: EmployeeCardProps) {
+interface EmployeeCardProps { u: DirectoryEntry; isMe: boolean; onClick: () => void; }
+function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
   const rc = getRoleColor(u.role);
   return (
     <div
-      className="relative flex flex-col items-center text-center rounded-2xl border p-3 sm:p-4 transition-all hover:scale-[1.02]"
+      onClick={onClick}
+      className="relative flex flex-col items-center text-center rounded-2xl border p-3 sm:p-4 transition-all hover:scale-[1.02] cursor-pointer"
       style={{
         background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
         borderColor: isMe ? `${rc}50` : 'rgba(255,255,255,0.08)',
@@ -641,8 +644,9 @@ function EmployeeCard({ u, isMe }: EmployeeCardProps) {
 interface DirectorySectionProps {
   title: string; icon: string; accentColor: string;
   users: DirectoryEntry[]; currentUserId: string; defaultOpen?: boolean;
+  onSelect: (u: DirectoryEntry) => void;
 }
-function DirectorySection({ title, icon, accentColor, users, currentUserId, defaultOpen = true }: DirectorySectionProps) {
+function DirectorySection({ title, icon, accentColor, users, currentUserId, defaultOpen = true, onSelect }: DirectorySectionProps) {
   const [open, setOpen] = React.useState(defaultOpen);
   if (!users.length) return null;
   return (
@@ -660,7 +664,7 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
       {open && (
         <div className="px-4 sm:px-6 pb-4 sm:pb-6 border-t border-white/8">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-4">
-            {users.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} />)}
+            {users.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => onSelect(u)} />)}
           </div>
         </div>
       )}
@@ -671,11 +675,12 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
 function DirectoryView({ users, workers: workerRecords, loading, roleColor, currentUserId }: DirectoryViewProps) {
   const [search, setSearch] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'sections' | 'all'>('sections');
+  const [selected, setSelected] = React.useState<DirectoryEntry | null>(null);
 
   // Merge users and worker records into a unified list
   const allEntries: DirectoryEntry[] = [
     ...users,
-    ...workerRecords.map(w => ({ ...w, photo: '', isWorkerRecord: true as const })),
+    ...workerRecords.map(w => ({ ...w, photo: '', isWorkerRecord: true as const, phone: w.phone, notes: w.notes })),
   ];
 
   const q = search.toLowerCase();
@@ -734,17 +739,125 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
       ) : activeTab === 'sections' ? (
         <div className="flex flex-col gap-4">
           <DirectorySection title="Leadership" icon="⭐" accentColor="#ff00ff"
-            users={leadership} currentUserId={currentUserId} defaultOpen />
+            users={leadership} currentUserId={currentUserId} defaultOpen onSelect={setSelected} />
           <DirectorySection title="Team Leaders" icon="🎯" accentColor="#ffd700"
-            users={teamLeaders} currentUserId={currentUserId} defaultOpen />
+            users={teamLeaders} currentUserId={currentUserId} defaultOpen onSelect={setSelected} />
           <DirectorySection title="Workers" icon="👷" accentColor="#22c55e"
-            users={workers} currentUserId={currentUserId} defaultOpen />
+            users={workers} currentUserId={currentUserId} defaultOpen onSelect={setSelected} />
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-          {allFiltered.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} />)}
+          {allFiltered.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => setSelected(u)} />)}
         </div>
       )}
+
+      {/* ── Employee Detail Modal ── */}
+      {selected && (
+        <EmployeeDetailModal
+          entry={selected}
+          isMe={selected.id === currentUserId}
+          onClose={() => setSelected(null)}
+          onSaved={(updated) => {
+            setSelected(updated);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Employee Detail Modal ───────────────────────────────────────────────────────
+interface EmployeeDetailModalProps {
+  entry: DirectoryEntry;
+  isMe: boolean;
+  onClose: () => void;
+  onSaved: (updated: DirectoryEntry) => void;
+}
+function EmployeeDetailModal({ entry, isMe, onClose, onSaved }: EmployeeDetailModalProps) {
+  const rc = getRoleColor(entry.role);
+  const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#a855f7] transition-all placeholder-slate-600';
+  const labelCls = 'block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5';
+
+  const [phone, setPhone] = React.useState(entry.phone ?? '');
+  const [notes, setNotes] = React.useState(entry.notes ?? '');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError]   = React.useState('');
+
+  const handleSave = async () => {
+    setSaving(true); setError('');
+    try {
+      await updateDoc(doc(db, 'workers', entry.id), {
+        phone: phone.trim() || null,
+        notes: notes.trim() || null,
+      });
+      onSaved({ ...entry, phone: phone.trim() || undefined, notes: notes.trim() || undefined });
+    } catch {
+      setError('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl"
+        style={{ boxShadow: `0 0 60px ${rc}15` }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* Close */}
+        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 text-slate-500 hover:text-white transition-colors z-10" style={{ position: 'absolute' }}>✕</button>
+
+        {/* Header — avatar + name */}
+        <div className="flex flex-col items-center pt-8 pb-5 px-6" style={{ background: `linear-gradient(180deg, ${rc}12 0%, transparent 100%)` }}>
+          <div className="w-20 h-20 rounded-full overflow-hidden mb-3" style={{ border: `3px solid ${rc}70` }}>
+            <img
+              src={entry.photo || `https://picsum.photos/seed/${entry.id}/200/200`}
+              alt={entry.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-lg font-bold text-white">{entry.name}</h3>
+            {isMe && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full" style={{ background: `${rc}25`, color: rc }}>You</span>}
+            {entry.isWorkerRecord && <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-500">No account</span>}
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full" style={{ background: `${rc}20`, color: rc }}>{entry.role}</span>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 pb-6 space-y-4">
+          {/* Contact info — read-only for accounts */}
+          {entry.email && (
+            <div>
+              <p className={labelCls}>Email</p>
+              <a href={`mailto:${entry.email}`} className="text-sm text-slate-300 hover:text-white transition-colors">{entry.email}</a>
+            </div>
+          )}
+
+          {entry.isWorkerRecord ? (
+            <>
+              <div>
+                <label className={labelCls}>Phone</label>
+                <input type="tel" className={inputCls} placeholder="+1 (555) 000-0000" value={phone} onChange={e => setPhone(e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Notes</label>
+                <textarea rows={3} className={inputCls + ' resize-none'} placeholder="Schedule, skills, or other info…" value={notes} onChange={e => setNotes(e.target.value)} />
+              </div>
+              {error && <p className="text-[11px] text-[#ff4d4d] font-semibold">{error}</p>}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
+                {saving ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : 'Save'}
+              </button>
+            </>
+          ) : (
+            <p className="text-xs text-slate-600 italic text-center py-2">Account managed via Manage Systems.</p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

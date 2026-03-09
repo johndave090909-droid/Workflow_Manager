@@ -45,7 +45,7 @@ const EMPTY_USER_FORM = {
   email: '', password: '', newPassword: '', photo: '',
 };
 
-interface WorkerRecord { id: string; name: string; role: string; email?: string; }
+interface WorkerRecord { id: string; name: string; role: string; email?: string; phone?: string; notes?: string; }
 const EMPTY_WORKER_FORM = { name: '', role: '', email: '' };
 
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
