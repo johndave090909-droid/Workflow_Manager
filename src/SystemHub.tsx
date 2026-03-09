@@ -50,7 +50,7 @@ type DeliverableWithProject = Deliverable & {
 
 const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
   { id: 'home',         label: 'Home',         emoji: '🏠' },
-  { id: 'complaints',   label: 'Complaints',   emoji: '📋' },
+  { id: 'complaints',   label: 'Guest Experience',   emoji: '📋' },
   { id: 'deliverables', label: 'Deliverables', emoji: '📁' },
   { id: 'org-chart',    label: 'Org Chart',    emoji: '🧭' },
 ];
@@ -312,7 +312,7 @@ export default function SystemHub({
 
           {/* COMPLAINTS */}
           {activeSection === 'complaints' && (
-            <ComplaintsView currentUser={currentUser} roleColor={roleColor} />
+            <ComplaintsView currentUser={currentUser} roleColor={roleColor} isItAdmin={permissions.access_it_admin} canAnalyze={permissions.access_it_admin || permissions.view_all_projects} />
           )}
 
           {/* DELIVERABLES */}

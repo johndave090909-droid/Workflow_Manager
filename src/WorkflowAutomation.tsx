@@ -1793,8 +1793,11 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     discoveredAt: string;
     savedAt?: string;
     size?: string;
+    guestCountSummary?: string;
   };
   const [history, setHistory] = useState<DriveFileRecord[]>([]);
+  const [guestCountsByDate, setGuestCountsByDate] = useState<Record<string, { aloha?: number; ohana?: number; gateway?: number; sourceName?: string }>>({});
+  const [backfilling, setBackfilling] = useState(false);
 
   type WatcherStatus = { lastRun: string; status: 'ok' | 'error'; newFilesFound: number; totalInFolder: number; lastFoundFileIds?: string[]; lastCheckWithFiles?: { runAt: string; fileIds: string[] }; error?: string };
   const [watcherStatus, setWatcherStatus] = useState<WatcherStatus | null>(null);
@@ -1878,6 +1881,16 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     const q = query(collection(firestoreDb, 'drive_pdf_history'), orderBy('discoveredAt', 'desc'));
     const unsub = onSnapshot(q, snap => {
       setHistory(snap.docs.map(d => d.data() as DriveFileRecord));
+    });
+    return () => unsub();
+  }, []);
+
+  // Live guest counts by date
+  useEffect(() => {
+    const unsub = onSnapshot(collection(firestoreDb, 'daily_guest_counts'), snap => {
+      const map: Record<string, any> = {};
+      snap.docs.forEach(d => { map[d.id] = d.data(); });
+      setGuestCountsByDate(map);
     });
     return () => unsub();
   }, []);
@@ -2905,7 +2918,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
         </div>
 
         {/* PDF History Panel */}
-        <div className="shrink-0 border-t border-white/10 flex flex-col" style={{ height: 220, background: 'rgba(5,2,10,.98)' }}>
+        <div className="shrink-0 border-t border-white/10 flex flex-col" style={{ height: 260, background: 'rgba(5,2,10,.98)' }}>
           <div className="flex items-center gap-3 px-5 py-2.5 border-b border-white/6 shrink-0">
             <span style={{ fontSize: 13 }}>📄</span>
             <span className="text-xs font-bold text-white">PDF History</span>
@@ -2916,6 +2929,23 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
               </span>
             )}
             <div className="flex-1" />
+            {/* Extract All button — backfills guest counts from all Daily Counts PDFs */}
+            {history.some(f => /daily\s*counts/i.test(f.name)) && (
+              <button
+                disabled={backfilling}
+                onClick={async () => {
+                  setBackfilling(true);
+                  try {
+                    await fetch(API_BASE + '/api/google-drive/backfill-guest-counts', { method: 'POST' });
+                  } finally {
+                    setBackfilling(false);
+                  }
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+                style={{ background: 'rgba(34,197,94,.08)', border: '1px solid rgba(34,197,94,.25)', color: '#22c55e' }}>
+                {backfilling ? '⏳ Extracting…' : '⚡ Extract All'}
+              </button>
+            )}
             <button onClick={() => setHistoryOpen(o => !o)} className="text-slate-500 hover:text-white transition-colors">
               {historyOpen ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
             </button>
@@ -2948,6 +2978,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                     const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                     const kb = file.size ? Math.round(Number(file.size) / 1024) : null;
+                    const isDailyCounts = /daily\s*counts/i.test(file.name);
                     return (
                       <div key={file.fileId} className="flex items-center gap-3 px-5 py-2.5 hover:bg-white/3 transition-colors group">
                         <span className="text-sm shrink-0">📄</span>
@@ -2963,6 +2994,23 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
                             {dateStr} · {timeStr}{kb ? ` · ${kb} KB` : ''}
                           </p>
                         </div>
+                        {/* Guest counts — stored directly on the PDF record after extraction */}
+                        {isDailyCounts && (
+                          <div className="shrink-0 text-right border-l border-white/8 pl-3 ml-1">
+                            {file.guestCountSummary ? (
+                              <div className="text-[9px] font-mono space-y-0.5">
+                                {file.guestCountSummary.split('\n').map(line => {
+                                  const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+                                  if (!m) return null;
+                                  const color = m[1].toLowerCase() === 'aloha' ? '#4ade80' : m[1].toLowerCase() === 'ohana' ? '#60a5fa' : '#f59e0b';
+                                  return <div key={m[1]} style={{ color }}>{line}</div>;
+                                })}
+                              </div>
+                            ) : (
+                              <span className="text-[9px] text-slate-600 italic">no counts</span>
+                            )}
+                          </div>
+                        )}
                         {file.webViewLink && (
                           <a href={file.webViewLink} target="_blank" rel="noreferrer"
                             className="shrink-0 text-[9px] font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"

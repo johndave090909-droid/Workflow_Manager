@@ -288,7 +288,25 @@ async function buildFacebookPdfMessages(header, files) {
     let entry = link ? `📄 ${name}\n${link}` : `📄 ${name}`;
     if (isDailyCounts && f.id) {
       const summary = await extractDailyCounts(f.id);
-      if (summary) entry += `\n\n${summary}`;
+      if (summary) {
+        entry += `\n\n${summary}`;
+        // Store summary back on the drive_pdf_history document so UI can show it beside the PDF
+        await db.collection('drive_pdf_history').doc(f.id).set(
+          { guestCountSummary: summary }, { merge: true }
+        );
+        // Persist guest counts so Guest Experience tab can display ratios
+        const dateKey = (f.discoveredAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+        const counts = {};
+        for (const line of summary.split('\n')) {
+          const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+          if (m) counts[m[1].toLowerCase()] = parseInt(m[2]);
+        }
+        if (Object.keys(counts).length) {
+          await db.collection('daily_guest_counts').doc(dateKey).set(
+            { ...counts, savedAt: new Date().toISOString(), sourceFileId: f.id }, { merge: true }
+          );
+        }
+      }
     }
     entries.push(entry);
   }
@@ -488,7 +506,7 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
 
     // POST /parse-daily-counts — download a Drive PDF and extract guest counts
     if (req.method === "POST" && path.endsWith("/parse-daily-counts")) {
-      const { fileId } = parseJsonBody(req);
+      const { fileId, date: dateParam } = parseJsonBody(req);
       if (!fileId) return sendJson(res, 400, { error: "fileId is required" });
 
       const token = await getDriveAccessToken(null);
@@ -543,7 +561,58 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
       if (ohana)   lines.push(`Ohana: ${ohana}`);
       if (gateway) lines.push(`Gateway: ${gateway}`);
 
+      // Persist guest counts so Guest Experience tab can display ratios
+      const dateKey = (dateParam || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+      const counts = {};
+      if (aloha)   counts.aloha   = parseInt(aloha);
+      if (ohana)   counts.ohana   = parseInt(ohana);
+      if (gateway) counts.gateway = parseInt(gateway);
+      if (Object.keys(counts).length) {
+        await db.collection('daily_guest_counts').doc(dateKey).set(
+          { ...counts, savedAt: new Date().toISOString(), sourceFileId: fileId }, { merge: true }
+        );
+      }
+
       return sendJson(res, 200, { summary: lines.join("\n"), aloha, ohana, gateway, rawText: text.slice(0, 400) });
+    }
+
+    // POST /backfill-guest-counts — run all Daily Counts PDFs through extraction
+    if (req.method === "POST" && path.endsWith("/backfill-guest-counts")) {
+      const snap = await db.collection('drive_pdf_history').get();
+      const results = [];
+      for (const docSnap of snap.docs) {
+        const f = docSnap.data();
+        if (!/daily\s*counts/i.test(f.name || '')) continue;
+        const dateKey = (f.discoveredAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+        try {
+          const summary = await extractDailyCounts(f.fileId);
+          if (summary) {
+            // Store summary back on the drive_pdf_history document
+            await db.collection('drive_pdf_history').doc(docSnap.id).set(
+              { guestCountSummary: summary }, { merge: true }
+            );
+            const counts = {};
+            for (const line of summary.split('\n')) {
+              const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+              if (m) counts[m[1].toLowerCase()] = parseInt(m[2]);
+            }
+            if (Object.keys(counts).length) {
+              await db.collection('daily_guest_counts').doc(dateKey).set(
+                { ...counts, savedAt: new Date().toISOString(), sourceFileId: f.fileId, sourceName: f.name },
+                { merge: true }
+              );
+              results.push({ name: f.name, date: dateKey, counts, ok: true });
+            } else {
+              results.push({ name: f.name, date: dateKey, ok: false, reason: 'no counts extracted' });
+            }
+          } else {
+            results.push({ name: f.name, date: dateKey, ok: false, reason: 'extraction returned null' });
+          }
+        } catch (err) {
+          results.push({ name: f.name, date: dateKey, ok: false, reason: err?.message });
+        }
+      }
+      return sendJson(res, 200, { processed: results.length, results });
     }
 
     return sendJson(res, 404, { error: "Not found" });
@@ -703,6 +772,36 @@ exports.driveWatcherScheduled = onSchedule(
       }
       if (facebookForward) statusUpdate.facebookForward = facebookForward;
       await db.collection("drive_watcher_state").doc("status").set(statusUpdate, { merge: true });
+
+      // Backfill pass — process any Daily Counts PDFs that don't have guest counts yet
+      const allSnap = await db.collection("drive_pdf_history").get();
+      for (const docSnap of allSnap.docs) {
+        const f = docSnap.data();
+        if (!/daily\s*counts/i.test(f.name || "")) continue;
+        if (f.guestCountSummary) continue; // already done
+        try {
+          const summary = await extractDailyCounts(f.fileId);
+          if (summary) {
+            await db.collection("drive_pdf_history").doc(docSnap.id).set(
+              { guestCountSummary: summary }, { merge: true }
+            );
+            const dateKey = (f.discoveredAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+            const counts = {};
+            for (const line of summary.split("\n")) {
+              const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+              if (m) counts[m[1].toLowerCase()] = parseInt(m[2]);
+            }
+            if (Object.keys(counts).length) {
+              await db.collection("daily_guest_counts").doc(dateKey).set(
+                { ...counts, savedAt: new Date().toISOString(), sourceFileId: f.fileId }, { merge: true }
+              );
+            }
+            console.log(`Backfill: saved counts for ${f.name} (${dateKey})`);
+          }
+        } catch (bErr) {
+          console.error(`Backfill error for ${f.name}:`, bErr?.message);
+        }
+      }
     } catch (e) {
       console.error("driveWatcherScheduled error:", e?.message || e);
       await db.collection("drive_watcher_state").doc("status").set({

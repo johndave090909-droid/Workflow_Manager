@@ -9,7 +9,8 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, Legend, ReferenceLine,
 } from 'recharts';
 import { User } from './types';
 
@@ -225,6 +226,39 @@ function isDuplicate(existing: Complaint, candidate: Omit<Complaint, 'id'>): boo
   return textSimilarity(existing.rawText, candidate.rawText) > 0.5;
 }
 
+// ── Ratio chart helpers ────────────────────────────────────────────────────────
+
+function buildRatioChartData(
+  complaints: Complaint[],
+  guestCounts: Record<string, { aloha?: number; ohana?: number; gateway?: number }>,
+): Array<{ date: string; Aloha?: number; Ohana?: number; Gateway?: number }> {
+  const dates = Object.keys(guestCounts).sort();
+  return dates
+    .map(date => {
+      const gc = guestCounts[date];
+      const entry: { date: string; Aloha?: number; Ohana?: number; Gateway?: number } = {
+        date: (() => { try { const d = parseISO(date); return isValid(d) ? format(d, 'MMM d') : date; } catch { return date; } })(),
+      };
+      const pairs: [Location, 'aloha' | 'ohana' | 'gateway'][] = [
+        ['Aloha', 'aloha'], ['Ohana', 'ohana'], ['Gateway', 'gateway'],
+      ];
+      for (const [loc, key] of pairs) {
+        const guests = gc[key];
+        if (guests != null && guests > 0) {
+          const cnt = complaints.filter(c => c.date === date && c.location === loc).length;
+          entry[loc] = parseFloat(((cnt / guests) * 100).toFixed(2));
+        }
+      }
+      return entry;
+    })
+    .filter(d => d.Aloha != null || d.Ohana != null || d.Gateway != null);
+}
+
+function venueAverage(data: ReturnType<typeof buildRatioChartData>, loc: Location): number | null {
+  const vals = data.map(d => d[loc]).filter((v): v is number => v != null);
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
+
 // ── Monthly chart helper ───────────────────────────────────────────────────────
 
 function groupByMonth(complaints: Complaint[]): { month: string; count: number }[] {
@@ -267,14 +301,24 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
   const [apiKey,         setApiKey]         = useState(() => localStorage.getItem('wf_openai_key') ?? '');
   const [showKeyInput,   setShowKeyInput]   = useState(false);
   const [savedAnalysis,  setSavedAnalysis]  = useState<{ response: string; question: string; analyzedAt: string; analyzedBy: string } | null>(null);
+  const [guestCounts,    setGuestCounts]    = useState<Record<string, { aloha?: number; ohana?: number; gateway?: number }>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { loadComplaints(); loadSavedAnalysis(); }, []);
+  useEffect(() => { loadComplaints(); loadSavedAnalysis(); loadGuestCounts(); }, []);
 
   const loadSavedAnalysis = async () => {
     try {
       const snap = await getDoc(doc(db, 'settings', 'complaints_analysis'));
       if (snap.exists()) setSavedAnalysis(snap.data() as any);
+    } catch {}
+  };
+
+  const loadGuestCounts = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'daily_guest_counts'));
+      const map: Record<string, { aloha?: number; ohana?: number; gateway?: number }> = {};
+      snap.docs.forEach(d => { map[d.id] = d.data() as any; });
+      setGuestCounts(map);
     } catch {}
   };
 
@@ -474,17 +518,23 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
   const totalThisYear = complaints.filter(c => c.date.startsWith(String(new Date().getFullYear()))).length;
   const latestDate    = complaints[0]?.date;
   const untranslatedCount = complaints.filter(c => !c.translatedText && !looksEnglish(c.rawText)).length;
+  const ratioData    = buildRatioChartData(complaints, guestCounts);
+  const venueAvgs    = { Aloha: venueAverage(ratioData, 'Aloha'), Ohana: venueAverage(ratioData, 'Ohana'), Gateway: venueAverage(ratioData, 'Gateway') };
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-3 sm:p-8 max-w-6xl mx-auto space-y-3 sm:space-y-8">
+    <div className="p-3 sm:p-6 max-w-[1600px] mx-auto">
+    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 items-start">
+
+    {/* ── LEFT COLUMN ──────────────────────────────── */}
+    <div className="flex flex-col gap-3 sm:gap-5 w-full lg:w-[420px] xl:w-[500px] shrink-0">
 
       {/* Title */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-lg sm:text-2xl font-bold text-white mb-0.5 sm:mb-1">Complaints</h2>
-          <p className="hidden sm:block text-sm text-slate-400">Upload a complaints PDF to extract, analyse, and track all entries.</p>
+          <h2 className="text-lg sm:text-2xl font-bold text-white mb-0.5 sm:mb-1">Guest Experience</h2>
+          <p className="hidden sm:block text-sm text-slate-400">Upload a guest experience PDF to extract, analyse, and track all entries.</p>
         </div>
         {untranslatedCount > 0 && (
           <button
@@ -506,7 +556,7 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
         <>
           {/* Location picker */}
           <div className="rounded-xl border border-white/8 px-3 sm:px-5 py-3 sm:py-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
-            <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-500 mb-2 sm:mb-3">Location <span className="font-normal normal-case tracking-normal text-slate-600">(where are these complaints from?)</span></p>
+            <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-slate-500 mb-2 sm:mb-3">Location <span className="font-normal normal-case tracking-normal text-slate-600">(where are these entries from?)</span></p>
             <div className="flex flex-wrap gap-2">
               {LOCATIONS.map(loc => {
                 const col = LOCATION_COLORS[loc];
@@ -566,7 +616,7 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
             ) : (
               <>
                 <span className="text-2xl sm:text-4xl mb-2 sm:mb-3">📄</span>
-                <p className="text-xs sm:text-sm font-semibold text-white mb-0.5 sm:mb-1">Drop a complaints PDF here</p>
+                <p className="text-xs sm:text-sm font-semibold text-white mb-0.5 sm:mb-1">Drop a guest experience PDF here</p>
                 <p className="text-[10px] sm:text-xs text-slate-500">or click to browse · PDF only</p>
               </>
             )}
@@ -589,11 +639,108 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
         </>
       )}
 
+      {/* Last Analysis — visible to all users */}
+      {savedAnalysis && (
+        <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <div className="px-3 sm:px-6 py-2.5 sm:py-3 border-b border-white/8 flex items-center gap-2">
+            <span className="text-[9px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Last Analysis</span>
+            <span className="ml-auto text-[9px] sm:text-[10px] text-slate-500">
+              By {savedAnalysis.analyzedBy} · {new Date(savedAnalysis.analyzedAt).toLocaleString()}
+            </span>
+            {canAnalyze && (
+              <button onClick={async () => { await deleteDoc(doc(db, 'settings', 'complaints_analysis')); setSavedAnalysis(null); }}
+                className="ml-2 text-[9px] sm:text-[10px] text-red-400 hover:text-red-300 transition-colors" title="Delete analysis">
+                Delete
+              </button>
+            )}
+          </div>
+          {savedAnalysis.question && (
+            <div className="px-3 sm:px-6 pt-3 text-[10px] sm:text-xs text-slate-500 italic">Q: {savedAnalysis.question}</div>
+          )}
+          <div className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
+            {savedAnalysis.response}
+          </div>
+        </div>
+      )}
+
+      {/* AI Insights — IT Admin & Director only */}
+      {complaints.length > 0 && canAnalyze && (
+        <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-white/8 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-base sm:text-lg">🤖</span>
+              <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-widest">AI Insights</h3>
+              <span className="hidden sm:inline text-[10px] text-slate-600 normal-case tracking-normal font-normal">· powered by OpenAI</span>
+            </div>
+            <button onClick={() => setShowKeyInput(v => !v)}
+              className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-400 transition-colors flex items-center gap-1">
+              ⚙ {apiKey ? 'API Key ✓' : 'Set API Key'}
+            </button>
+          </div>
+          {showKeyInput && (
+            <div className="px-3 sm:px-6 py-3 border-b border-white/8 bg-white/[0.015] flex items-center gap-2 sm:gap-3">
+              <input type="password" placeholder="sk-proj-..." value={apiKey}
+                onChange={e => saveApiKey(e.target.value)}
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs sm:text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 font-mono"
+                style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
+              />
+              <button onClick={() => setShowKeyInput(false)}
+                className="text-xs font-bold px-3 py-2 rounded-xl transition-colors text-white shrink-0"
+                style={{ backgroundColor: `${roleColor}33` }}>Save</button>
+            </div>
+          )}
+          <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {['What are the most recurring complaints?','What patterns do you see over time?','Give actionable suggestions to address these issues','Which period had the most complaints and why?'].map(chip => (
+                <button key={chip} onClick={() => { setAiQuery(chip); callClaudeAPI(chip); }} disabled={aiLoading}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all disabled:opacity-50 hover:text-white"
+                  style={{ borderColor: `${roleColor}40`, color: '#94a3b8', background: 'rgba(255,255,255,0.03)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${roleColor}18`; (e.currentTarget as HTMLElement).style.color = roleColor; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
+                >{chip}</button>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <input type="text" placeholder="Ask anything about these complaints..." value={aiQuery}
+                onChange={e => setAiQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAiSubmit()}
+                disabled={aiLoading}
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 disabled:opacity-60"
+                style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
+              />
+              <button onClick={handleAiSubmit} disabled={aiLoading || !aiQuery.trim()}
+                className="px-5 py-2.5 text-sm font-bold rounded-xl text-white transition-all disabled:opacity-50 shrink-0 flex items-center gap-2"
+                style={{ backgroundColor: roleColor, boxShadow: `0 0 16px ${roleColor}44` }}>
+                {aiLoading ? <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /> Thinking...</> : 'Analyze →'}
+              </button>
+            </div>
+            {aiError && <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{aiError}</div>}
+            {aiResponse && (
+              <div className="rounded-xl p-5 border text-sm text-slate-300 leading-relaxed whitespace-pre-wrap"
+                style={{ background: `${roleColor}08`, borderColor: `${roleColor}25` }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-base">🤖</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: roleColor }}>GPT-4o Analysis</span>
+                </div>
+                {aiResponse}
+              </div>
+            )}
+            {!apiKey && !aiResponse && !aiLoading && (
+              <div className="text-center py-6 text-slate-600 text-sm italic">Set your OpenAI API key above to enable AI analysis.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+    </div>
+
+    {/* ── RIGHT COLUMN — All Entries ───────────────── */}
+    <div className="flex-1 min-w-0 w-full flex flex-col gap-3 sm:gap-5">
+
       {/* Stats */}
       {complaints.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
           {[
-            { label: 'Total Complaints', value: complaints.length,                           color: roleColor },
+            { label: 'Total Entries', value: complaints.length,                           color: roleColor },
             { label: 'This Year',        value: totalThisYear,                               color: '#00ffff' },
             { label: 'This Month',       value: monthlyData.at(-1)?.count ?? 0,              color: '#ffd700' },
             { label: 'Most Recent',      value: latestDate ? displayDate(latestDate) : '—',  color: '#ff4d4d', small: true },
@@ -606,178 +753,55 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
         </div>
       )}
 
-      {/* Chart */}
-      {monthlyData.length > 1 && (
-        <div className="rounded-xl sm:rounded-2xl border border-white/8 p-3 sm:p-6" style={{ background: 'rgba(255,255,255,0.02)' }}>
-          <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 sm:mb-6">Complaints by Month</h3>
-          <div className="h-[140px] sm:h-[220px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData} barSize={28}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                  contentStyle={{ background: '#1a1025', border: 'none', borderRadius: '10px', fontSize: '12px' }} />
-                <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                  {monthlyData.map((_, i) => (
-                    <Cell key={i} fill={i === monthlyData.length - 1 ? roleColor : '#44318d'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      {/* AI Insights — IT Admin & Director only */}
-      {complaints.length > 0 && canAnalyze && (
+      {/* Complaint-to-Guest Ratio Chart */}
+      {ratioData.length > 0 && (
         <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
-
           {/* Header */}
-          <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-white/8 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <span className="text-base sm:text-lg">🤖</span>
-              <h3 className="text-xs sm:text-sm font-bold text-white uppercase tracking-widest">AI Insights</h3>
-              <span className="hidden sm:inline text-[10px] text-slate-600 normal-case tracking-normal font-normal">· powered by OpenAI</span>
-            </div>
-            <button
-              onClick={() => setShowKeyInput(v => !v)}
-              className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-slate-600 hover:text-slate-400 transition-colors flex items-center gap-1"
-            >
-              ⚙ {apiKey ? 'API Key ✓' : 'Set API Key'}
-            </button>
+          <div className="px-3 sm:px-6 py-3 sm:py-4 border-b border-white/8">
+            <h3 className="text-[9px] sm:text-sm font-bold text-slate-300 uppercase tracking-widest">Complaint-to-Guest Ratio</h3>
+            <p className="text-[9px] sm:text-xs text-slate-600 mt-0.5">% of daily guests who submitted a complaint, by venue</p>
           </div>
-
-          {/* API Key input (collapsible) */}
-          {showKeyInput && (
-            <div className="px-3 sm:px-6 py-3 border-b border-white/8 bg-white/[0.015] flex items-center gap-2 sm:gap-3">
-              <input
-                type="password"
-                placeholder="sk-proj-..."
-                value={apiKey}
-                onChange={e => saveApiKey(e.target.value)}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2 px-3 text-xs sm:text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 font-mono"
-                style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
-              />
-              <button
-                onClick={() => setShowKeyInput(false)}
-                className="text-xs font-bold px-3 py-2 rounded-xl transition-colors text-white shrink-0"
-                style={{ backgroundColor: `${roleColor}33` }}
-              >
-                Save
-              </button>
-            </div>
-          )}
-
-          <div className="p-3 sm:p-6 space-y-3 sm:space-y-4">
-            {/* Quick prompt chips */}
-            <div className="flex flex-wrap gap-2">
-              {[
-                'What are the most recurring complaints?',
-                'What patterns do you see over time?',
-                'Give actionable suggestions to address these issues',
-                'Which period had the most complaints and why?',
-              ].map(chip => (
-                <button
-                  key={chip}
-                  onClick={() => { setAiQuery(chip); callClaudeAPI(chip); }}
-                  disabled={aiLoading}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all disabled:opacity-50 hover:text-white"
-                  style={{
-                    borderColor: `${roleColor}40`,
-                    color: '#94a3b8',
-                    background: 'rgba(255,255,255,0.03)',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = `${roleColor}18`; (e.currentTarget as HTMLElement).style.color = roleColor; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.03)'; (e.currentTarget as HTMLElement).style.color = '#94a3b8'; }}
-                >
-                  {chip}
-                </button>
-              ))}
-            </div>
-
-            {/* Custom question input */}
-            <div className="flex gap-3">
-              <input
-                type="text"
-                placeholder="Ask anything about these complaints..."
-                value={aiQuery}
-                onChange={e => setAiQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAiSubmit()}
-                disabled={aiLoading}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1 disabled:opacity-60"
-                style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
-              />
-              <button
-                onClick={handleAiSubmit}
-                disabled={aiLoading || !aiQuery.trim()}
-                className="px-5 py-2.5 text-sm font-bold rounded-xl text-white transition-all disabled:opacity-50 shrink-0 flex items-center gap-2"
-                style={{ backgroundColor: roleColor, boxShadow: `0 0 16px ${roleColor}44` }}
-              >
-                {aiLoading
-                  ? <><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" /> Thinking...</>
-                  : 'Analyze →'
-                }
-              </button>
-            </div>
-
-            {/* Error */}
-            {aiError && (
-              <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{aiError}</div>
-            )}
-
-            {/* Response */}
-            {aiResponse && (
-              <div
-                className="rounded-xl p-5 border text-sm text-slate-300 leading-relaxed whitespace-pre-wrap"
-                style={{ background: `${roleColor}08`, borderColor: `${roleColor}25` }}
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-base">🤖</span>
-                  <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: roleColor }}>GPT-4o Analysis</span>
+          {/* KPI summary cards */}
+          <div className="grid grid-cols-3 divide-x divide-white/8 border-b border-white/8">
+            {LOCATIONS.map(loc => {
+              const col = LOCATION_COLORS[loc];
+              const avg = venueAvgs[loc];
+              return (
+                <div key={loc} className="p-3 sm:p-5 text-center">
+                  <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest mb-1 sm:mb-2" style={{ color: col.text }}>{loc}</p>
+                  {avg != null ? (
+                    <>
+                      <p className="text-lg sm:text-3xl font-bold tabular-nums" style={{ color: avg > 1 ? '#f87171' : '#6ee7b7' }}>{avg.toFixed(2)}%</p>
+                      <p className="text-[8px] sm:text-[10px] text-slate-600 mt-0.5">avg complaint rate</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-700 italic">—</p>
+                  )}
                 </div>
-                {aiResponse}
-              </div>
-            )}
-
-            {/* Placeholder when no key and no response */}
-            {!apiKey && !aiResponse && !aiLoading && (
-              <div className="text-center py-6 text-slate-600 text-sm italic">
-                Set your OpenAI API key above to enable AI analysis.
-              </div>
-            )}
+              );
+            })}
           </div>
-        </div>
-      )}
-
-      {/* Last Analysis — visible to all users */}
-      {savedAnalysis && (
-        <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)' }}>
-          <div className="px-3 sm:px-6 py-2.5 sm:py-3 border-b border-white/8 flex items-center gap-2">
-            <span className="text-[9px] sm:text-xs font-bold text-slate-300 uppercase tracking-widest">Last Analysis</span>
-            <span className="ml-auto text-[9px] sm:text-[10px] text-slate-500">
-              By {savedAnalysis.analyzedBy} · {new Date(savedAnalysis.analyzedAt).toLocaleString()}
-            </span>
-            {canAnalyze && (
-              <button
-                onClick={async () => {
-                  await deleteDoc(doc(db, 'settings', 'complaints_analysis'));
-                  setSavedAnalysis(null);
-                }}
-                className="ml-2 text-[9px] sm:text-[10px] text-red-400 hover:text-red-300 transition-colors"
-                title="Delete analysis"
-              >
-                Delete
-              </button>
-            )}
-          </div>
-          {savedAnalysis.question && (
-            <div className="px-3 sm:px-6 pt-3 text-[10px] sm:text-xs text-slate-500 italic">
-              Q: {savedAnalysis.question}
+          {/* Line chart */}
+          <div className="p-3 sm:p-6">
+            <div className="h-[160px] sm:h-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={ratioData} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={(v: number) => `${v}%`} width={36} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1025', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', fontSize: '12px' }}
+                    formatter={(value: any, name: string) => [`${value}%`, name]}
+                  />
+                  <ReferenceLine y={1} stroke="rgba(248,113,113,0.35)" strokeDasharray="4 4"
+                    label={{ value: '1% alert', fill: '#f87171', fontSize: 9, position: 'insideTopRight' }} />
+                  <Legend wrapperStyle={{ fontSize: '10px', color: '#64748b', paddingTop: '8px' }} />
+                  <Line type="monotone" dataKey="Aloha"   stroke="#22c55e" strokeWidth={2} dot={{ r: 3, fill: '#22c55e' }}   activeDot={{ r: 5 }} connectNulls />
+                  <Line type="monotone" dataKey="Ohana"   stroke="#60a5fa" strokeWidth={2} dot={{ r: 3, fill: '#60a5fa' }}   activeDot={{ r: 5 }} connectNulls />
+                  <Line type="monotone" dataKey="Gateway" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }}   activeDot={{ r: 5 }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
-          )}
-          <div className="px-3 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
-            {savedAnalysis.response}
           </div>
         </div>
       )}
@@ -849,6 +873,21 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
                                   {hasTranslation && c.detectedLang && (
                                     <span className="text-[9px] text-slate-600 mt-0.5 block">🌐 {c.detectedLang}</span>
                                   )}
+                                  {/* Complaint-to-guest ratio */}
+                                  {(() => {
+                                    const gc = guestCounts[c.date];
+                                    const locKey = c.location?.toLowerCase() as 'aloha' | 'ohana' | 'gateway' | undefined;
+                                    if (!gc || !locKey || gc[locKey] == null) return null;
+                                    const guests = gc[locKey]!;
+                                    const dayCount = complaints.filter(x => x.date === c.date && x.location === c.location).length;
+                                    const pct = ((dayCount / guests) * 100).toFixed(2);
+                                    return (
+                                      <span className="text-[9px] mt-1 block font-mono"
+                                        style={{ color: parseFloat(pct) > 1 ? '#f87171' : '#6ee7b7' }}>
+                                        {dayCount} / {guests} guests ({pct}%)
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
 
                                 <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
@@ -1003,6 +1042,9 @@ export default function ComplaintsView({ currentUser, roleColor, isItAdmin = fal
           No complaints yet. Upload a PDF above to get started.
         </div>
       )}
+
+    </div>
+    </div>
     </div>
   );
 }
