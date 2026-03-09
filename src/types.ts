@@ -14,6 +14,7 @@ export interface RolePermissions {
   edit_projects:     boolean;  // Can edit project dates/details
   view_workload:     boolean;  // Can see workload chart
   is_assignable:     boolean;  // Appears in project assignment & workload chart
+  manage_policies:   boolean;  // Can create, edit, and delete policy documents
 }
 
 export interface Role {

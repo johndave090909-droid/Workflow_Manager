@@ -4,7 +4,7 @@ import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db } from './firebase';
 import ComplaintsView from './ComplaintsView';
-import { collection, collectionGroup, getDocs, orderBy, query, where, updateDoc, doc } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc } from 'firebase/firestore';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -40,7 +40,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -49,11 +49,12 @@ type DeliverableWithProject = Deliverable & {
 };
 
 const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
-  { id: 'home',         label: 'Home',            emoji: '🏠' },
-  { id: 'complaints',   label: 'Guest Experience', emoji: '📋' },
-  { id: 'deliverables', label: 'Deliverables',     emoji: '📁' },
-  { id: 'org-chart',    label: 'Org Chart',        emoji: '🧭' },
-  { id: 'directory',    label: 'Directory',        emoji: '👥' },
+  { id: 'home',         label: 'Home',              emoji: '🏠' },
+  { id: 'complaints',   label: 'Guest Experience',  emoji: '📋' },
+  { id: 'deliverables', label: 'Deliverables',      emoji: '📁' },
+  { id: 'org-chart',    label: 'Org Chart',         emoji: '🧭' },
+  { id: 'directory',    label: 'Directory',         emoji: '👥' },
+  { id: 'rules',        label: 'Rules & Policies',  emoji: '📜' },
 ];
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -362,7 +363,16 @@ export default function SystemHub({
 
           {/* DIRECTORY */}
           {activeSection === 'directory' && (
-            <DirectoryView users={directoryUsers} workers={directoryWorkers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} />
+            <DirectoryView users={directoryUsers} workers={directoryWorkers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} isAdmin={permissions.manage_policies ?? (permissions.access_it_admin || permissions.view_all_projects)} />
+          )}
+
+          {/* RULES & POLICIES */}
+          {activeSection === 'rules' && (
+            <RulesAndPoliciesView
+              isAdmin={permissions.manage_policies ?? (permissions.access_it_admin || permissions.view_all_projects)}
+              currentUserName={currentUser.name}
+              roleColor={roleColor}
+            />
           )}
 
         </main>
@@ -578,6 +588,7 @@ interface DirectoryViewProps {
   loading: boolean;
   roleColor: string;
   currentUserId: string;
+  isAdmin: boolean;
 }
 
 const ROLE_PALETTE: Record<string, string> = {
@@ -672,7 +683,7 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
   );
 }
 
-function DirectoryView({ users, workers: workerRecords, loading, roleColor, currentUserId }: DirectoryViewProps) {
+function DirectoryView({ users, workers: workerRecords, loading, roleColor, currentUserId, isAdmin }: DirectoryViewProps) {
   const [search, setSearch] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'sections' | 'all'>('sections');
   const [selected, setSelected] = React.useState<DirectoryEntry | null>(null);
@@ -756,6 +767,7 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
         <EmployeeDetailModal
           entry={selected}
           isMe={selected.id === currentUserId}
+          isAdmin={isAdmin}
           onClose={() => setSelected(null)}
           onSaved={(updated) => {
             setSelected(updated);
@@ -770,10 +782,11 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
 interface EmployeeDetailModalProps {
   entry: DirectoryEntry;
   isMe: boolean;
+  isAdmin: boolean;
   onClose: () => void;
   onSaved: (updated: DirectoryEntry) => void;
 }
-function EmployeeDetailModal({ entry, isMe, onClose, onSaved }: EmployeeDetailModalProps) {
+function EmployeeDetailModal({ entry, isMe, isAdmin, onClose, onSaved }: EmployeeDetailModalProps) {
   const rc = getRoleColor(entry.role);
   const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#a855f7] transition-all placeholder-slate-600';
   const labelCls = 'block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5';
@@ -782,6 +795,29 @@ function EmployeeDetailModal({ entry, isMe, onClose, onSaved }: EmployeeDetailMo
   const [notes, setNotes] = React.useState(entry.notes ?? '');
   const [saving, setSaving] = React.useState(false);
   const [error, setError]   = React.useState('');
+
+  // Signed policies for worker records
+  const [signedPolicies, setSignedPolicies]     = React.useState<SignedPolicyRecord[]>([]);
+  const [policiesLoading, setPoliciesLoading]   = React.useState(false);
+  const [viewingPolicy, setViewingPolicy]       = React.useState<SignedPolicyRecord | null>(null);
+  const [deletingId, setDeletingId]             = React.useState<string | null>(null);
+
+  const deleteSignedPolicy = async (id: string) => {
+    await deleteDoc(doc(db, 'workers', entry.id, 'signed_policies', id));
+    setSignedPolicies(prev => prev.filter(sp => sp.id !== id));
+    setDeletingId(null);
+  };
+
+  React.useEffect(() => {
+    if (!entry.isWorkerRecord) return;
+    setPoliciesLoading(true);
+    getDocs(query(collection(db, 'workers', entry.id, 'signed_policies'), orderBy('signedAt', 'desc')))
+      .then(snap => {
+        setSignedPolicies(snap.docs.map(d => ({ id: d.id, ...d.data() } as SignedPolicyRecord)));
+        setPoliciesLoading(false);
+      })
+      .catch(() => setPoliciesLoading(false));
+  }, [entry.id, entry.isWorkerRecord]);
 
   const handleSave = async () => {
     setSaving(true); setError('');
@@ -852,10 +888,976 @@ function EmployeeDetailModal({ entry, isMe, onClose, onSaved }: EmployeeDetailMo
                 style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
                 {saving ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : 'Save'}
               </button>
+
+              {/* Signed Policies */}
+              <div className="pt-2 border-t border-white/8">
+                <p className={labelCls + ' mb-2'}>Signed Policies</p>
+                {policiesLoading ? (
+                  <div className="flex justify-center py-3">
+                    <div className="w-4 h-4 border-2 border-white/20 border-t-green-400 rounded-full animate-spin" />
+                  </div>
+                ) : signedPolicies.length === 0 ? (
+                  <p className="text-[11px] text-slate-600 italic text-center py-3">No signed policies yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {signedPolicies.map(sp => (
+                      <div key={sp.id} className="rounded-xl border border-white/8 bg-white/[0.02] overflow-hidden">
+                        <button
+                          onClick={() => setViewingPolicy(sp)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-white/[0.04] transition-colors group"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/25 shrink-0">Signed</span>
+                            <p className="text-xs font-semibold text-white truncate group-hover:text-purple-300 transition-colors">{sp.policyTitle}</p>
+                          </div>
+                          <p className="text-[9px] text-slate-600 mt-1 pl-0.5">
+                            {new Date(sp.signedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                            {' · '}Signed by <span className="text-slate-400">{sp.signedBy}</span>
+                            {sp.assistedBy && <> · Assisted by <span className="text-slate-400">{sp.assistedBy}</span></>}
+                          </p>
+                        </button>
+                        {isAdmin && (
+                          deletingId === sp.id ? (
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/10 border-t border-rose-500/20">
+                              <span className="text-[10px] text-rose-400 font-bold flex-1">Delete this record?</span>
+                              <button onClick={() => deleteSignedPolicy(sp.id)}
+                                className="text-[10px] font-black px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition-colors">
+                                Yes
+                              </button>
+                              <button onClick={() => setDeletingId(null)}
+                                className="text-[10px] font-black px-2 py-0.5 rounded-md border border-white/10 text-slate-400 hover:bg-white/5 transition-colors">
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setDeletingId(sp.id)}
+                              className="w-full text-left px-3 py-1 text-[10px] font-bold text-rose-500/50 hover:text-rose-400 hover:bg-rose-500/5 transition-colors border-t border-white/5">
+                              🗑 Remove
+                            </button>
+                          )
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <p className="text-xs text-slate-600 italic text-center py-2">Account managed via Manage Systems.</p>
           )}
+        </div>
+      </div>
+
+      {/* Signed policy viewer */}
+      {viewingPolicy && (
+        <SignedPolicyViewer record={viewingPolicy} onClose={() => setViewingPolicy(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Rules & Policies ──────────────────────────────────────────────────────────
+
+const CULINARY_RULES_CONTENT = `Below are the Rules for our Culinary Department. If you do not follow these rules you will be given a disciplinary action in the form of a PA or Personnel Action. First PA is verbal Council, Second PA is written warning, Third PA will be a 3 Day Suspension, Fourth PA will be Termination.
+
+─────────────────────────────────────────
+BREAKS / TIME OFF AND SCHEDULES
+─────────────────────────────────────────
+
+• If you are missing from your workstation excessively to go to the restroom, and if this negatively affects your performance or you are abusing your restroom breaks, you will receive a PA.
+
+• All part-time employees and students do not have a break during regular schedules unless their shift is over 5 hours. (Summer schedules are the exception.)
+
+• Students may grab lunch, breakfast, or dinner before or after their shifts but NOT during their scheduled shift. (One plate.)
+
+• For students, all days off and schedule adjustments must be approved by the Chef Managers (Sous Chef and Pastry Chef). This must be TWO WEEKS IN ADVANCE for everything except sick days.
+
+• Students must clock out at their scheduled times unless an extension or adjustment has been approved by their leads.
+
+• All iWork students must stay within their 19-hour limit.
+
+• If you are sick, call in before your shift is supposed to start and inform the Chef Managers and your lead. Then get a doctor's note as soon as possible and turn it in to HR and show a copy to the Chef Managers.
+
+• You are expected to be reliable with your timing. If you have an absence that has not been approved or covered with a doctor's note, you will be written up (PA). If this happens twice in a month, you will be terminated.
+
+• Come to work on time and inform your leads if you are going to be more than 5 minutes late. If you are more than 30 minutes late, you will be asked to stay home, and you may not make up the missed hours.
+
+• You must clock in at the kiosk or on the UKG app between Gate 10A and the main kitchen. (Forgetting to clock in twice will result in a PA.)
+
+• All time sheets should be submitted on Saturday night during submission week.
+
+• For new employees, get an SSN within one week after hiring.
+
+─────────────────────────────────────────
+UNIFORM
+─────────────────────────────────────────
+
+• Be in full uniform and ready to work before you clock in. This includes your white coat, black pants, apron, hat, knife (if given one), and closed-toed shoes.
+
+• All girls must wear a hair net with all hair covered, and may wear a hat as well.
+
+• If you work in Hot Foods or Pantry, a knife will be assigned to you by the Chef Managers. If you lose your knife, you are responsible for buying a new one. Cut-resistant gloves are to be worn at all times.
+
+• If you do not have your knife at work, you will be given a PA as this is considered part of your uniform.
+
+─────────────────────────────────────────
+ELECTRONICS
+─────────────────────────────────────────
+
+• Headphones of any kind are not allowed in the kitchen at any time.
+
+• Phones are only to be used by the leads for work-related information (e.g., texts and calls from the venues or Chef Managers).
+
+• When using the iPad, make sure to wipe down the screen with an alcohol wipe.
+
+• The speaker should not be louder than your voice. Make sure others can hear you when you talk to them.
+
+─────────────────────────────────────────
+SANITATION / CLEANLINESS
+─────────────────────────────────────────
+
+• Wash your hands before you start work and every 30 minutes.
+
+• Gloves must be changed after eating, touching your hair or face, touching phones or the iPad, going to the office, the bathroom, outside, or the chill.
+
+• No food is to be eaten in the kitchen area. Spoons are available to taste as you go, but you cannot eat your lunch in the kitchen work area.
+
+• Red sanitation buckets are required in each area. Use them in between each task you complete.
+
+• Keep rags off the floor, and when dirty, place them in the dirty bin to go to laundry.
+
+• All plastic gloves should be thrown away when leaving the kitchen. You may get a new pair when you come back from your break or the bathroom.
+
+• Do not bring your fabric apron into the bathroom with you.
+
+─────────────────────────────────────────
+CHILL
+─────────────────────────────────────────
+
+• All boxes must be thrown away, and products should be taken out once the box is opened.
+
+• All items you place in the chill should be labeled with a name and date. (If there are no labels or markers, please ask the Chef Managers.)
+
+• Put all ingredients back in the same space you got them from, and use open ingredients first.
+
+• Anything that is in an open bag should be transferred to a clear Cambro container and labeled — i.e. shredded carrots, bean sprouts, mozzarella cheese, salted salmon, etc.
+
+• Carts should not be left in the chill.
+
+• Keep all meats separate from all other foods in the chill.
+
+• If you spill or drop something, clean it up right away.
+
+─────────────────────────────────────────
+KNIVES AND EQUIPMENT
+─────────────────────────────────────────
+
+• Do not leave knives in the sink after use. Clean them right away and put them in their place.
+
+• When walking with a knife, hold it to your side to avoid any accidents.
+
+• Do not let anyone else use your knife.
+
+• If equipment is broken, please inform your leads and Chef Managers.
+
+─────────────────────────────────────────
+RECIPES
+─────────────────────────────────────────
+
+• All recipes must be followed exactly. You may not change the recipe, but feel free to discuss ideas with the Chef Managers and your leads.
+
+─────────────────────────────────────────
+OPEN DOOR
+─────────────────────────────────────────
+
+• We have an open-door policy, so if you need anything, you can go in and talk with them anytime.
+
+• If the Chef Managers are not there, you may find the leads or other Chef Managers to help you.`;
+
+interface Policy {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface SignedPolicyRecord {
+  id: string;
+  policyId: string;
+  policyTitle: string;
+  policyContent: string;
+  signatureDataUrl: string;
+  signedAt: string;
+  signedBy: string;      // worker's name — who physically signed
+  assistedBy: string;    // admin account name — who facilitated
+  workerName: string;
+}
+
+interface RulesAndPoliciesViewProps {
+  isAdmin: boolean;
+  currentUserName: string;
+  roleColor: string;
+}
+
+function RulesAndPoliciesView({ isAdmin, currentUserName, roleColor }: RulesAndPoliciesViewProps) {
+  const [policies, setPolicies] = React.useState<Policy[]>([]);
+  const [loading, setLoading]   = React.useState(true);
+  const [selected, setSelected] = React.useState<Policy | null>(null);
+  const [editing, setEditing]   = React.useState(false);
+  const [editTitle, setEditTitle]     = React.useState('');
+  const [editContent, setEditContent] = React.useState('');
+  const [saving, setSaving]           = React.useState(false);
+  const [saveErr, setSaveErr]         = React.useState('');
+  const [showSign, setShowSign]       = React.useState(false);
+  const [pendingSig, setPendingSig]   = React.useState<string | null>(null);
+  const [showAssign, setShowAssign]   = React.useState(false);
+  const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const [fullscreen, setFullscreen]   = React.useState(false);
+  const textareaRef    = React.useRef<HTMLTextAreaElement>(null);
+  const pendingRestore = React.useRef<{ start: number; end: number; scrollTop: number } | null>(null);
+
+  // Synchronously restore cursor position + scroll after any editContent change caused by a format button
+  React.useLayoutEffect(() => {
+    const r = pendingRestore.current;
+    if (!r || !textareaRef.current) return;
+    textareaRef.current.setSelectionRange(r.start, r.end);
+    textareaRef.current.scrollTop = r.scrollTop;
+    pendingRestore.current = null;
+  }, [editContent]);
+
+  // ── Line-prefix toggle (center / heading) ──────────────────────────────────
+  const toggleLinePrefix = (prefix: string) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const { selectionStart: start, selectionEnd: end, scrollTop } = ta;
+    const lines = editContent.split('\n');
+    let pos = 0;
+    let startShift = 0;
+    let endShift   = 0;
+
+    const newLines = lines.map(line => {
+      const lineStart = pos;
+      pos += line.length + 1;           // +1 for the \n
+      const lineEnd = pos - 1;
+      if (lineEnd >= start && lineStart <= end) {
+        if (line.startsWith(prefix)) {
+          const n = prefix.length;
+          if (lineStart < start) startShift -= n;
+          endShift -= n;
+          return line.slice(n);
+        } else {
+          const n = prefix.length;
+          if (lineStart < start) startShift += n;
+          endShift += n;
+          return prefix + line;
+        }
+      }
+      return line;
+    });
+
+    pendingRestore.current = {
+      start: Math.max(0, start + startShift),
+      end:   Math.max(0, end   + endShift),
+      scrollTop,
+    };
+    setEditContent(newLines.join('\n'));
+  };
+
+  const toggleCenter   = () => toggleLinePrefix('>> ');
+  const toggleHeading1 = () => toggleLinePrefix('# ');
+  const toggleHeading2 = () => toggleLinePrefix('## ');
+
+  // ── Inline bold toggle ─────────────────────────────────────────────────────
+  const toggleBold = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const { selectionStart: start, selectionEnd: end, scrollTop } = ta;
+    const selected = editContent.slice(start, end);
+    let newContent: string;
+    let newStart: number;
+    let newEnd: number;
+
+    if (selected.startsWith('**') && selected.endsWith('**') && selected.length >= 4) {
+      const inner = selected.slice(2, -2);
+      newContent = editContent.slice(0, start) + inner + editContent.slice(end);
+      newStart = start; newEnd = start + inner.length;
+    } else {
+      newContent = editContent.slice(0, start) + '**' + selected + '**' + editContent.slice(end);
+      newStart = start + 2; newEnd = end + 2;
+    }
+    pendingRestore.current = { start: newStart, end: newEnd, scrollTop };
+    setEditContent(newContent);
+  };
+
+  React.useEffect(() => {
+    setLoading(true);
+    getDocs(query(collection(db, 'policies'), orderBy('updatedAt', 'desc')))
+      .then(async snap => {
+        if (!snap.empty) {
+          const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Policy));
+          setPolicies(list);
+          setSelected(list[0]);
+          setLoading(false);
+          return;
+        }
+        // Auto-seed the Culinary Rules & Policies document on first load
+        const now = new Date().toISOString();
+        const ref = await addDoc(collection(db, 'policies'), {
+          title: 'Culinary Team Rules and Policies',
+          content: CULINARY_RULES_CONTENT,
+          createdAt: now,
+          updatedAt: now,
+        });
+        const seeded: Policy = {
+          id: ref.id,
+          title: 'Culinary Team Rules and Policies',
+          content: CULINARY_RULES_CONTENT,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setPolicies([seeded]);
+        setSelected(seeded);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const startNew = () => {
+    setSelected(null); setEditTitle('New Policy'); setEditContent('');
+    setSaveErr(''); setEditing(true);
+  };
+
+  const startEdit = (p: Policy) => {
+    setSelected(p); setEditTitle(p.title); setEditContent(p.content);
+    setSaveErr(''); setEditing(true);
+  };
+
+  const cancelEdit = () => setEditing(false);
+
+  const savePolicy = async () => {
+    if (!editTitle.trim()) { setSaveErr('Title is required.'); return; }
+    setSaving(true); setSaveErr('');
+    const now = new Date().toISOString();
+    try {
+      if (selected) {
+        await updateDoc(doc(db, 'policies', selected.id), {
+          title: editTitle.trim(), content: editContent, updatedAt: now,
+        });
+        const updated: Policy = { ...selected, title: editTitle.trim(), content: editContent, updatedAt: now };
+        setPolicies(prev => prev.map(p => p.id === selected.id ? updated : p));
+        setSelected(updated);
+      } else {
+        const ref = await addDoc(collection(db, 'policies'), {
+          title: editTitle.trim(), content: editContent, createdAt: now, updatedAt: now,
+        });
+        const newP: Policy = { id: ref.id, title: editTitle.trim(), content: editContent, createdAt: now, updatedAt: now };
+        setPolicies(prev => [newP, ...prev]);
+        setSelected(newP);
+      }
+      setEditing(false);
+    } catch {
+      setSaveErr('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+
+  const deletePolicy = async () => {
+    if (!selected) return;
+    await deleteDoc(doc(db, 'policies', selected.id));
+    const remaining = policies.filter(p => p.id !== selected.id);
+    setPolicies(remaining);
+    setSelected(remaining[0] ?? null);
+    setConfirmDelete(false);
+  };
+
+  const handleSigned = (sigDataUrl: string) => {
+    setPendingSig(sigDataUrl);
+    setShowSign(false);
+    setShowAssign(true);
+  };
+
+  const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-purple-500 transition-all placeholder-slate-600';
+
+  return (
+    <div className="flex h-full" style={{ minHeight: 'calc(100vh - 4rem)' }}>
+
+      {/* ── Policy list sidebar ── */}
+      <div
+        className="shrink-0 border-r border-white/8 flex flex-col transition-all duration-300"
+        style={{ width: sidebarOpen ? 240 : 48, background: 'rgba(6,3,11,0.98)', overflow: 'hidden' }}
+      >
+        {/* Sidebar header */}
+        <div className="flex items-center gap-2 px-3 py-4 border-b border-white/8 shrink-0">
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/5 transition-all shrink-0"
+            title={sidebarOpen ? 'Collapse' : 'Expand'}
+          >
+            {sidebarOpen ? '◂' : '▸'}
+          </button>
+          {sidebarOpen && (
+            <div className="flex items-center justify-between flex-1 min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">Policies</p>
+              {isAdmin && (
+                <button
+                  onClick={startNew}
+                  className="text-[9px] font-black uppercase tracking-wide px-2 py-1 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors shrink-0 ml-2"
+                >+ New</button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Policy list */}
+        {sidebarOpen && (
+          loading ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-5 h-5 border-2 border-white/20 border-t-purple-400 rounded-full animate-spin" />
+            </div>
+          ) : policies.length === 0 ? (
+            <p className="text-xs text-slate-600 italic px-4 text-center mt-10">No policies yet.{isAdmin && <><br/>Click + New to create one.</>}</p>
+          ) : (
+            <div className="flex-1 overflow-y-auto py-2 space-y-0.5 px-2">
+              {policies.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => { setSelected(p); setEditing(false); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl transition-all"
+                  style={selected?.id === p.id
+                    ? { background: `${roleColor}18`, borderLeft: `3px solid ${roleColor}` }
+                    : { color: '#94a3b8' }}
+                >
+                  <p className="truncate text-xs font-semibold" style={selected?.id === p.id ? { color: roleColor } : {}}>
+                    {p.title}
+                  </p>
+                  <p className="text-[9px] text-slate-600 mt-0.5">
+                    {new Date(p.updatedAt).toLocaleDateString()}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )
+        )}
+      </div>
+
+      {/* ── Main content ── */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* Empty state */}
+        {!selected && !editing && (
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-8 gap-3">
+            <span className="text-6xl opacity-30">📜</span>
+            <p className="text-sm font-semibold text-slate-500">Select a policy to view</p>
+            {isAdmin && (
+              <button onClick={startNew}
+                className="mt-2 px-5 py-2 text-sm font-bold rounded-xl text-white hover:opacity-90 transition-all"
+                style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.25)' }}>
+                + Create First Policy
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Editor — white paper theme */}
+        {editing && (
+          <div className="flex-1 flex flex-col overflow-hidden" style={{ background: '#d1d5db' }}>
+            {/* Editor toolbar bar */}
+            <div className="px-6 py-3 flex items-center justify-between gap-4 shrink-0"
+              style={{ background: '#1e1b2e', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 mr-0.5">Format:</span>
+                {/* Bold */}
+                <button type="button" onClick={toggleBold} title="Bold (wrap selection with **)"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-black border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-colors">
+                  B
+                </button>
+                {/* Heading 1 — large */}
+                <button type="button" onClick={toggleHeading1} title="Heading (large text)"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-black border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-colors">
+                  H1
+                </button>
+                {/* Heading 2 — medium */}
+                <button type="button" onClick={toggleHeading2} title="Subheading (medium text)"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-black border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-colors">
+                  H2
+                </button>
+                {/* Center */}
+                <button type="button" onClick={toggleCenter} title="Center selected lines"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-black border border-white/10 text-slate-300 hover:bg-white/10 hover:text-white transition-colors">
+                  ⊞
+                </button>
+                <span className="text-[9px] text-slate-700 italic hidden sm:inline ml-1">Select text then click a format button</span>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={cancelEdit}
+                  className="px-3 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg border border-white/15 text-slate-400 hover:bg-white/5 transition-colors">
+                  Cancel
+                </button>
+                <button onClick={savePolicy} disabled={saving || !editTitle.trim()}
+                  className="px-4 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg text-white hover:opacity-90 disabled:opacity-40 transition-all"
+                  style={{ backgroundColor: '#a855f7' }}>
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+
+            {/* White paper editor */}
+            <div className="flex-1 overflow-y-auto py-8 px-4 sm:px-8">
+              <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-2xl px-8 sm:px-14 py-10 min-h-[calc(100vh-12rem)] flex flex-col gap-3">
+                {saveErr && <p className="text-[11px] text-red-500 font-semibold">{saveErr}</p>}
+                <input
+                  value={editTitle}
+                  onChange={e => setEditTitle(e.target.value)}
+                  placeholder="Policy title…"
+                  className="w-full text-2xl font-bold text-gray-900 border-b-2 border-gray-200 pb-2 focus:outline-none focus:border-purple-400 placeholder-gray-300 bg-transparent"
+                />
+                <textarea
+                  ref={textareaRef}
+                  value={editContent}
+                  onChange={e => setEditContent(e.target.value)}
+                  placeholder="Enter the full policy text here…"
+                  className="flex-1 w-full text-sm text-gray-800 leading-relaxed focus:outline-none resize-none bg-transparent placeholder-gray-300 min-h-[60vh]"
+                  style={{ fontFamily: 'inherit' }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Policy view */}
+        {!editing && selected && (
+          <div className={fullscreen
+            ? 'fixed inset-0 z-[55] flex flex-col'
+            : 'flex-1 flex flex-col overflow-hidden'
+          }>
+            {/* Policy header */}
+            <div className="px-6 sm:px-10 py-4 border-b border-white/8 flex flex-wrap items-center justify-between gap-3 shrink-0"
+              style={{ background: '#0a0510' }}>
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-0.5">Policy Document</p>
+                <h2 className="text-lg sm:text-xl font-bold text-white leading-snug">{selected.title}</h2>
+                <p className="text-[9px] text-slate-600 mt-0.5">
+                  Last updated: {new Date(selected.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {isAdmin && (
+                  <>
+                    <button onClick={() => { setFullscreen(false); startEdit(selected); }}
+                      className="px-3 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg border border-white/15 text-slate-400 hover:bg-white/5 transition-colors">
+                      ✎ Edit
+                    </button>
+                    {confirmDelete ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-rose-400 font-bold">Delete?</span>
+                        <button onClick={deletePolicy}
+                          className="px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg bg-rose-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-500/30 transition-colors">
+                          Yes
+                        </button>
+                        <button onClick={() => setConfirmDelete(false)}
+                          className="px-2.5 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg border border-white/15 text-slate-400 hover:bg-white/5 transition-colors">
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDelete(true)}
+                        className="px-3 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-colors">
+                        🗑
+                      </button>
+                    )}
+                  </>
+                )}
+                <button
+                  onClick={() => setShowSign(true)}
+                  className="px-4 py-1.5 text-[11px] font-black uppercase tracking-wide rounded-lg text-white hover:opacity-90 transition-all"
+                  style={{ backgroundColor: '#22c55e', boxShadow: '0 0 14px rgba(34,197,94,0.3)' }}>
+                  ✍ Sign
+                </button>
+                <button
+                  onClick={() => setFullscreen(v => !v)}
+                  title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/15 text-slate-400 hover:bg-white/5 hover:text-white transition-colors text-base"
+                >
+                  {fullscreen ? '⤓' : '⤢'}
+                </button>
+              </div>
+            </div>
+
+            {/* Policy content — white paper */}
+            <div className="flex-1 overflow-y-auto py-8 px-4 sm:px-8" style={{ background: '#d1d5db' }}>
+              <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-2xl px-8 sm:px-14 py-12 min-h-[calc(100vh-16rem)]">
+                {selected.content ? (
+                  selected.content.split('\n').map((line, i) => {
+                    // Strip format prefixes in order
+                    let centered = false;
+                    let rest = line;
+                    if (rest.startsWith('>> ')) { centered = true; rest = rest.slice(3); }
+                    const align: React.CSSProperties['textAlign'] = centered ? 'center' : 'left';
+
+                    let size: 'h1' | 'h2' | 'body' = 'body';
+                    if (rest.startsWith('# '))       { size = 'h1'; rest = rest.slice(2); }
+                    else if (rest.startsWith('## ')) { size = 'h2'; rest = rest.slice(3); }
+
+                    if (!rest.trim()) return <div key={i} className="h-3" />;
+
+                    // Parse inline bold (**text**)
+                    const parts = rest.split(/(\*\*[^*]*\*\*)/g);
+                    const nodes = parts.map((part, j) =>
+                      part.startsWith('**') && part.endsWith('**') && part.length > 4
+                        ? <strong key={j}>{part.slice(2, -2)}</strong>
+                        : part
+                    );
+
+                    if (size === 'h1') return <h2 key={i} className="text-xl font-bold text-gray-900 mt-5 mb-1" style={{ textAlign: align }}>{nodes}</h2>;
+                    if (size === 'h2') return <h3 key={i} className="text-base font-semibold text-gray-700 mt-3 mb-0.5" style={{ textAlign: align }}>{nodes}</h3>;
+                    return <p key={i} className="text-sm text-gray-800 leading-relaxed" style={{ textAlign: align, marginBottom: '2px' }}>{nodes}</p>;
+                  })
+                ) : (
+                  <p className="text-gray-400 italic text-sm text-center py-10">
+                    This policy has no content yet.{isAdmin && ' Click Edit to add content.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Signature modal */}
+      {showSign && selected && (
+        <SignatureModal
+          policyTitle={selected.title}
+          onClose={() => setShowSign(false)}
+          onSigned={handleSigned}
+        />
+      )}
+
+      {/* Assign worker modal */}
+      {showAssign && selected && pendingSig && (
+        <AssignWorkerModal
+          policy={selected}
+          signatureDataUrl={pendingSig}
+          assistedBy={currentUserName}
+          onClose={() => { setShowAssign(false); setPendingSig(null); }}
+          onAssigned={() => { setShowAssign(false); setPendingSig(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Signature Modal ────────────────────────────────────────────────────────────
+
+interface SignatureModalProps {
+  policyTitle: string;
+  onClose: () => void;
+  onSigned: (dataUrl: string) => void;
+}
+function SignatureModal({ policyTitle, onClose, onSigned }: SignatureModalProps) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const drawing   = React.useRef(false);
+  const lastPos   = React.useRef<{ x: number; y: number } | null>(null);
+  const [isEmpty, setIsEmpty] = React.useState(true);
+
+  const getCtx = () => {
+    const c = canvasRef.current;
+    const ctx = c?.getContext('2d');
+    if (!ctx) return null;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    return ctx;
+  };
+
+  const posFromEvent = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const scaleX = canvasRef.current!.width / rect.width;
+    const scaleY = canvasRef.current!.height / rect.height;
+    if ('touches' in e) {
+      const t = e.touches[0];
+      return { x: (t.clientX - rect.left) * scaleX, y: (t.clientY - rect.top) * scaleY };
+    }
+    return { x: ((e as React.MouseEvent).clientX - rect.left) * scaleX, y: ((e as React.MouseEvent).clientY - rect.top) * scaleY };
+  };
+
+  const startDraw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    drawing.current = true;
+    setIsEmpty(false);
+    const pos = posFromEvent(e);
+    lastPos.current = pos;
+    const ctx = getCtx();
+    if (!ctx) return;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 1, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    if (!drawing.current || !lastPos.current) return;
+    const ctx = getCtx(); if (!ctx) return;
+    const pos = posFromEvent(e);
+    ctx.beginPath();
+    ctx.moveTo(lastPos.current.x, lastPos.current.y);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    lastPos.current = pos;
+  };
+
+  const endDraw = () => { drawing.current = false; lastPos.current = null; };
+
+  const clearCanvas = () => {
+    const c = canvasRef.current;
+    if (!c) return;
+    c.getContext('2d')?.clearRect(0, 0, c.width, c.height);
+    setIsEmpty(true);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl"
+        style={{ boxShadow: '0 0 60px rgba(34,197,94,0.12)' }}
+        onClick={e => e.stopPropagation()}>
+
+        <div className="px-6 pt-6 pb-4 border-b border-white/8 relative">
+          <button onClick={onClose} className="absolute top-4 right-5 text-slate-500 hover:text-white transition-colors text-xl leading-none">✕</button>
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Sign Document</p>
+          <h3 className="text-base font-bold text-white pr-8">{policyTitle}</h3>
+        </div>
+
+        <div className="p-6">
+          <p className="text-xs text-slate-500 mb-3">Draw your signature in the box below:</p>
+          <div className="rounded-2xl border border-white/15 overflow-hidden bg-white/[0.02]" style={{ touchAction: 'none' }}>
+            <canvas
+              ref={canvasRef}
+              width={440}
+              height={190}
+              className="w-full block"
+              style={{ cursor: 'crosshair', touchAction: 'none' }}
+              onMouseDown={startDraw}
+              onMouseMove={draw}
+              onMouseUp={endDraw}
+              onMouseLeave={endDraw}
+              onTouchStart={startDraw}
+              onTouchMove={draw}
+              onTouchEnd={endDraw}
+            />
+          </div>
+          <p className="text-[10px] text-slate-600 mt-2 text-center italic">Sign with your mouse or finger</p>
+
+          <div className="flex gap-3 mt-5">
+            <button onClick={clearCanvas}
+              className="flex-1 py-2.5 text-sm font-bold rounded-xl border border-white/15 text-slate-400 hover:bg-white/5 transition-colors">
+              Clear
+            </button>
+            <button
+              onClick={() => { if (canvasRef.current) onSigned(canvasRef.current.toDataURL('image/png')); }}
+              disabled={isEmpty}
+              className="flex-1 py-2.5 text-sm font-bold rounded-xl text-white hover:opacity-90 disabled:opacity-40 transition-all"
+              style={{ backgroundColor: '#22c55e', boxShadow: '0 0 18px rgba(34,197,94,0.25)' }}>
+              Confirm Signature
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Assign Worker Modal ────────────────────────────────────────────────────────
+
+interface AssignWorkerModalProps {
+  policy: Policy;
+  signatureDataUrl: string;
+  assistedBy: string;   // admin account name facilitating the signing
+  onClose: () => void;
+  onAssigned: () => void;
+}
+function AssignWorkerModal({ policy, signatureDataUrl, assistedBy, onClose, onAssigned }: AssignWorkerModalProps) {
+  type WorkerOption = { id: string; workerId: string; name: string; role: string };
+  const [workers,   setWorkers]   = React.useState<WorkerOption[]>([]);
+  const [wLoading,  setWLoading]  = React.useState(true);
+  const [search,    setSearch]    = React.useState('');
+  const [picked,    setPicked]    = React.useState<WorkerOption | null>(null);
+  const [assigning, setAssigning] = React.useState(false);
+  const [done,      setDone]      = React.useState(false);
+
+  React.useEffect(() => {
+    getDocs(collection(db, 'workers'))
+      .then(snap => {
+        const ws = snap.docs.map(d => ({ id: d.id, workerId: '', ...d.data() } as WorkerOption));
+        ws.sort((a, b) => a.name.localeCompare(b.name));
+        setWorkers(ws);
+        setWLoading(false);
+      })
+      .catch(() => setWLoading(false));
+  }, []);
+
+  const q = search.toLowerCase();
+  const filtered = workers.filter(w =>
+    w.name.toLowerCase().includes(q) ||
+    w.role.toLowerCase().includes(q) ||
+    (w.workerId && w.workerId.toLowerCase().includes(q))
+  );
+
+  const handleAssign = async () => {
+    if (!picked) return;
+    setAssigning(true);
+    try {
+      await addDoc(collection(db, 'workers', picked.id, 'signed_policies'), {
+        policyId:         policy.id,
+        policyTitle:      policy.title,
+        policyContent:    policy.content,
+        signatureDataUrl,
+        signedAt:         new Date().toISOString(),
+        signedBy:         picked.name,   // worker who physically signed
+        assistedBy,                      // admin account that facilitated
+        workerName:       picked.name,
+      });
+      setDone(true);
+      setTimeout(onAssigned, 1800);
+    } catch {
+      setAssigning(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl max-h-[85vh] flex flex-col"
+        style={{ boxShadow: '0 0 60px rgba(168,85,247,0.12)' }}
+        onClick={e => e.stopPropagation()}>
+
+        <div className="px-6 pt-6 pb-4 border-b border-white/8 relative shrink-0">
+          <button onClick={onClose} className="absolute top-4 right-5 text-slate-500 hover:text-white transition-colors text-xl leading-none">✕</button>
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Assign Signed Policy</p>
+          <h3 className="text-base font-bold text-white pr-8">{policy.title}</h3>
+          <p className="text-xs text-slate-500 mt-1">Search by name, role, or Worker ID.</p>
+        </div>
+
+        {done ? (
+          <div className="flex-1 flex flex-col items-center justify-center py-12 gap-3">
+            <span className="text-5xl">✅</span>
+            <p className="text-sm font-bold text-green-400">Assigned to {picked?.name}!</p>
+            <p className="text-xs text-slate-500">The signed policy is now in their profile.</p>
+          </div>
+        ) : (
+          <>
+            <div className="px-6 pt-4 shrink-0">
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by name, role, or Worker ID…"
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-purple-500 placeholder-slate-600"
+              />
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-3 space-y-1">
+              {wLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-5 h-5 border-2 border-white/20 border-t-purple-400 rounded-full animate-spin" />
+                </div>
+              ) : filtered.length === 0 ? (
+                <p className="text-xs text-slate-600 italic text-center py-8">No workers found.</p>
+              ) : (
+                filtered.map(w => (
+                  <button
+                    key={w.id}
+                    onClick={() => setPicked(w)}
+                    className="w-full text-left px-4 py-3 rounded-xl transition-all border"
+                    style={picked?.id === w.id
+                      ? { background: 'rgba(168,85,247,0.15)', borderColor: 'rgba(168,85,247,0.4)' }
+                      : { background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-xs text-white">{w.name}</p>
+                      {w.workerId && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-white/8 text-slate-400 border border-white/10">{w.workerId}</span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{w.role}</p>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="px-6 pb-6 pt-3 border-t border-white/8 shrink-0 space-y-2">
+              {picked && (
+                <p className="text-[10px] text-slate-500 text-center">
+                  Signed by <span className="text-slate-300 font-semibold">{picked.name}</span> · Assisted by <span className="text-slate-300 font-semibold">{assistedBy}</span>
+                </p>
+              )}
+              <button
+                onClick={handleAssign}
+                disabled={!picked || assigning}
+                className="w-full py-2.5 text-sm font-bold rounded-xl text-white hover:opacity-90 disabled:opacity-40 transition-all flex items-center justify-center gap-2"
+                style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.25)' }}>
+                {assigning
+                  ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" />
+                  : `Assign to ${picked?.name ?? 'Selected Worker'}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Signed Policy Viewer Modal ─────────────────────────────────────────────────
+
+interface SignedPolicyViewerProps {
+  record: SignedPolicyRecord;
+  onClose: () => void;
+}
+function SignedPolicyViewer({ record, onClose }: SignedPolicyViewerProps) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        style={{ boxShadow: '0 0 60px rgba(34,197,94,0.1)' }}
+        onClick={e => e.stopPropagation()}>
+
+        <div className="px-6 pt-6 pb-4 border-b border-white/8 relative shrink-0">
+          <button onClick={onClose} className="absolute top-4 right-5 text-slate-500 hover:text-white transition-colors text-xl leading-none">✕</button>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">Signed</span>
+          </div>
+          <h3 className="text-base font-bold text-white pr-8">{record.policyTitle}</h3>
+          <p className="text-[10px] text-slate-500 mt-1">
+            Signed by <span className="text-slate-300 font-semibold">{record.signedBy}</span> on {new Date(record.signedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+          {record.assistedBy && (
+            <p className="text-[10px] text-slate-600 mt-0.5">
+              Assisted by <span className="text-slate-400 font-semibold">{record.assistedBy}</span>
+            </p>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* Signature */}
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Signature</p>
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden p-2">
+              <img src={record.signatureDataUrl} alt="Signature" className="w-full h-24 object-contain" />
+            </div>
+          </div>
+
+          {/* Policy content */}
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-2">Policy Content</p>
+            <div className="rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3 max-h-64 overflow-y-auto">
+              <pre className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap" style={{ fontFamily: 'inherit' }}>
+                {record.policyContent || '(No content)'}
+              </pre>
+            </div>
+          </div>
         </div>
       </div>
     </div>

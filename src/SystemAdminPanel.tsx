@@ -24,6 +24,7 @@ interface SystemAdminPanelProps {
 const DEFAULT_PERMISSIONS: RolePermissions = {
   access_tracker: false, access_it_admin: false, view_all_projects: false,
   create_projects: false, edit_projects: false, view_workload: false, is_assignable: false,
+  manage_policies: false,
 };
 
 const PERMISSION_LABELS: { key: keyof RolePermissions; label: string; desc: string }[] = [
@@ -34,6 +35,7 @@ const PERMISSION_LABELS: { key: keyof RolePermissions; label: string; desc: stri
   { key: 'edit_projects',     label: 'Edit Projects',     desc: 'Can edit project dates via drag or form' },
   { key: 'view_workload',     label: 'View Workload',     desc: 'Sees the workload chart by assignee' },
   { key: 'is_assignable',     label: 'Assignable',        desc: 'Appears in assignment dropdown & workload chart' },
+  { key: 'manage_policies',   label: 'Manage Policies',   desc: 'Can create, edit, and delete policy documents' },
 ];
 
 const EMPTY_CARD_FORM = {
@@ -45,8 +47,8 @@ const EMPTY_USER_FORM = {
   email: '', password: '', newPassword: '', photo: '',
 };
 
-interface WorkerRecord { id: string; name: string; role: string; email?: string; phone?: string; notes?: string; }
-const EMPTY_WORKER_FORM = { name: '', role: '', email: '' };
+interface WorkerRecord { id: string; workerId: string; name: string; role: string; email?: string; phone?: string; notes?: string; }
+const EMPTY_WORKER_FORM = { workerId: '', name: '', role: '', email: '' };
 
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
   // Guard
@@ -357,15 +359,16 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   };
   const openEditWorker = (w: WorkerRecord) => {
     setEditingWorker(w);
-    setWorkerForm({ name: w.name, role: w.role, email: w.email || '' });
+    setWorkerForm({ workerId: w.workerId || '', name: w.name, role: w.role, email: w.email || '' });
     setWorkerFormError(''); setShowWorkerForm(true);
   };
   const handleWorkerSubmit = async () => {
+    if (!workerForm.workerId.trim()) { setWorkerFormError('Worker ID is required.'); return; }
     if (!workerForm.name.trim()) { setWorkerFormError('Name is required.'); return; }
     if (!workerForm.role.trim()) { setWorkerFormError('Role is required.'); return; }
     setWorkerSubmitting(true); setWorkerFormError('');
     try {
-      const data = { name: workerForm.name.trim(), role: workerForm.role.trim(), email: workerForm.email.trim() || null };
+      const data = { workerId: workerForm.workerId.trim(), name: workerForm.name.trim(), role: workerForm.role.trim(), email: workerForm.email.trim() || null };
       if (editingWorker) {
         await updateDoc(doc(db, 'workers', editingWorker.id), data);
       } else {
@@ -931,11 +934,15 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
             </div>
             <div className="px-4 sm:px-8 py-4 sm:py-6 space-y-5">
               <div>
-                <label className={labelCls}>Full Name</label>
+                <label className={labelCls}>Worker ID <span className="text-[#ff4d4d]">*</span></label>
+                <input type="text" className={inputCls} placeholder="e.g. W-001" value={workerForm.workerId} onChange={e => setWorkerForm(f => ({ ...f, workerId: e.target.value }))} />
+              </div>
+              <div>
+                <label className={labelCls}>Full Name <span className="text-[#ff4d4d]">*</span></label>
                 <input type="text" className={inputCls} placeholder="e.g. Jane Smith" value={workerForm.name} onChange={e => setWorkerForm(f => ({ ...f, name: e.target.value }))} />
               </div>
               <div>
-                <label className={labelCls}>Role / Position</label>
+                <label className={labelCls}>Role / Position <span className="text-[#ff4d4d]">*</span></label>
                 <input type="text" className={inputCls} placeholder="e.g. Line Cook" value={workerForm.role} onChange={e => setWorkerForm(f => ({ ...f, role: e.target.value }))} />
               </div>
               <div>
