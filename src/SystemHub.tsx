@@ -83,8 +83,9 @@ export default function SystemHub({
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
   const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
-  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;email?:string;phone?:string;notes?:string}[]>([]);
+  const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;workerId?:string;email?:string;phone?:string;notes?:string}[]>([]);
   const [dirLoading,      setDirLoading]      = useState(false);
+  const [sidebarProfile,  setSidebarProfile]  = useState<User | null>(null);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
@@ -320,7 +321,7 @@ export default function SystemHub({
                 {directoryUsers.slice(0, 8).map(u => {
                   const rc = ROLE_PALETTE[u.role] ?? '#64748b';
                   return (
-                    <div key={u.id} className="flex items-center gap-2.5">
+                    <button key={u.id} onClick={() => setSidebarProfile(u)} className="flex items-center gap-2.5 w-full text-left rounded-lg px-1 -mx-1 py-0.5 hover:bg-white/5 transition-colors">
                       <div className="relative shrink-0">
                         <img
                           src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`}
@@ -334,7 +335,7 @@ export default function SystemHub({
                         <p className="text-[11px] font-semibold text-slate-200 truncate leading-tight">{u.name}</p>
                         <p className="text-[9px] text-slate-500 truncate">{u.role}</p>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
                 {directoryUsers.length > 8 && (
@@ -449,6 +450,15 @@ export default function SystemHub({
         </button>
       )}
 
+      {/* Staff Profile Modal (sidebar member click) */}
+      {sidebarProfile && (
+        <StaffProfileModal
+          user={sidebarProfile}
+          worker={directoryWorkers.find(w => w.name === sidebarProfile.name) ?? null}
+          onClose={() => setSidebarProfile(null)}
+        />
+      )}
+
       {/* Image / video viewer overlay */}
       {viewerFile && (
         <div
@@ -483,6 +493,98 @@ export default function SystemHub({
         </div>
       )}
 
+    </div>
+  );
+}
+
+// ── StaffProfileModal ──────────────────────────────────────────────────────────
+
+function StaffProfileModal({ user, worker, onClose }: {
+  user: User;
+  worker: { id: string; workerId?: string; phone?: string; notes?: string } | null;
+  onClose: () => void;
+}) {
+  const rc = ROLE_PALETTE[user.role] ?? '#64748b';
+
+  const fields = [
+    { label: 'Role',     value: user.role,          accent: rc },
+    { label: 'Email',    value: user.email || '—' },
+    { label: 'Phone',    value: worker?.phone  || '—' },
+    { label: 'Staff ID', value: worker?.workerId || '—' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-[#0f0a1a] border border-white/10 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden"
+        style={{ boxShadow: `0 0 80px ${rc}18, 0 30px 60px rgba(0,0,0,0.8)` }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="relative flex items-start gap-5 p-6 pb-5" style={{ background: `linear-gradient(135deg, ${rc}18 0%, transparent 65%)` }}>
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all text-xs"
+          >✕</button>
+
+          {/* Photo */}
+          <div className="w-[72px] h-[72px] rounded-2xl overflow-hidden shrink-0" style={{ border: `2px solid ${rc}60` }}>
+            <img
+              src={user.photo || `https://picsum.photos/seed/${user.id}/200/200`}
+              alt={user.name}
+              className="w-full h-full object-cover"
+            />
+          </div>
+
+          {/* Name + meta */}
+          <div className="flex-1 min-w-0 pt-0.5">
+            <h2 className="text-xl font-bold text-white leading-tight mb-1.5">{user.name}</h2>
+            <span
+              className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full inline-block mb-3"
+              style={{ background: `${rc}20`, color: rc, border: `1px solid ${rc}30` }}
+            >{user.role}</span>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+              {worker?.workerId && (
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">Staff ID</p>
+                  <p className="text-xs font-semibold text-slate-300 mt-0.5">{worker.workerId}</p>
+                </div>
+              )}
+              {worker?.phone && (
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">Phone</p>
+                  <p className="text-xs font-semibold text-slate-300 mt-0.5">{worker.phone}</p>
+                </div>
+              )}
+              {user.email && (
+                <div className="col-span-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">Email</p>
+                  <p className="text-xs font-semibold text-slate-300 mt-0.5">{user.email}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Personal Information */}
+        <div className="border-t border-white/8 px-6 py-5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-4">Personal Information</p>
+          <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+            {fields.map(f => (
+              <div key={f.label}>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-0.5">{f.label}</p>
+                <p className="text-xs font-semibold" style={{ color: f.accent ?? '#cbd5e1' }}>{f.value}</p>
+              </div>
+            ))}
+          </div>
+          {worker?.notes && (
+            <div className="mt-4 pt-4 border-t border-white/8">
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1.5">Notes</p>
+              <p className="text-xs text-slate-400 bg-white/[0.03] rounded-xl px-3 py-2.5 leading-relaxed">{worker.notes}</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
