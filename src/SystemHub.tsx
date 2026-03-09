@@ -577,19 +577,93 @@ function getRoleColor(role: string): string {
   return ROLE_PALETTE[role] ?? '#64748b';
 }
 
+// Classify a role into a directory section
+function classifyRole(role: string): 'leadership' | 'team-leaders' | 'workers' {
+  const r = role.toLowerCase();
+  if (/director|chef|manager|admin|accountant|supply|leadership|pastry/.test(r)) return 'leadership';
+  if (/lead|supervisor|cdp|sous|captain|senior/.test(r)) return 'team-leaders';
+  return 'workers';
+}
+
+interface EmployeeCardProps { u: User; isMe: boolean; }
+function EmployeeCard({ u, isMe }: EmployeeCardProps) {
+  const rc = getRoleColor(u.role);
+  return (
+    <div
+      className="relative flex flex-col items-center text-center rounded-2xl border p-3 sm:p-4 transition-all hover:scale-[1.02]"
+      style={{
+        background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
+        borderColor: isMe ? `${rc}50` : 'rgba(255,255,255,0.08)',
+        boxShadow: isMe ? `0 0 18px ${rc}20` : 'none',
+      }}
+    >
+      {isMe && (
+        <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
+          style={{ background: `${rc}25`, color: rc }}>You</span>
+      )}
+      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden mb-2 sm:mb-2.5 shrink-0"
+        style={{ border: `2px solid ${rc}60` }}>
+        <img src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`} alt={u.name}
+          className="w-full h-full object-cover" />
+      </div>
+      <p className="text-xs sm:text-sm font-bold text-white leading-snug">{u.name}</p>
+      <span className="mt-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+        style={{ background: `${rc}20`, color: rc }}>
+        {u.role}
+      </span>
+      {u.email && (
+        <a href={`mailto:${u.email}`}
+          className="mt-1 text-[9px] text-slate-600 hover:text-slate-400 transition-colors truncate max-w-full"
+          onClick={e => e.stopPropagation()}>
+          {u.email}
+        </a>
+      )}
+    </div>
+  );
+}
+
+interface DirectorySectionProps {
+  title: string; icon: string; accentColor: string;
+  users: User[]; currentUserId: string; defaultOpen?: boolean;
+}
+function DirectorySection({ title, icon, accentColor, users, currentUserId, defaultOpen = true }: DirectorySectionProps) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  if (!users.length) return null;
+  return (
+    <div className="rounded-xl sm:rounded-2xl border border-white/8 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center gap-3 px-4 sm:px-6 py-3 sm:py-4 text-left transition-colors hover:bg-white/[0.03]"
+      >
+        <span className="text-base">{icon}</span>
+        <span className="text-xs sm:text-sm font-black uppercase tracking-widest" style={{ color: accentColor }}>{title}</span>
+        <span className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full"
+          style={{ background: `${accentColor}20`, color: accentColor }}>{users.length}</span>
+        <span className="ml-auto text-slate-600 text-xs transition-transform" style={{ transform: open ? 'rotate(180deg)' : 'none', display: 'inline-block' }}>▾</span>
+      </button>
+      {open && (
+        <div className="px-4 sm:px-6 pb-4 sm:pb-6 border-t border-white/8">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-4">
+            {users.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DirectoryView({ users, loading, roleColor, currentUserId }: DirectoryViewProps) {
   const [search, setSearch] = React.useState('');
-  const [filterRole, setFilterRole] = React.useState('');
+  const [activeTab, setActiveTab] = React.useState<'sections' | 'all'>('sections');
 
-  const roles = Array.from(new Set(users.map(u => u.role))).sort();
+  const q = search.toLowerCase();
+  const matchesSearch = (u: User) =>
+    !q || u.name.toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q) || u.role.toLowerCase().includes(q);
 
-  const filtered = users.filter(u => {
-    const q = search.toLowerCase();
-    return (
-      (!q || u.name.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.role.toLowerCase().includes(q)) &&
-      (!filterRole || u.role === filterRole)
-    );
-  });
+  const leadership   = users.filter(u => classifyRole(u.role) === 'leadership'    && matchesSearch(u));
+  const teamLeaders  = users.filter(u => classifyRole(u.role) === 'team-leaders'  && matchesSearch(u));
+  const workers      = users.filter(u => classifyRole(u.role) === 'workers'       && matchesSearch(u));
+  const allFiltered  = users.filter(matchesSearch);
 
   if (loading) {
     return (
@@ -602,82 +676,51 @@ function DirectoryView({ users, loading, roleColor, currentUserId }: DirectoryVi
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-6 sm:mb-8">
-        <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">Directory</h2>
-        <p className="text-xs sm:text-sm text-slate-400">All employees in the department.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6 sm:mb-8">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">Directory</h2>
+          <p className="text-xs sm:text-sm text-slate-400">All employees in the department · <span className="font-bold text-slate-300">{users.length}</span> total</p>
+        </div>
+        {/* View toggle */}
+        <div className="flex gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
+          {(['sections', 'all'] as const).map(t => (
+            <button key={t} onClick={() => setActiveTab(t)}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all"
+              style={activeTab === t
+                ? { background: `${roleColor}22`, color: roleColor }
+                : { color: '#64748b' }}>
+              {t === 'sections' ? '≡ Sections' : '⊞ All'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Search + filter */}
-      <div className="flex flex-wrap gap-3 mb-6">
+      {/* Search */}
+      <div className="mb-5">
         <input
           type="text"
           placeholder="Search by name, role, or email…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="flex-1 min-w-[200px] bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1"
+          className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white placeholder-slate-600 focus:outline-none focus:ring-1"
           style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
         />
-        <select
-          value={filterRole}
-          onChange={e => setFilterRole(e.target.value)}
-          className="bg-white/5 border border-white/10 rounded-xl py-2.5 px-4 text-sm text-white focus:outline-none focus:ring-1 cursor-pointer"
-          style={{ '--tw-ring-color': roleColor } as React.CSSProperties}
-        >
-          <option value="">All Roles</option>
-          {roles.map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-        <span className="self-center text-[10px] text-slate-600 font-mono">{filtered.length} of {users.length}</span>
       </div>
 
-      {/* Grid */}
-      {filtered.length === 0 ? (
+      {allFiltered.length === 0 ? (
         <p className="text-center py-20 text-slate-600 italic text-sm">No employees found.</p>
+      ) : activeTab === 'sections' ? (
+        <div className="flex flex-col gap-4">
+          <DirectorySection title="Leadership" icon="⭐" accentColor="#ff00ff"
+            users={leadership} currentUserId={currentUserId} defaultOpen />
+          <DirectorySection title="Team Leaders" icon="🎯" accentColor="#ffd700"
+            users={teamLeaders} currentUserId={currentUserId} defaultOpen />
+          <DirectorySection title="Workers" icon="👷" accentColor="#22c55e"
+            users={workers} currentUserId={currentUserId} defaultOpen />
+        </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-          {filtered.map(u => {
-            const rc = getRoleColor(u.role);
-            const isMe = u.id === currentUserId;
-            return (
-              <div
-                key={u.id}
-                className="relative flex flex-col items-center text-center rounded-2xl border p-3 sm:p-5 transition-all hover:scale-[1.02]"
-                style={{
-                  background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
-                  borderColor: isMe ? `${rc}50` : 'rgba(255,255,255,0.08)',
-                  boxShadow: isMe ? `0 0 18px ${rc}20` : 'none',
-                }}
-              >
-                {isMe && (
-                  <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
-                    style={{ background: `${rc}25`, color: rc }}>You</span>
-                )}
-                {/* Avatar */}
-                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full overflow-hidden mb-2.5 sm:mb-3 shrink-0"
-                  style={{ border: `2px solid ${rc}60` }}>
-                  <img
-                    src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`}
-                    alt={u.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                {/* Name */}
-                <p className="text-xs sm:text-sm font-bold text-white leading-snug">{u.name}</p>
-                {/* Role badge */}
-                <span className="mt-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
-                  style={{ background: `${rc}20`, color: rc }}>
-                  {u.role}
-                </span>
-                {/* Email */}
-                {u.email && (
-                  <a href={`mailto:${u.email}`}
-                    className="mt-1.5 text-[9px] text-slate-600 hover:text-slate-400 transition-colors truncate max-w-full"
-                    onClick={e => e.stopPropagation()}>
-                    {u.email}
-                  </a>
-                )}
-              </div>
-            );
-          })}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+          {allFiltered.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} />)}
         </div>
       )}
     </div>
