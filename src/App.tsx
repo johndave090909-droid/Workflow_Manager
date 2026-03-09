@@ -236,7 +236,7 @@ export default function App() {
           sort_order: 100,
         });
       }
-      if (!hasWorkflow || !hasWorkers || !hasMgmtCouncil) {
+      if (!hasWorkflow || !hasWorkers) {
         const reSnap = await getDocs(query(collection(db, 'system_cards'), orderBy('sort_order')));
         setSystemCards(reSnap.docs.map(d => ({ id: d.id, ...d.data() } as SystemCard)));
         return;
