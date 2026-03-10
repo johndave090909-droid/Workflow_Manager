@@ -4,7 +4,7 @@ import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db } from './firebase';
 import ComplaintsView from './ComplaintsView';
-import { collection, collectionGroup, getDocs, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -78,14 +78,23 @@ export default function SystemHub({
   const firstName  = currentUser.name.split(' ')[0];
   const isDirector = permissions.view_all_projects;
 
-  const [activeSection,   setActiveSection]   = useState<HubSection>('home');
+  // Restore state when returning from Workflow Automation
+  const [hubReturnTarget] = useState<{ user: User; tab: 'profile' | 'work' } | null>(() => {
+    try {
+      const raw = localStorage.getItem('hub_return_to');
+      if (raw) { localStorage.removeItem('hub_return_to'); return JSON.parse(raw); }
+    } catch {}
+    return null;
+  });
+
+  const [activeSection,   setActiveSection]   = useState<HubSection>(hubReturnTarget ? 'member-profile' : 'home');
   const [allDeliverables, setAllDeliverables] = useState<DeliverableWithProject[]>([]);
   const [delivLoading,    setDelivLoading]    = useState(false);
   const [viewerFile,      setViewerFile]      = useState<DeliverableWithProject | null>(null);
   const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
   const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;workerId?:string;email?:string;phone?:string;notes?:string;gender?:string;dob?:string;identityCode?:string;hometown?:string;nationality?:string;religion?:string;languages?:string;maritalStatus?:string;permanentAddress?:string;currentAddress?:string}[]>([]);
   const [dirLoading,      setDirLoading]      = useState(false);
-  const [profileUser,     setProfileUser]     = useState<User | null>(null);
+  const [profileUser,     setProfileUser]     = useState<User | null>(hubReturnTarget?.user ?? null);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
@@ -160,7 +169,7 @@ export default function SystemHub({
       getDocs(collection(db, 'users')),
       getDocs(collection(db, 'workers')),
     ]).then(([usersSnap, workersSnap]) => {
-      const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+      const users = usersSnap.docs.map(d => ({ ...d.data(), id: d.id } as User)); // id last so Firestore doc ID always wins
       users.sort((a, b) => a.name.localeCompare(b.name));
       setDirectoryUsers(users);
       const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() } as {id:string;name:string;role:string;email?:string;phone?:string;notes?:string}));
@@ -382,10 +391,10 @@ export default function SystemHub({
                 <p className="hidden sm:block text-sm text-slate-400">Select a system to get started.</p>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6 max-w-5xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
-                {systemCards.filter(c => c.link !== 'management-council').map(card => (
+                {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
-                {systemCards.filter(c => c.link !== 'management-council').length === 0 && (
+                {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').length === 0 && (
                   <div className="col-span-3 text-center py-20 text-slate-600 italic text-sm">
                     No systems available. Contact your IT Administrator.
                   </div>
@@ -437,6 +446,9 @@ export default function SystemHub({
               onWorkerUpdated={(updated) =>
                 setDirectoryWorkers(prev => prev.map(w => w.id === updated.id ? { ...w, ...updated } : w))
               }
+              onNavigate={onNavigate}
+              systemCards={systemCards}
+              defaultTab={hubReturnTarget?.user.id === profileUser?.id ? hubReturnTarget?.tab : undefined}
             />
           )}
 
@@ -740,12 +752,15 @@ interface MemberProfilePageProps {
   worker: WorkerData | null;
   onBack: () => void;
   onWorkerUpdated: (updated: WorkerData) => void;
+  onNavigate: (view: AppView) => void;
+  systemCards: SystemCard[];
+  defaultTab?: 'profile' | 'work';
 }
 
-function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated }: MemberProfilePageProps) {
+function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNavigate, systemCards, defaultTab }: MemberProfilePageProps) {
   const rc = ROLE_PALETTE[profileUser.role] ?? '#64748b';
 
-  const [profileTab, setProfileTab] = React.useState<'profile' | 'work'>('profile');
+  const [profileTab, setProfileTab] = React.useState<'profile' | 'work'>(defaultTab ?? 'profile');
   const [editing, setEditing] = React.useState(false);
   const [saving,  setSaving]  = React.useState(false);
   const [form, setForm] = React.useState<Omit<WorkerData, 'id' | 'name' | 'role'>>({
@@ -822,11 +837,46 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated }: Mem
         ))}
       </div>
 
-      {profileTab === 'work' && (
-        <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-8 text-center text-slate-600 text-sm">
-          Work information coming soon.
-        </div>
-      )}
+      {profileTab === 'work' && (() => {
+        if (profileUser.role === 'Accountant') {
+          return <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />;
+        }
+        if (profileUser.role.includes('IT Admin')) {
+          const wfCard = systemCards.find(c => c.link === 'workflow');
+          const navigateToWorkflow = (v: AppView) => {
+            try {
+              localStorage.setItem('hub_return_to', JSON.stringify({ user: profileUser, tab: 'work' }));
+            } catch {}
+            onNavigate(v);
+          };
+          return (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-4">Tools</p>
+              {wfCard ? (
+                <SystemCardTile card={wfCard} onNavigate={navigateToWorkflow} />
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
+                  <button
+                    onClick={() => navigateToWorkflow('workflow' as AppView)}
+                    className="flex items-center gap-3 w-full text-left group"
+                  >
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl bg-purple-500/10 border border-purple-500/20">⚙️</div>
+                    <div>
+                      <p className="font-bold text-white group-hover:text-purple-400 transition-colors">Workflow Automation</p>
+                      <p className="text-xs text-slate-500">Open workflow automation tool</p>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        }
+        return (
+          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-10 text-center text-slate-600 text-sm">
+            No work information available for this member.
+          </div>
+        );
+      })()}
 
       {profileTab === 'profile' && <div>
 
@@ -986,6 +1036,217 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated }: Mem
         </div>
       </div>
       </div>}
+    </div>
+  );
+}
+
+// ── WorkInformationTab ─────────────────────────────────────────────────────────
+
+const LABOR_STATIONS = [
+  { name: 'Office',                highlight: false },
+  { name: 'Bakery Apprentice',     highlight: true  },
+  { name: 'Culinary Intern 1',     highlight: true  },
+  { name: 'Culinary Intern 2',     highlight: true  },
+  { name: 'Pantry Team',           highlight: false },
+  { name: 'Early Morning Lead',    highlight: false },
+  { name: 'Afternoon Lead Bakery', highlight: false },
+  { name: 'Night Lead',            highlight: false },
+  { name: 'Morning Student Lead',  highlight: false },
+  { name: 'Afternoon Team',        highlight: false },
+  { name: 'Kitchen Pass',          highlight: false },
+  { name: 'FOH Lead',              highlight: false },
+  { name: 'Prep Lead',             highlight: false },
+];
+
+const LABOR_SECTIONS = [
+  { key: 'Bakery',        label: 'Bakery'                          },
+  { key: 'Pantry',        label: 'Pantry (9)'                      },
+  { key: 'MorningPrep',   label: 'Morning Prep (8)'                },
+  { key: 'AfternoonPrep', label: 'Afternoon Prep (8)'              },
+  { key: 'KP',            label: 'KP/hot food (9)'                 },
+  { key: 'FOH',           label: 'FOH (20/ missing 2 poisson cru)' },
+  { key: 'EveningPrep',   label: 'Evening Prep (9)'                },
+];
+
+function getThisMonday(): Date {
+  const today = new Date();
+  const day = today.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const m = new Date(today);
+  m.setDate(today.getDate() + diff);
+  m.setHours(0, 0, 0, 0);
+  return m;
+}
+
+function getLaborWeeks(startMonday: Date, count: number) {
+  const weeks: { key: string; label: string; month: string }[] = [];
+  const d = new Date(startMonday);
+  for (let i = 0; i < count; i++) {
+    const s = new Date(d);
+    const e = new Date(d);
+    e.setDate(e.getDate() + 5);
+    const fmt = (dt: Date) => `${dt.getMonth() + 1}/${dt.getDate()}`;
+    weeks.push({ key: s.toISOString().split('T')[0], label: `${fmt(s)} - ${fmt(e)}`, month: s.toLocaleString('default', { month: 'long' }) });
+    d.setDate(d.getDate() + 7);
+  }
+  return weeks;
+}
+
+function WorkInformationTab({ profileUser }: { workerDocId: string; profileUser: User }) {
+  // Stored at users/{docId}/work_data/labor_report — tied directly to the user's own document
+  const laborDocRef = doc(db, 'users', profileUser.id, 'work_data', 'labor_report');
+
+  const [pageOffset, setPageOffset] = React.useState(0);
+  const weeks = React.useMemo(() => {
+    const base = getThisMonday();
+    base.setDate(base.getDate() - 14 + pageOffset * 8 * 7);
+    return getLaborWeeks(base, 8);
+  }, [pageOffset]);
+
+  const [hours, setHours]   = React.useState<Record<string, string>>({});
+  const [secs,  setSecs]    = React.useState<Record<string, { current: string; need: string }>>({});
+  const [loading, setLoading] = React.useState(true);
+  const [saving,  setSaving]  = React.useState(false);
+  const [dirty,   setDirty]   = React.useState(false);
+
+  React.useEffect(() => {
+    setLoading(true);
+    setHours({});
+    setSecs({});
+    getDoc(laborDocRef).then(snap => {
+      const d = snap.data();
+      if (d) {
+        setHours(d.stationHours || {});
+        setSecs(d.sections || {});
+      }
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileUser.id]);
+
+  const setHour = (station: string, weekKey: string, val: string) => {
+    setHours(prev => ({ ...prev, [`${station}||${weekKey}`]: val }));
+    setDirty(true);
+  };
+  const setSec = (secKey: string, field: 'current' | 'need', val: string) => {
+    setSecs(prev => ({ ...prev, [secKey]: { ...(prev[secKey] || { current: '', need: '' }), [field]: val } }));
+    setDirty(true);
+  };
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await setDoc(laborDocRef, { stationHours: hours, sections: secs });
+      setDirty(false);
+    } catch { /* ignore */ }
+    setSaving(false);
+  };
+
+  // Group weeks by month for header spanning
+  const monthGroups: { month: string; count: number }[] = [];
+  weeks.forEach(w => {
+    const last = monthGroups[monthGroups.length - 1];
+    if (last && last.month === w.month) last.count++;
+    else monthGroups.push({ month: w.month, count: 1 });
+  });
+
+  const cellCls = 'border border-white/[0.06] text-center';
+  const inputCls = 'w-full bg-transparent text-center text-xs text-slate-300 focus:outline-none focus:bg-white/5 rounded py-0.5';
+
+  if (loading) return <div className="p-8 text-center text-slate-600 text-sm">Loading…</div>;
+
+  return (
+    <div className="space-y-5">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex gap-1">
+          <button onClick={() => setPageOffset(v => v - 1)}
+            className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all">
+            ← Prev
+          </button>
+          <button onClick={() => setPageOffset(v => v + 1)}
+            className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all">
+            Next →
+          </button>
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={!dirty || saving}
+          className="px-4 py-1.5 text-xs font-bold rounded-lg transition-all disabled:opacity-40"
+          style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e30' }}
+        >{saving ? 'Saving…' : 'Save Changes'}</button>
+      </div>
+
+      {/* Station Hours Table */}
+      <div className="rounded-2xl border border-white/10 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="text-xs border-collapse" style={{ minWidth: 700 }}>
+            <thead>
+              <tr className="bg-white/[0.04]">
+                <th className={`${cellCls} text-left px-3 py-2 text-slate-500 font-black uppercase tracking-wider`} style={{ minWidth: 160 }}>Stations</th>
+                {monthGroups.map(g => (
+                  <th key={g.month} colSpan={g.count} className={`${cellCls} py-2 text-slate-400 font-black uppercase tracking-wider`}>{g.month}</th>
+                ))}
+              </tr>
+              <tr className="bg-white/[0.02]">
+                <th className={cellCls}></th>
+                {weeks.map(w => (
+                  <th key={w.key} className={`${cellCls} py-1.5 text-slate-600 font-bold`} style={{ minWidth: 88 }}>{w.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {LABOR_STATIONS.map((st, i) => (
+                <tr key={st.name} className={i % 2 === 0 ? 'bg-white/[0.01]' : ''}>
+                  <td
+                    className={`${cellCls} px-3 py-1.5 text-left font-semibold`}
+                    style={st.highlight ? { background: 'rgba(176,100,140,0.15)', color: '#d4a0bc' } : { color: '#94a3b8' }}
+                  >{st.name}</td>
+                  {weeks.map(w => (
+                    <td key={w.key} className={`${cellCls} p-0.5`}>
+                      <input
+                        type="number"
+                        className={inputCls}
+                        value={hours[`${st.name}||${w.key}`] || ''}
+                        onChange={e => setHour(st.name, w.key, e.target.value)}
+                        placeholder="—"
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Labor by Section */}
+      <div className="rounded-2xl border border-white/10 overflow-hidden">
+        <table className="w-full text-xs border-collapse">
+          <tbody>
+            {LABOR_SECTIONS.map(sec => (
+              <React.Fragment key={sec.key}>
+                <tr className="border-b border-white/[0.06]">
+                  <td colSpan={2} className="px-4 pt-4 pb-1.5 font-black text-white text-[11px]">{sec.label}</td>
+                </tr>
+                {(['current', 'need'] as const).map(field => (
+                  <tr key={field} className="border-b border-white/[0.04]">
+                    <td className="px-4 pl-8 py-1.5 text-slate-500 capitalize">{field === 'current' ? 'Current' : 'Need'}</td>
+                    <td className="px-4 py-1 text-right" style={{ width: 100 }}>
+                      <input
+                        type="number"
+                        className="w-20 bg-white/5 border border-white/10 rounded px-2 py-0.5 text-sm text-slate-300 text-right focus:outline-none focus:border-white/25"
+                        value={secs[sec.key]?.[field] || ''}
+                        onChange={e => setSec(sec.key, field, e.target.value)}
+                        placeholder="—"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
