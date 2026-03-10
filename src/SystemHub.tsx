@@ -5,7 +5,7 @@ import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject, getBytes } from 'firebase/storage';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -748,20 +748,19 @@ function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].
 function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
 function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
 
-// ── DocxViewer: fetches the file and converts to HTML via mammoth (client-side) ──
-function DocxViewer({ url }: { url: string }) {
+// ── DocxViewer: downloads via Firebase Storage SDK (authenticated, no CORS issue) ──
+function DocxViewer({ storagePath }: { storagePath: string }) {
   const [html,    setHtml]    = useState('');
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
 
   useEffect(() => {
     setLoading(true); setError(''); setHtml('');
-    fetch(url)
-      .then(r => r.arrayBuffer())
+    getBytes(ref(storage, storagePath))
       .then(buf => import('mammoth').then(m => m.convertToHtml({ arrayBuffer: buf })))
       .then(result => { setHtml(result.value); setLoading(false); })
-      .catch(() => { setError('Could not render document.'); setLoading(false); });
-  }, [url]);
+      .catch(e => { setError('Could not render document: ' + e.message); setLoading(false); });
+  }, [storagePath]);
 
   if (loading) return <div className="flex items-center justify-center h-full text-slate-400 text-sm">Loading document…</div>;
   if (error)   return <div className="flex items-center justify-center h-full text-rose-400 text-sm">{error}</div>;
@@ -832,7 +831,7 @@ function WorkDocuments({ collPath }: { collPath: string }) {
             ) : isPdf(viewing.name) ? (
               <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
             ) : isDocx(viewing.name) ? (
-              <DocxViewer url={viewing.url} />
+              <DocxViewer storagePath={viewing.storagePath} />
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
                 <span className="text-4xl">📄</span>
