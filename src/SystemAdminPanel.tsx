@@ -4,7 +4,7 @@ import { Calendar, LogOut, Plus, Edit2, Trash2, Check, X } from 'lucide-react';
 import { User, SystemCard, Role, RolePermissions } from './types';
 import { db, auth, firebaseConfig } from './firebase';
 import {
-  collection, getDocs, doc, setDoc, updateDoc, deleteDoc,
+  collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc,
   addDoc, query, orderBy,
 } from 'firebase/firestore';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -50,6 +50,11 @@ const EMPTY_USER_FORM = {
 interface WorkerRecord { id: string; workerId: string; name: string; role: string; email?: string; phone?: string; notes?: string; }
 const EMPTY_WORKER_FORM = { workerId: '', name: '', role: '', email: '' };
 
+const TONE_CATEGORY: Record<string, string> = {
+  blue: 'Leadership', red: 'Kitchen', green: 'Pantry', purple: 'Student',
+};
+const TONE_ORDER = ['blue', 'red', 'green', 'purple'];
+
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
   // Guard
   if (!permissions.access_it_admin) { onBackToHub(); return null; }
@@ -82,6 +87,9 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [workerSubmitting, setWorkerSubmitting] = useState(false);
   const [workerFormError,  setWorkerFormError]  = useState('');
   const [workerForm,       setWorkerForm]       = useState({ ...EMPTY_WORKER_FORM });
+  const [roleSearch,       setRoleSearch]       = useState('');
+  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [orgPositions,     setOrgPositions]     = useState<{ category: string; positions: string[] }[]>([]);
 
   // ── Roles state ────────────────────────────────────────────────
   const [roles,        setRoles]        = useState<Role[]>([]);
@@ -184,7 +192,25 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     setWorkersLoading(false);
   };
 
-  useEffect(() => { fetchCards(); fetchUsers(); fetchRoles(); fetchWorkers(); }, []);
+  useEffect(() => {
+    fetchCards(); fetchUsers(); fetchRoles(); fetchWorkers();
+    // Load org chart positions from Firestore so the role picker always reflects the current chart
+    getDoc(doc(db, 'org_chart', 'layout')).then(snap => {
+      if (!snap.exists()) return;
+      const cards = (snap.data().cards ?? []) as { name: string; tone: string }[];
+      const grouped: Record<string, string[]> = {};
+      cards.forEach(c => {
+        const cat = TONE_CATEGORY[c.tone] ?? c.tone;
+        if (!grouped[cat]) grouped[cat] = [];
+        if (!grouped[cat].includes(c.name)) grouped[cat].push(c.name);
+      });
+      setOrgPositions(
+        TONE_ORDER
+          .filter(t => grouped[TONE_CATEGORY[t]])
+          .map(t => ({ category: TONE_CATEGORY[t], positions: grouped[TONE_CATEGORY[t]] }))
+      );
+    }).catch(() => {});
+  }, []);
 
   // ── System card handlers ───────────────────────────────────────
   const openAddCard = () => { setEditingCard(null); setCardForm({ ...EMPTY_CARD_FORM }); setCardFormError(''); setShowCardForm(true); };
@@ -355,12 +381,12 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const openAddWorker = () => {
     setEditingWorker(null);
     setWorkerForm({ ...EMPTY_WORKER_FORM });
-    setWorkerFormError(''); setShowWorkerForm(true);
+    setWorkerFormError(''); setRoleSearch(''); setShowRoleDropdown(false); setShowWorkerForm(true);
   };
   const openEditWorker = (w: WorkerRecord) => {
     setEditingWorker(w);
     setWorkerForm({ workerId: w.workerId || '', name: w.name, role: w.role, email: w.email || '' });
-    setWorkerFormError(''); setShowWorkerForm(true);
+    setWorkerFormError(''); setRoleSearch(''); setShowRoleDropdown(false); setShowWorkerForm(true);
   };
   const handleWorkerSubmit = async () => {
     if (!workerForm.workerId.trim()) { setWorkerFormError('Worker ID is required.'); return; }
@@ -635,11 +661,36 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               <Plus size={15} /> Add Worker
             </button>
           </div>
+          {(() => {
+            const dupeIds   = new Set(workerRecords.map(w => w.workerId).filter((v, i, a) => v && a.indexOf(v) !== i));
+            const dupeNames = new Set(workerRecords.map(w => w.name.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+            const dupeRoles = new Set(workerRecords.map(w => w.role.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+            if (!dupeIds.size && !dupeNames.size && !dupeRoles.size) return null;
+            const parts = [
+              dupeIds.size   && `${dupeIds.size} duplicate Worker ID${dupeIds.size > 1 ? 's' : ''}`,
+              dupeNames.size && `${dupeNames.size} duplicate name${dupeNames.size > 1 ? 's' : ''}`,
+              dupeRoles.size && `${dupeRoles.size} duplicate role${dupeRoles.size > 1 ? 's' : ''}`,
+            ].filter(Boolean);
+            return (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 mb-2">
+                <span className="text-yellow-400 text-base mt-0.5">⚠</span>
+                <div>
+                  <p className="text-yellow-300 text-xs font-bold">Duplicate records detected</p>
+                  <p className="text-yellow-400/80 text-[11px] mt-0.5">{parts.join(' · ')} — review the highlighted rows below.</p>
+                </div>
+              </div>
+            );
+          })()}
           <div className="glass-card rounded-[2rem] overflow-hidden border border-white/10">
             {workersLoading ? (
               <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#a855f7]" /></div>
             ) : (
               <div className="overflow-x-auto">
+                {(() => {
+                  const dupeIds   = new Set(workerRecords.map(w => w.workerId).filter((v, i, a) => v && a.indexOf(v) !== i));
+                  const dupeNames = new Set(workerRecords.map(w => w.name.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+                  const dupeRoles = new Set(workerRecords.map(w => w.role.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+                  return (
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.15em] font-black border-b border-white/5">
@@ -650,16 +701,24 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {workerRecords.map(w => (
-                      <tr key={w.id} className="hover:bg-white/[0.02] transition-colors">
+                    {workerRecords.map(w => {
+                      const hasDupeId   = !!(w.workerId && dupeIds.has(w.workerId));
+                      const hasDupeName = dupeNames.has(w.name.trim().toLowerCase());
+                      const hasDupeRole = dupeRoles.has(w.role.trim().toLowerCase());
+                      const isDupe = hasDupeId || hasDupeName || hasDupeRole;
+                      const dupeLabels = [hasDupeId && 'ID', hasDupeName && 'Name', hasDupeRole && 'Role'].filter(Boolean).join(', ');
+                      return (
+                      <tr key={w.id} className={`transition-colors ${isDupe ? 'bg-yellow-500/5 hover:bg-yellow-500/10' : 'hover:bg-white/[0.02]'}`}>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white">{w.name}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-sm font-bold ${hasDupeName ? 'text-yellow-300' : 'text-white'}`}>{w.name}</span>
+                            {hasDupeName && <span title="Duplicate name" className="text-yellow-400 text-xs">⚠</span>}
                             <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded-full">No account</span>
+                            {isDupe && <span className="text-[9px] font-black uppercase tracking-widest text-yellow-500 bg-yellow-500/10 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Dupe {dupeLabels}</span>}
                           </div>
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
-                          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-400">{w.role}</span>
+                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${hasDupeRole ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-white/10 bg-white/5 text-slate-400'}`}>{w.role}</span>
                         </td>
                         <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4"><span className="text-xs text-slate-500">{w.email || '—'}</span></td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
@@ -669,10 +728,13 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                     {workerRecords.length === 0 && <tr><td colSpan={4} className="text-center py-16 text-slate-600 italic text-sm">No worker records yet. Click "Add Worker" to create one.</td></tr>}
                   </tbody>
                 </table>
+                  );
+                })()}
               </div>
             )}
           </div>
@@ -941,9 +1003,42 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 <label className={labelCls}>Full Name <span className="text-[#ff4d4d]">*</span></label>
                 <input type="text" className={inputCls} placeholder="e.g. Jane Smith" value={workerForm.name} onChange={e => setWorkerForm(f => ({ ...f, name: e.target.value }))} />
               </div>
-              <div>
+              <div className="relative">
                 <label className={labelCls}>Role / Position <span className="text-[#ff4d4d]">*</span></label>
-                <input type="text" className={inputCls} placeholder="e.g. Line Cook" value={workerForm.role} onChange={e => setWorkerForm(f => ({ ...f, role: e.target.value }))} />
+                <input
+                  type="text"
+                  className={inputCls}
+                  placeholder="Search position..."
+                  value={roleSearch || workerForm.role}
+                  onFocus={() => { setRoleSearch(workerForm.role); setShowRoleDropdown(true); }}
+                  onChange={e => { setRoleSearch(e.target.value); setWorkerForm(f => ({ ...f, role: e.target.value })); setShowRoleDropdown(true); }}
+                  onBlur={() => setTimeout(() => setShowRoleDropdown(false), 150)}
+                  autoComplete="off"
+                />
+                {showRoleDropdown && (() => {
+                  const q = (roleSearch || workerForm.role).toLowerCase();
+                  const filtered = orgPositions.map(g => ({
+                    category: g.category,
+                    positions: g.positions.filter(p => p.toLowerCase().includes(q)),
+                  })).filter(g => g.positions.length > 0);
+                  return filtered.length > 0 ? (
+                    <div className="absolute z-50 left-0 right-0 mt-1 bg-[#1a0f2e] border border-white/10 rounded-xl shadow-2xl max-h-56 overflow-y-auto">
+                      {filtered.map(g => (
+                        <div key={g.category}>
+                          <p className="px-3 pt-2 pb-0.5 text-[9px] font-black uppercase tracking-widest text-purple-400">{g.category}</p>
+                          {g.positions.map(p => (
+                            <button
+                              key={p}
+                              type="button"
+                              className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-white/10 transition-colors"
+                              onMouseDown={() => { setWorkerForm(f => ({ ...f, role: p })); setRoleSearch(''); setShowRoleDropdown(false); }}
+                            >{p}</button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div>
                 <label className={labelCls}>Email (optional)</label>

@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
 import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
-import { db } from './firebase';
+import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { renderAsync as docxRenderAsync } from 'docx-preview';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -738,6 +740,229 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
   );
 }
 
+// ── DocxIframe — renders stored HTML in an isolated iframe via Blob URL ────────
+function DocxIframe({ html, editing, iframeRef }: { html: string; editing: boolean; iframeRef: React.RefObject<HTMLIFrameElement> }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [html]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const apply = () => {
+      try { if (iframe.contentDocument) iframe.contentDocument.designMode = editing ? 'on' : 'off'; } catch {}
+    };
+    iframe.addEventListener('load', apply);
+    apply();
+    return () => iframe.removeEventListener('load', apply);
+  }, [editing, src, iframeRef]);
+
+  return src ? (
+    <iframe ref={iframeRef} src={src} className="w-full h-full border-0 bg-white" title="Document preview" sandbox="allow-same-origin allow-scripts" />
+  ) : null;
+}
+
+// ── WorkDocuments ──────────────────────────────────────────────────────────────
+
+interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; htmlContent?: string; }
+
+function fileExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? ''; }
+function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].includes(fileExt(name)); }
+function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
+function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
+
+function WorkDocuments({ collPath }: { collPath: string }) {
+  const [docs,      setDocs]      = useState<WorkDoc[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [progress,  setProgress]  = useState(0);
+  const [viewing,   setViewing]   = useState<WorkDoc | null>(null);
+  const [editing,   setEditing]   = useState(false);
+  const [saving,    setSaving]    = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const load = () =>
+    getDocs(collection(db, collPath))
+      .then(s => setDocs(s.docs.map(d => ({ id: d.id, ...d.data() } as WorkDoc))))
+      .catch(() => {});
+
+  useEffect(() => { load(); }, [collPath]);
+
+  const handleUpload = async (file: File) => {
+    setUploading(true); setProgress(0);
+    // Convert DOCX to HTML NOW while the file is in memory (no CORS needed)
+    let htmlContent: string | undefined;
+    if (isDocx(file.name)) {
+      try {
+        const buf = await file.arrayBuffer();
+        const container = document.createElement('div');
+        const styleContainer = document.createElement('div');
+        // Mount off-screen so docx-preview can measure layout
+        container.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:800px;';
+        document.body.appendChild(container);
+        document.body.appendChild(styleContainer);
+        await docxRenderAsync(buf, container, styleContainer);
+        // styleContainer holds <style> tags injected by docx-preview
+        htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styleContainer.innerHTML}</head><body style="margin:0;padding:32px;background:#fff;color:#000;">${container.innerHTML}</body></html>`;
+        document.body.removeChild(container);
+        document.body.removeChild(styleContainer);
+      } catch (err) {
+        console.warn('docx-preview conversion failed:', err);
+      }
+    }
+    const storagePath = `${collPath}/${Date.now()}_${file.name}`;
+    const task = uploadBytesResumable(ref(storage, storagePath), file);
+    task.on('state_changed',
+      s => setProgress(Math.round(s.bytesTransferred / s.totalBytes * 100)),
+      () => setUploading(false),
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        await addDoc(collection(db, collPath), {
+          name: file.name, url, storagePath,
+          uploadedAt: new Date().toISOString(),
+          ...(htmlContent ? { htmlContent } : {}),
+        });
+        setUploading(false); setProgress(0); load();
+      }
+    );
+  };
+
+  const handleDelete = async (d: WorkDoc) => {
+    if (!window.confirm(`Delete "${d.name}"?`)) return;
+    if (viewing?.id === d.id) { setViewing(null); setEditing(false); }
+    await deleteObject(ref(storage, d.storagePath)).catch(() => {});
+    await deleteDoc(doc(db, collPath, d.id));
+    load();
+  };
+
+  const handleSaveEdit = async () => {
+    if (!viewing) return;
+    setSaving(true);
+    try {
+      const newHtml = iframeRef.current?.contentDocument?.documentElement?.outerHTML;
+      if (newHtml) {
+        await updateDoc(doc(db, collPath, viewing.id), { htmlContent: newHtml });
+        const updated = { ...viewing, htmlContent: newHtml };
+        setDocs(prev => prev.map(d => d.id === viewing.id ? updated : d));
+        setViewing(updated);
+      }
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Inline viewer modal */}
+      {viewing && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d0816] shrink-0">
+            <p className="text-sm font-bold text-white truncate max-w-[40%]">{viewing.name}</p>
+            <div className="flex items-center gap-2">
+              {isDocx(viewing.name) && viewing.htmlContent && !editing && (
+                <button onClick={() => setEditing(true)}
+                  className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 hover:bg-indigo-500/30 transition-colors">
+                  Edit
+                </button>
+              )}
+              {editing && (
+                <>
+                  <button onClick={handleSaveEdit} disabled={saving}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-green-500/20 border border-green-400/30 text-green-300 hover:bg-green-500/30 transition-colors disabled:opacity-50">
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditing(false)} disabled={saving}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-white/10 border border-white/15 text-slate-300 hover:bg-white/15 transition-colors">
+                    Cancel
+                  </button>
+                </>
+              )}
+              {!editing && (
+                <a href={viewing.url} download={viewing.name}
+                  className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-white/10 border border-white/15 text-slate-300 hover:bg-white/15 transition-colors">
+                  Download
+                </a>
+              )}
+              <button onClick={() => { setViewing(null); setEditing(false); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-lg leading-none">✕</button>
+            </div>
+          </div>
+          {editing && (
+            <div className="px-4 py-2 bg-indigo-900/30 border-b border-indigo-400/20 shrink-0">
+              <p className="text-[10px] text-indigo-300 font-semibold">Editing — click anywhere in the document to start typing. Press Save when done.</p>
+            </div>
+          )}
+          <div className="flex-1 overflow-hidden">
+            {isImage(viewing.name) ? (
+              <img src={viewing.url} alt={viewing.name} className="w-full h-full object-contain p-4" />
+            ) : isPdf(viewing.name) ? (
+              <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
+            ) : isDocx(viewing.name) ? (
+              viewing.htmlContent
+                ? <DocxIframe html={viewing.htmlContent} editing={editing} iframeRef={iframeRef} />
+                : <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400 text-center px-6">
+                    <span className="text-4xl">📄</span>
+                    <p className="text-sm font-semibold text-white">Preview not available</p>
+                    <p className="text-xs text-slate-500">This file was uploaded before preview support was added.<br/>Delete it and re-upload to enable inline viewing.</p>
+                  </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+                <span className="text-4xl">📄</span>
+                <p className="text-sm">Preview not available for this file type.</p>
+                <a href={viewing.url} download={viewing.name}
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold transition-colors">
+                  Download to open
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Documents</p>
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all
+            ${uploading ? 'opacity-50 cursor-wait bg-white/5 text-slate-500' : 'bg-white/10 hover:bg-white/15 text-white'}`}>
+            {uploading ? `Uploading ${progress}%…` : '+ Upload'}
+            <input type="file" className="hidden" disabled={uploading}
+              onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }} />
+          </label>
+        </div>
+        {docs.length === 0 && !uploading && (
+          <p className="text-xs text-slate-600 italic">No documents yet.</p>
+        )}
+        {docs.map(d => (
+          <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 group">
+            <span className="text-lg">{isImage(d.name) ? '🖼️' : isPdf(d.name) ? '📋' : '📄'}</span>
+            <div className="flex-1 min-w-0">
+              <button onClick={() => setViewing(d)}
+                className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block text-left w-full">
+                {d.name}
+              </button>
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={() => setViewing(d)}
+                className="px-2 py-1 rounded-lg text-[10px] font-bold text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors">
+                View
+              </button>
+              <button onClick={() => handleDelete(d)}
+                className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors">✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ── MemberProfilePage ──────────────────────────────────────────────────────────
 
 type WorkerData = {
@@ -838,8 +1063,17 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
       </div>
 
       {profileTab === 'work' && (() => {
+        const docsPath = worker?.id
+          ? `workers/${worker.id}/work_documents`
+          : `users/${profileUser.id}/work_documents`;
+
         if (profileUser.role === 'Accountant') {
-          return <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />;
+          return (
+            <div>
+              <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
+              <WorkDocuments collPath={docsPath} />
+            </div>
+          );
         }
         if (profileUser.role.includes('IT Admin')) {
           const wfCard = systemCards.find(c => c.link === 'workflow');
@@ -868,12 +1102,13 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
                   </button>
                 </div>
               )}
+              <WorkDocuments collPath={docsPath} />
             </div>
           );
         }
         return (
-          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-10 text-center text-slate-600 text-sm">
-            No work information available for this member.
+          <div>
+            <WorkDocuments collPath={docsPath} />
           </div>
         );
       })()}
@@ -2620,7 +2855,6 @@ function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, 
 // ── SystemCardTile ─────────────────────────────────────────────────────────────
 
 function OrgChartView({ roleColor }: { roleColor: string }) {
-  const storageKey = 'workflow_manager_org_chart_canvas_v4';
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<{
     ids: string[];
@@ -2628,26 +2862,77 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
     startPointerY: number;
     startPositions: Record<string, { x: number; y: number }>;
   } | null>(null);
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLoadedRef = React.useRef(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [cards, setCards] = useState<OrgCardItem[]>(() => {
-    try {
-      const saved = window.localStorage.getItem(storageKey);
-      if (!saved) return buildOrgChartDefaults();
-      const parsed = JSON.parse(saved) as (OrgCardItem & { role?: string })[];
-      if (!Array.isArray(parsed)) throw new Error('Invalid org chart');
-      // Backward compatibility for previously saved cards that used `role`.
-      return parsed.map(card => ({
-        ...card,
-        personName: card.personName ?? card.role ?? '',
-      }));
-    } catch {
-      return buildOrgChartDefaults();
-    }
-  });
+  const [cards, setCards] = useState<OrgCardItem[]>(buildOrgChartDefaults);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [workersByRole, setWorkersByRole] = useState<Record<string, string[]>>({});
 
+  // Load workers and build role → names map
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(cards));
+    getDocs(collection(db, 'workers')).then(snap => {
+      const map: Record<string, string[]> = {};
+      snap.docs.forEach(d => {
+        const { name, role } = d.data() as { name: string; role: string };
+        if (!name || !role) return;
+        const key = role.trim().toLowerCase();
+        if (!map[key]) map[key] = [];
+        map[key].push(name.trim());
+      });
+      setWorkersByRole(map);
+    }).catch(() => {});
+  }, []);
+
+  // Load persisted layout from Firestore on mount
+  useEffect(() => {
+    getDoc(doc(db, 'org_chart', 'layout'))
+      .then(snap => {
+        if (snap.exists()) {
+          const parsed = (snap.data().cards ?? []) as (OrgCardItem & { role?: string })[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setCards(parsed.map(card => ({
+              ...card,
+              personName: card.personName ?? card.role ?? '',
+            })));
+          }
+        }
+      })
+      .finally(() => { isLoadedRef.current = true; });
+  }, []);
+
+  // Debounced save to Firestore whenever cards change (after initial load).
+  // Also detects card renames and syncs matching worker roles automatically.
+  useEffect(() => {
+    if (!isLoadedRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      // Detect renames by comparing with the previously saved state
+      const prevSnap = await getDoc(doc(db, 'org_chart', 'layout'));
+      if (prevSnap.exists()) {
+        const prevCards = (prevSnap.data().cards ?? []) as { id: string; name: string }[];
+        const prevMap: Record<string, string> = {};
+        prevCards.forEach(c => { prevMap[c.id] = c.name; });
+
+        const renames: { oldName: string; newName: string }[] = [];
+        cards.forEach(c => {
+          const prev = prevMap[c.id];
+          if (prev && prev !== c.name) renames.push({ oldName: prev, newName: c.name });
+        });
+
+        if (renames.length > 0) {
+          const workersSnap = await getDocs(collection(db, 'workers'));
+          await Promise.all(
+            workersSnap.docs.flatMap(d => {
+              const rename = renames.find(r => r.oldName === (d.data() as { role: string }).role);
+              return rename ? [updateDoc(doc(db, 'workers', d.id), { role: rename.newName })] : [];
+            })
+          );
+        }
+      }
+      await setDoc(doc(db, 'org_chart', 'layout'), { cards });
+    }, 1500);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [cards]);
 
   const selectedCard = selectedCardIds.length === 1
@@ -2831,23 +3116,17 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                         placeholder="Position"
                         className="w-full text-[9px] font-semibold text-white text-center leading-tight bg-black/30 border border-white/20 rounded px-1 py-1"
                       />
-                      <input
-                        value={card.personName ?? ''}
-                        onChange={(event) => updateCard(card.id, { personName: event.target.value })}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        placeholder="Name"
-                        className="w-full text-[8px] font-medium text-cyan-200 text-center leading-tight bg-black/25 border border-cyan-300/25 rounded px-1 py-0.5"
-                      />
                     </div>
                   ) : (
                     <div className="space-y-0.5">
                       <p className="text-[9px] font-semibold text-white text-center leading-tight">{card.name}</p>
-                      {card.personName && (
-                        <p className="text-[8px] font-medium italic tracking-wide text-cyan-200/95 text-center leading-tight">
-                          {card.personName}
-                        </p>
-                      )}
+                      {(() => {
+                        const assigned = workersByRole[card.name.trim().toLowerCase()] ?? [];
+                        const display = assigned.length > 0 ? assigned : (card.personName ? [card.personName] : []);
+                        return display.map((n, i) => (
+                          <p key={i} className="text-[8px] font-medium italic tracking-wide text-cyan-200/95 text-center leading-tight">{n}</p>
+                        ));
+                      })()}
                     </div>
                   )}
                 </div>
@@ -2865,13 +3144,7 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                   value={selectedCard.name}
                   onChange={e => updateCard(selectedCard.id, { name: e.target.value })}
                   placeholder="Position"
-                  className="sm:col-span-2 w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
-                />
-                <input
-                  value={selectedCard.personName ?? ''}
-                  onChange={e => updateCard(selectedCard.id, { personName: e.target.value })}
-                  placeholder="Name"
-                  className="w-full text-xs text-cyan-200 bg-black/30 border border-cyan-300/30 rounded px-2 py-2"
+                  className="sm:col-span-3 w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
                 />
                 <select
                   value={selectedCard.tone}
