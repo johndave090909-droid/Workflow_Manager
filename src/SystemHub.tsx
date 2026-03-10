@@ -2632,6 +2632,22 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
   const [isEditing, setIsEditing] = useState(false);
   const [cards, setCards] = useState<OrgCardItem[]>(buildOrgChartDefaults);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [workersByRole, setWorkersByRole] = useState<Record<string, string[]>>({});
+
+  // Load workers and build role → names map
+  useEffect(() => {
+    getDocs(collection(db, 'workers')).then(snap => {
+      const map: Record<string, string[]> = {};
+      snap.docs.forEach(d => {
+        const { name, role } = d.data() as { name: string; role: string };
+        if (!name || !role) return;
+        const key = role.trim().toLowerCase();
+        if (!map[key]) map[key] = [];
+        map[key].push(name.trim());
+      });
+      setWorkersByRole(map);
+    }).catch(() => {});
+  }, []);
 
   // Load persisted layout from Firestore on mount
   useEffect(() => {
@@ -2877,11 +2893,13 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                   ) : (
                     <div className="space-y-0.5">
                       <p className="text-[9px] font-semibold text-white text-center leading-tight">{card.name}</p>
-                      {card.personName && (
-                        <p className="text-[8px] font-medium italic tracking-wide text-cyan-200/95 text-center leading-tight">
-                          {card.personName}
-                        </p>
-                      )}
+                      {(() => {
+                        const assigned = workersByRole[card.name.trim().toLowerCase()] ?? [];
+                        const display = assigned.length > 0 ? assigned : (card.personName ? [card.personName] : []);
+                        return display.map((n, i) => (
+                          <p key={i} className="text-[8px] font-medium italic tracking-wide text-cyan-200/95 text-center leading-tight">{n}</p>
+                        ));
+                      })()}
                     </div>
                   )}
                 </div>
