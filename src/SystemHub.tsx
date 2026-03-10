@@ -757,11 +757,12 @@ function DocxViewer({ storagePath }: { storagePath: string }) {
 
   useEffect(() => {
     setLoading(true); setError(''); setHtml('');
+    console.log('[DocxViewer] starting, path:', storagePath);
     getBlob(ref(storage, storagePath))
-      .then(blob => blob.arrayBuffer())
-      .then(buf  => mammoth.convertToHtml({ arrayBuffer: buf }))
-      .then(result => { setHtml(result.value); setLoading(false); })
-      .catch(e => { setError('Could not render document: ' + (e?.message ?? e)); setLoading(false); });
+      .then(blob => { console.log('[DocxViewer] blob received, size:', blob.size); return blob.arrayBuffer(); })
+      .then(buf  => { console.log('[DocxViewer] arrayBuffer ready, running mammoth'); return mammoth.convertToHtml({ arrayBuffer: buf }); })
+      .then(result => { console.log('[DocxViewer] mammoth done'); setHtml(result.value); setLoading(false); })
+      .catch(e => { console.error('[DocxViewer] error:', e); setError('Error: ' + (e?.message ?? String(e))); setLoading(false); });
   }, [storagePath]);
 
   if (loading) return <div className="flex items-center justify-center h-full text-slate-400 text-sm">Loading document…</div>;
