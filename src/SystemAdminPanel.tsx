@@ -4,7 +4,7 @@ import { Calendar, LogOut, Plus, Edit2, Trash2, Check, X } from 'lucide-react';
 import { User, SystemCard, Role, RolePermissions } from './types';
 import { db, auth, firebaseConfig } from './firebase';
 import {
-  collection, getDocs, doc, setDoc, updateDoc, deleteDoc,
+  collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc,
   addDoc, query, orderBy,
 } from 'firebase/firestore';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -50,43 +50,10 @@ const EMPTY_USER_FORM = {
 interface WorkerRecord { id: string; workerId: string; name: string; role: string; email?: string; phone?: string; notes?: string; }
 const EMPTY_WORKER_FORM = { workerId: '', name: '', role: '', email: '' };
 
-const ORG_POSITIONS: { category: string; positions: string[] }[] = [
-  { category: 'Leadership', positions: [
-    'Culinary Director/Executive Chef', 'Sous Chef', 'Junior Sous Chef',
-    'Accountant', 'Leadership', 'Supply Chain', 'Pastry Chef',
-  ]},
-  { category: 'Kitchen', positions: [
-    'CDP',
-    'Front of the House Lead', 'Student Lead Morning', 'Student Lead Afternoon',
-    'Student Lead Kitchen Pass', 'Student Lead Prep Team',
-    'Beef & Ribs Prep', 'Luau Prep', 'Gateway Braiser', 'Oven & Wok Prep',
-    'Student Expo', 'Wok', 'Poke Bar 1', 'Poke Bar 2', 'Poke Bar 3',
-    'Night Prep 1', 'Garnish Prep',
-    'Prep Cook 1', 'Prep Cook 2', 'Prep Cook 3', 'Prep Cook 4',
-    'Prep Cook 5', 'Prep Cook 6', 'Prep Cook 7', 'Prep Cook 8',
-    'Veg Prep', 'Sauce Prep', 'AM Fryer 1', 'AM Fryer 2',
-    'PM Fryer 1', 'PM Fryer 2', 'Grill Station', 'Sashimi Station',
-    'Imu Carver', 'Imu Student', 'Night Oven 1', 'Night Oven 2',
-    'Luau Braiser', 'Rice Prep', 'Sauces & Soup', 'Oven & Weight',
-    'Chicken Carver', 'Kampachi Carver', 'Night Garnish 1', 'Night Garnish 2',
-    'Chicken & Fish Prep', 'Poisson Cru 1', 'Poisson Cru 2',
-    'Stock Carver 1', 'Stock Carver 2',
-  ]},
-  { category: 'Pantry', positions: [
-    'Pantry Lead',
-    'Pantry Prep 1', 'Pantry Prep 2', 'Pantry Prep 3', 'Pantry Prep 4',
-    'Pantry Prep 5', 'Pantry Prep 6', 'Pantry Prep 7', 'Pantry Prep 8',
-    'Pantry Prep 9', 'Pantry Prep 10',
-  ]},
-  { category: 'Student', positions: [
-    'Student Early Morning 1', 'Student Early Morning 2', 'Student Early Morning 3',
-    'Student Early Morning 4', 'Student Early Morning 5',
-    'Student Morning 1', 'Student Morning 2', 'Student Morning 3',
-    'Student Morning 4', 'Student Morning 5',
-    'Student Afternoon 1', 'Student Afternoon 2', 'Student Afternoon 3', 'Student Afternoon 4',
-    'Student Night 1', 'Student Night 2', 'Student Night 3', 'Student Night 4', 'Student Night 5',
-  ]},
-];
+const TONE_CATEGORY: Record<string, string> = {
+  blue: 'Leadership', red: 'Kitchen', green: 'Pantry', purple: 'Student',
+};
+const TONE_ORDER = ['blue', 'red', 'green', 'purple'];
 
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
   // Guard
@@ -122,6 +89,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [workerForm,       setWorkerForm]       = useState({ ...EMPTY_WORKER_FORM });
   const [roleSearch,       setRoleSearch]       = useState('');
   const [showRoleDropdown, setShowRoleDropdown] = useState(false);
+  const [orgPositions,     setOrgPositions]     = useState<{ category: string; positions: string[] }[]>([]);
 
   // ── Roles state ────────────────────────────────────────────────
   const [roles,        setRoles]        = useState<Role[]>([]);
@@ -224,7 +192,25 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     setWorkersLoading(false);
   };
 
-  useEffect(() => { fetchCards(); fetchUsers(); fetchRoles(); fetchWorkers(); }, []);
+  useEffect(() => {
+    fetchCards(); fetchUsers(); fetchRoles(); fetchWorkers();
+    // Load org chart positions from Firestore so the role picker always reflects the current chart
+    getDoc(doc(db, 'org_chart', 'layout')).then(snap => {
+      if (!snap.exists()) return;
+      const cards = (snap.data().cards ?? []) as { name: string; tone: string }[];
+      const grouped: Record<string, string[]> = {};
+      cards.forEach(c => {
+        const cat = TONE_CATEGORY[c.tone] ?? c.tone;
+        if (!grouped[cat]) grouped[cat] = [];
+        if (!grouped[cat].includes(c.name)) grouped[cat].push(c.name);
+      });
+      setOrgPositions(
+        TONE_ORDER
+          .filter(t => grouped[TONE_CATEGORY[t]])
+          .map(t => ({ category: TONE_CATEGORY[t], positions: grouped[TONE_CATEGORY[t]] }))
+      );
+    }).catch(() => {});
+  }, []);
 
   // ── System card handlers ───────────────────────────────────────
   const openAddCard = () => { setEditingCard(null); setCardForm({ ...EMPTY_CARD_FORM }); setCardFormError(''); setShowCardForm(true); };
@@ -995,7 +981,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 />
                 {showRoleDropdown && (() => {
                   const q = (roleSearch || workerForm.role).toLowerCase();
-                  const filtered = ORG_POSITIONS.map(g => ({
+                  const filtered = orgPositions.map(g => ({
                     category: g.category,
                     positions: g.positions.filter(p => p.toLowerCase().includes(q)),
                   })).filter(g => g.positions.length > 0);
