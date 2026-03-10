@@ -2,9 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
-import { db } from './firebase';
+import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -738,6 +739,80 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
   );
 }
 
+// ── WorkDocuments ──────────────────────────────────────────────────────────────
+
+interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; }
+
+function WorkDocuments({ collPath }: { collPath: string }) {
+  const [docs,      setDocs]      = useState<WorkDoc[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [progress,  setProgress]  = useState(0);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const load = () =>
+    getDocs(collection(db, collPath))
+      .then(s => setDocs(s.docs.map(d => ({ id: d.id, ...d.data() } as WorkDoc))))
+      .catch(() => {});
+
+  useEffect(() => { load(); }, [collPath]);
+
+  const handleUpload = (file: File) => {
+    setUploading(true); setProgress(0);
+    const storagePath = `${collPath}/${Date.now()}_${file.name}`;
+    const task = uploadBytesResumable(ref(storage, storagePath), file);
+    task.on('state_changed',
+      s => setProgress(Math.round(s.bytesTransferred / s.totalBytes * 100)),
+      () => setUploading(false),
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        await addDoc(collection(db, collPath), {
+          name: file.name, url, storagePath,
+          uploadedAt: new Date().toISOString(),
+        });
+        setUploading(false); setProgress(0); load();
+      }
+    );
+  };
+
+  const handleDelete = async (d: WorkDoc) => {
+    if (!window.confirm(`Delete "${d.name}"?`)) return;
+    await deleteObject(ref(storage, d.storagePath)).catch(() => {});
+    await deleteDoc(doc(db, collPath, d.id));
+    load();
+  };
+
+  return (
+    <div className="mt-6 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Documents</p>
+        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all
+          ${uploading ? 'opacity-50 cursor-wait bg-white/5 text-slate-500' : 'bg-white/10 hover:bg-white/15 text-white'}`}>
+          {uploading ? `Uploading ${progress}%…` : '+ Upload'}
+          <input ref={inputRef} type="file" className="hidden" disabled={uploading}
+            onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }} />
+        </label>
+      </div>
+      {docs.length === 0 && !uploading && (
+        <p className="text-xs text-slate-600 italic">No documents yet.</p>
+      )}
+      {docs.map(d => (
+        <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 group">
+          <span className="text-lg">📄</span>
+          <div className="flex-1 min-w-0">
+            <a href={d.url} target="_blank" rel="noreferrer"
+              className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block">{d.name}</a>
+            <p className="text-[10px] text-slate-600 mt-0.5">
+              {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
+            </p>
+          </div>
+          <button onClick={() => handleDelete(d)}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs">✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── MemberProfilePage ──────────────────────────────────────────────────────────
 
 type WorkerData = {
@@ -838,8 +913,17 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
       </div>
 
       {profileTab === 'work' && (() => {
+        const docsPath = worker?.id
+          ? `workers/${worker.id}/work_documents`
+          : `users/${profileUser.id}/work_documents`;
+
         if (profileUser.role === 'Accountant') {
-          return <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />;
+          return (
+            <div>
+              <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
+              <WorkDocuments collPath={docsPath} />
+            </div>
+          );
         }
         if (profileUser.role.includes('IT Admin')) {
           const wfCard = systemCards.find(c => c.link === 'workflow');
@@ -868,12 +952,13 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
                   </button>
                 </div>
               )}
+              <WorkDocuments collPath={docsPath} />
             </div>
           );
         }
         return (
-          <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-10 text-center text-slate-600 text-sm">
-            No work information available for this member.
+          <div>
+            <WorkDocuments collPath={docsPath} />
           </div>
         );
       })()}
