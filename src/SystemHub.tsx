@@ -743,30 +743,32 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
 
 interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; }
 
-function docViewerUrl(url: string, name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['pdf'].includes(ext)) return url;
-  if (['jpg','jpeg','png','gif','webp','svg'].includes(ext)) return url;
-  // Office docs — use Microsoft Office Online embedded viewer
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-}
+function fileExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? ''; }
+function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].includes(fileExt(name)); }
+function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
+function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
 
-function docEditUrl(url: string, name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  if (['doc','docx'].includes(ext))
-    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-  if (['xls','xlsx'].includes(ext))
-    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-  if (['ppt','pptx'].includes(ext))
-    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
-  return url;
-}
+// ── DocxViewer: fetches the file and converts to HTML via mammoth (client-side) ──
+function DocxViewer({ url }: { url: string }) {
+  const [html,    setHtml]    = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState('');
 
-function isImage(name: string) {
-  return ['jpg','jpeg','png','gif','webp','svg'].includes(name.split('.').pop()?.toLowerCase() ?? '');
-}
-function isPdf(name: string) {
-  return name.split('.').pop()?.toLowerCase() === 'pdf';
+  useEffect(() => {
+    setLoading(true); setError(''); setHtml('');
+    fetch(url)
+      .then(r => r.arrayBuffer())
+      .then(buf => import('mammoth').then(m => m.convertToHtml({ arrayBuffer: buf })))
+      .then(result => { setHtml(result.value); setLoading(false); })
+      .catch(() => { setError('Could not render document.'); setLoading(false); });
+  }, [url]);
+
+  if (loading) return <div className="flex items-center justify-center h-full text-slate-400 text-sm">Loading document…</div>;
+  if (error)   return <div className="flex items-center justify-center h-full text-rose-400 text-sm">{error}</div>;
+  return (
+    <div className="h-full overflow-y-auto bg-white text-black p-8 sm:p-12"
+      dangerouslySetInnerHTML={{ __html: html }} />
+  );
 }
 
 function WorkDocuments({ collPath }: { collPath: string }) {
@@ -816,9 +818,9 @@ function WorkDocuments({ collPath }: { collPath: string }) {
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d0816] shrink-0">
             <p className="text-sm font-bold text-white truncate max-w-[60%]">{viewing.name}</p>
             <div className="flex items-center gap-2">
-              <a href={docEditUrl(viewing.url, viewing.name)} target="_blank" rel="noreferrer"
-                className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition-colors">
-                Open to Edit ↗
+              <a href={viewing.url} download={viewing.name}
+                className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-white/10 border border-white/15 text-slate-300 hover:bg-white/15 transition-colors">
+                Download
               </a>
               <button onClick={() => setViewing(null)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-lg leading-none">✕</button>
@@ -829,12 +831,17 @@ function WorkDocuments({ collPath }: { collPath: string }) {
               <img src={viewing.url} alt={viewing.name} className="w-full h-full object-contain p-4" />
             ) : isPdf(viewing.name) ? (
               <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
+            ) : isDocx(viewing.name) ? (
+              <DocxViewer url={viewing.url} />
             ) : (
-              <iframe
-                src={docViewerUrl(viewing.url, viewing.name)}
-                className="w-full h-full border-0"
-                title={viewing.name}
-              />
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+                <span className="text-4xl">📄</span>
+                <p className="text-sm">Preview not available for this file type.</p>
+                <a href={viewing.url} download={viewing.name}
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold transition-colors">
+                  Download to open
+                </a>
+              </div>
             )}
           </div>
         </div>
