@@ -5,7 +5,8 @@ import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject, getBytes } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject, getBlob } from 'firebase/storage';
+import mammoth from 'mammoth';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
 
@@ -748,7 +749,7 @@ function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].
 function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
 function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
 
-// ── DocxViewer: downloads via Firebase Storage SDK (authenticated, no CORS issue) ──
+// ── DocxViewer: downloads via Firebase Storage SDK then converts with mammoth ──
 function DocxViewer({ storagePath }: { storagePath: string }) {
   const [html,    setHtml]    = useState('');
   const [loading, setLoading] = useState(true);
@@ -756,10 +757,11 @@ function DocxViewer({ storagePath }: { storagePath: string }) {
 
   useEffect(() => {
     setLoading(true); setError(''); setHtml('');
-    getBytes(ref(storage, storagePath))
-      .then(buf => import('mammoth').then(m => m.convertToHtml({ arrayBuffer: buf })))
+    getBlob(ref(storage, storagePath))
+      .then(blob => blob.arrayBuffer())
+      .then(buf  => mammoth.convertToHtml({ arrayBuffer: buf }))
       .then(result => { setHtml(result.value); setLoading(false); })
-      .catch(e => { setError('Could not render document: ' + e.message); setLoading(false); });
+      .catch(e => { setError('Could not render document: ' + (e?.message ?? e)); setLoading(false); });
   }, [storagePath]);
 
   if (loading) return <div className="flex items-center justify-center h-full text-slate-400 text-sm">Loading document…</div>;
