@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
-import { Calendar, LogOut } from 'lucide-react';
+import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
@@ -1093,17 +1093,23 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
         </div>
       )}
 
-      <div className="mt-6 space-y-3">
+      <div className="mt-6 space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-            Documents{docs.length > 0 && <span className="ml-1.5 text-slate-600 font-normal normal-case tracking-normal">{docs.length} file{docs.length !== 1 ? 's' : ''}</span>}
-          </p>
-          <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all
-            ${uploading ? 'opacity-50 cursor-wait bg-white/5 text-slate-500' : 'bg-white/10 hover:bg-white/15 text-white'}`}>
+          <div className="flex items-center gap-2">
+            <Paperclip size={14} className="text-[#ff00ff]" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Deliverables</p>
+            {docs.length > 0 && <span className="text-[9px] text-slate-600">{docs.length} file{docs.length !== 1 ? 's' : ''}</span>}
+          </div>
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold cursor-pointer select-none transition-all
+            ${uploading
+              ? 'opacity-60 cursor-wait border-white/10 text-slate-500'
+              : 'border-[#ff00ff]/30 text-[#ff00ff] hover:bg-[#ff00ff]/10 hover:border-[#ff00ff]/50'}`}>
             {uploading ? (
-              <><span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin block" />{progress}%</>
-            ) : '+ Upload File'}
+              <><span className="w-3 h-3 border-2 border-[#ff00ff]/30 border-t-[#ff00ff] rounded-full animate-spin block" />{progress}%</>
+            ) : (
+              <><Upload size={12} /> Upload File</>
+            )}
             <input ref={fileInputRef} type="file" className="hidden" disabled={uploading}
               accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv"
               onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }} />
@@ -1112,8 +1118,8 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
 
         {/* Upload progress bar */}
         {uploading && (
-          <div className="h-1 bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full bg-cyan-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-[#ff00ff] rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
         )}
 
@@ -1121,7 +1127,7 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
         {docs.length === 0 && !uploading && (
           <div
             className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all
-              ${dragging ? 'border-cyan-500/50 bg-cyan-500/5' : 'border-white/10 hover:border-white/20'}`}
+              ${dragging ? 'border-[#ff00ff]/50 bg-[#ff00ff]/5' : 'border-white/10 hover:border-white/20'}`}
             onDragOver={e => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); }}
@@ -1135,7 +1141,7 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
         {/* File list (also a drop target) */}
         {docs.length > 0 && (
           <div
-            className={`space-y-2 rounded-2xl transition-all ${dragging ? 'outline-dashed outline-2 outline-cyan-500/30 outline-offset-4' : ''}`}
+            className={`space-y-2 rounded-2xl transition-all ${dragging ? 'outline-dashed outline-2 outline-[#ff00ff]/30 outline-offset-4' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); }}
