@@ -743,11 +743,37 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
 
 interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; }
 
+function docViewerUrl(url: string, name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  if (['pdf'].includes(ext)) return url;
+  if (['jpg','jpeg','png','gif','webp','svg'].includes(ext)) return url;
+  // Office docs — use Microsoft Office Online embedded viewer
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+}
+
+function docEditUrl(url: string, name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? '';
+  if (['doc','docx'].includes(ext))
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+  if (['xls','xlsx'].includes(ext))
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+  if (['ppt','pptx'].includes(ext))
+    return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
+  return url;
+}
+
+function isImage(name: string) {
+  return ['jpg','jpeg','png','gif','webp','svg'].includes(name.split('.').pop()?.toLowerCase() ?? '');
+}
+function isPdf(name: string) {
+  return name.split('.').pop()?.toLowerCase() === 'pdf';
+}
+
 function WorkDocuments({ collPath }: { collPath: string }) {
   const [docs,      setDocs]      = useState<WorkDoc[]>([]);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState(0);
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [viewing,   setViewing]   = useState<WorkDoc | null>(null);
 
   const load = () =>
     getDocs(collection(db, collPath))
@@ -776,40 +802,81 @@ function WorkDocuments({ collPath }: { collPath: string }) {
 
   const handleDelete = async (d: WorkDoc) => {
     if (!window.confirm(`Delete "${d.name}"?`)) return;
+    if (viewing?.id === d.id) setViewing(null);
     await deleteObject(ref(storage, d.storagePath)).catch(() => {});
     await deleteDoc(doc(db, collPath, d.id));
     load();
   };
 
   return (
-    <div className="mt-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Documents</p>
-        <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all
-          ${uploading ? 'opacity-50 cursor-wait bg-white/5 text-slate-500' : 'bg-white/10 hover:bg-white/15 text-white'}`}>
-          {uploading ? `Uploading ${progress}%…` : '+ Upload'}
-          <input ref={inputRef} type="file" className="hidden" disabled={uploading}
-            onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }} />
-        </label>
-      </div>
-      {docs.length === 0 && !uploading && (
-        <p className="text-xs text-slate-600 italic">No documents yet.</p>
-      )}
-      {docs.map(d => (
-        <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 group">
-          <span className="text-lg">📄</span>
-          <div className="flex-1 min-w-0">
-            <a href={d.url} target="_blank" rel="noreferrer"
-              className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block">{d.name}</a>
-            <p className="text-[10px] text-slate-600 mt-0.5">
-              {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
-            </p>
+    <>
+      {/* Inline viewer modal */}
+      {viewing && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d0816] shrink-0">
+            <p className="text-sm font-bold text-white truncate max-w-[60%]">{viewing.name}</p>
+            <div className="flex items-center gap-2">
+              <a href={docEditUrl(viewing.url, viewing.name)} target="_blank" rel="noreferrer"
+                className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 transition-colors">
+                Open to Edit ↗
+              </a>
+              <button onClick={() => setViewing(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-lg leading-none">✕</button>
+            </div>
           </div>
-          <button onClick={() => handleDelete(d)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs">✕</button>
+          <div className="flex-1 overflow-hidden">
+            {isImage(viewing.name) ? (
+              <img src={viewing.url} alt={viewing.name} className="w-full h-full object-contain p-4" />
+            ) : isPdf(viewing.name) ? (
+              <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
+            ) : (
+              <iframe
+                src={docViewerUrl(viewing.url, viewing.name)}
+                className="w-full h-full border-0"
+                title={viewing.name}
+              />
+            )}
+          </div>
         </div>
-      ))}
-    </div>
+      )}
+
+      <div className="mt-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Documents</p>
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all
+            ${uploading ? 'opacity-50 cursor-wait bg-white/5 text-slate-500' : 'bg-white/10 hover:bg-white/15 text-white'}`}>
+            {uploading ? `Uploading ${progress}%…` : '+ Upload'}
+            <input type="file" className="hidden" disabled={uploading}
+              onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }} />
+          </label>
+        </div>
+        {docs.length === 0 && !uploading && (
+          <p className="text-xs text-slate-600 italic">No documents yet.</p>
+        )}
+        {docs.map(d => (
+          <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 group">
+            <span className="text-lg">{isImage(d.name) ? '🖼️' : isPdf(d.name) ? '📋' : '📄'}</span>
+            <div className="flex-1 min-w-0">
+              <button onClick={() => setViewing(d)}
+                className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block text-left w-full">
+                {d.name}
+              </button>
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={() => setViewing(d)}
+                className="px-2 py-1 rounded-lg text-[10px] font-bold text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors">
+                View
+              </button>
+              <button onClick={() => handleDelete(d)}
+                className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors">✕</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
