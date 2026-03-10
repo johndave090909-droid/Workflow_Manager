@@ -1306,60 +1306,9 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
 
         const docProps = { collPath: docsPath, currentUser, isDirector };
 
-        // ── Generic work info card shown for ALL roles ──────────────
-        const workInfoCard = (
-          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 mb-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Work Information</p>
-              {!editing ? (
-                <button onClick={() => setEditing(true)}
-                  className="px-3 py-1 rounded-lg text-[10px] font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-colors">
-                  Edit
-                </button>
-              ) : (
-                <div className="flex gap-2">
-                  <button onClick={handleSave} disabled={saving}
-                    className="px-3 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50">
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                  <button onClick={() => setEditing(false)} disabled={saving}
-                    className="px-3 py-1 rounded-lg text-[10px] font-bold border border-white/10 text-slate-400 hover:text-white transition-colors">
-                    Cancel
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Position / Role</p>
-                <p className="text-sm font-semibold text-slate-300">{profileUser.role}</p>
-              </div>
-              {renderField('Worker ID', 'workerId')}
-              {renderField('Email', 'email')}
-              {renderField('Phone', 'phone')}
-            </div>
-            {(editing || worker?.notes) && (
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Notes</p>
-                {editing ? (
-                  <textarea
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25 resize-none"
-                    rows={3}
-                    value={form.notes || ''}
-                    onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
-                  />
-                ) : (
-                  <p className="text-sm font-semibold text-slate-300">{worker?.notes || '—'}</p>
-                )}
-              </div>
-            )}
-          </div>
-        );
-
         if (profileUser.role === 'Accountant') {
           return (
             <div>
-              {workInfoCard}
               <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
               <WorkDocuments {...docProps} />
             </div>
@@ -1375,7 +1324,6 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           };
           return (
             <div className="space-y-4">
-              {workInfoCard}
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Tools</p>
               {wfCard ? (
                 <SystemCardTile card={wfCard} onNavigate={navigateToWorkflow} />
@@ -1399,7 +1347,6 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
         }
         return (
           <div>
-            {workInfoCard}
             <WorkDocuments {...docProps} />
           </div>
         );
@@ -1455,6 +1402,59 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Work Information card */}
+      <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-6 mb-4">
+        <div className="flex items-center justify-between mb-5">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Work Information</p>
+          {editing ? (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setEditing(false)}
+                className="text-[10px] font-bold text-slate-500 hover:text-white transition-colors px-2.5 py-1 rounded-lg border border-white/10 hover:border-white/20">
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                style={{ background: `${rc}20`, color: rc, border: `1px solid ${rc}30` }}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setEditing(true)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/10 hover:border-white/20 hover:bg-white/5 transition-all text-slate-500 hover:text-white"
+              title="Edit work information">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Position / Role</p>
+            <p className="text-sm font-semibold text-slate-300">{profileUser.role}</p>
+          </div>
+          {renderField('Worker ID', 'workerId')}
+          {renderField('Email', 'email')}
+          {renderField('Phone', 'phone')}
+        </div>
+        {(editing || worker?.notes) && (
+          <div className="mt-5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Notes</p>
+            {editing ? (
+              <textarea
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25 resize-none"
+                rows={3}
+                value={form.notes || ''}
+                onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            ) : (
+              <p className="text-sm font-semibold text-slate-300">{worker?.notes || '—'}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Personal Information card */}
