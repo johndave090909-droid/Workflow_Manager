@@ -2620,7 +2620,6 @@ function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, 
 // ── SystemCardTile ─────────────────────────────────────────────────────────────
 
 function OrgChartView({ roleColor }: { roleColor: string }) {
-  const storageKey = 'workflow_manager_org_chart_canvas_v4';
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<{
     ids: string[];
@@ -2628,26 +2627,37 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
     startPointerY: number;
     startPositions: Record<string, { x: number; y: number }>;
   } | null>(null);
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLoadedRef = React.useRef(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [cards, setCards] = useState<OrgCardItem[]>(() => {
-    try {
-      const saved = window.localStorage.getItem(storageKey);
-      if (!saved) return buildOrgChartDefaults();
-      const parsed = JSON.parse(saved) as (OrgCardItem & { role?: string })[];
-      if (!Array.isArray(parsed)) throw new Error('Invalid org chart');
-      // Backward compatibility for previously saved cards that used `role`.
-      return parsed.map(card => ({
-        ...card,
-        personName: card.personName ?? card.role ?? '',
-      }));
-    } catch {
-      return buildOrgChartDefaults();
-    }
-  });
+  const [cards, setCards] = useState<OrgCardItem[]>(buildOrgChartDefaults);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
 
+  // Load persisted layout from Firestore on mount
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(cards));
+    getDoc(doc(db, 'org_chart', 'layout'))
+      .then(snap => {
+        if (snap.exists()) {
+          const parsed = (snap.data().cards ?? []) as (OrgCardItem & { role?: string })[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setCards(parsed.map(card => ({
+              ...card,
+              personName: card.personName ?? card.role ?? '',
+            })));
+          }
+        }
+      })
+      .finally(() => { isLoadedRef.current = true; });
+  }, []);
+
+  // Debounced save to Firestore whenever cards change (after initial load)
+  useEffect(() => {
+    if (!isLoadedRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      setDoc(doc(db, 'org_chart', 'layout'), { cards });
+    }, 1500);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [cards]);
 
   const selectedCard = selectedCardIds.length === 1
