@@ -5,7 +5,7 @@ import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject, getBlob } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import mammoth from 'mammoth';
 
 // ── File-type helpers (mirrored from ProjectDetailModal) ───────────────────────
@@ -742,36 +742,12 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
 
 // ── WorkDocuments ──────────────────────────────────────────────────────────────
 
-interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; }
+interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; htmlContent?: string; }
 
 function fileExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? ''; }
 function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].includes(fileExt(name)); }
 function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
 function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
-
-// ── DocxViewer: downloads via Firebase Storage SDK then converts with mammoth ──
-function DocxViewer({ storagePath }: { storagePath: string }) {
-  const [html,    setHtml]    = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
-
-  useEffect(() => {
-    setLoading(true); setError(''); setHtml('');
-    console.log('[DocxViewer] starting, path:', storagePath);
-    getBlob(ref(storage, storagePath))
-      .then(blob => { console.log('[DocxViewer] blob received, size:', blob.size); return blob.arrayBuffer(); })
-      .then(buf  => { console.log('[DocxViewer] arrayBuffer ready, running mammoth'); return mammoth.convertToHtml({ arrayBuffer: buf }); })
-      .then(result => { console.log('[DocxViewer] mammoth done'); setHtml(result.value); setLoading(false); })
-      .catch(e => { console.error('[DocxViewer] error:', e); setError('Error: ' + (e?.message ?? String(e))); setLoading(false); });
-  }, [storagePath]);
-
-  if (loading) return <div className="flex items-center justify-center h-full text-slate-400 text-sm">Loading document…</div>;
-  if (error)   return <div className="flex items-center justify-center h-full text-rose-400 text-sm">{error}</div>;
-  return (
-    <div className="h-full overflow-y-auto bg-white text-black p-8 sm:p-12"
-      dangerouslySetInnerHTML={{ __html: html }} />
-  );
-}
 
 function WorkDocuments({ collPath }: { collPath: string }) {
   const [docs,      setDocs]      = useState<WorkDoc[]>([]);
@@ -786,8 +762,17 @@ function WorkDocuments({ collPath }: { collPath: string }) {
 
   useEffect(() => { load(); }, [collPath]);
 
-  const handleUpload = (file: File) => {
+  const handleUpload = async (file: File) => {
     setUploading(true); setProgress(0);
+    // Convert DOCX to HTML NOW while the file is in memory (no CORS needed)
+    let htmlContent: string | undefined;
+    if (isDocx(file.name)) {
+      try {
+        const buf = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+        htmlContent = result.value;
+      } catch {}
+    }
     const storagePath = `${collPath}/${Date.now()}_${file.name}`;
     const task = uploadBytesResumable(ref(storage, storagePath), file);
     task.on('state_changed',
@@ -798,6 +783,7 @@ function WorkDocuments({ collPath }: { collPath: string }) {
         await addDoc(collection(db, collPath), {
           name: file.name, url, storagePath,
           uploadedAt: new Date().toISOString(),
+          ...(htmlContent ? { htmlContent } : {}),
         });
         setUploading(false); setProgress(0); load();
       }
@@ -834,7 +820,13 @@ function WorkDocuments({ collPath }: { collPath: string }) {
             ) : isPdf(viewing.name) ? (
               <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
             ) : isDocx(viewing.name) ? (
-              <DocxViewer storagePath={viewing.storagePath} />
+              viewing.htmlContent
+                ? <div className="h-full overflow-y-auto bg-white text-black p-8 sm:p-12" dangerouslySetInnerHTML={{ __html: viewing.htmlContent }} />
+                : <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400 text-center px-6">
+                    <span className="text-4xl">📄</span>
+                    <p className="text-sm font-semibold text-white">Preview not available</p>
+                    <p className="text-xs text-slate-500">This file was uploaded before preview support was added.<br/>Delete it and re-upload to enable inline viewing.</p>
+                  </div>
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
                 <span className="text-4xl">📄</span>
