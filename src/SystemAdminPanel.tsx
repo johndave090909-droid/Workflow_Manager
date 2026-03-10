@@ -661,11 +661,36 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               <Plus size={15} /> Add Worker
             </button>
           </div>
+          {(() => {
+            const dupeIds   = new Set(workerRecords.map(w => w.workerId).filter((v, i, a) => v && a.indexOf(v) !== i));
+            const dupeNames = new Set(workerRecords.map(w => w.name.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+            const dupeRoles = new Set(workerRecords.map(w => w.role.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+            if (!dupeIds.size && !dupeNames.size && !dupeRoles.size) return null;
+            const parts = [
+              dupeIds.size   && `${dupeIds.size} duplicate Worker ID${dupeIds.size > 1 ? 's' : ''}`,
+              dupeNames.size && `${dupeNames.size} duplicate name${dupeNames.size > 1 ? 's' : ''}`,
+              dupeRoles.size && `${dupeRoles.size} duplicate role${dupeRoles.size > 1 ? 's' : ''}`,
+            ].filter(Boolean);
+            return (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 mb-2">
+                <span className="text-yellow-400 text-base mt-0.5">⚠</span>
+                <div>
+                  <p className="text-yellow-300 text-xs font-bold">Duplicate records detected</p>
+                  <p className="text-yellow-400/80 text-[11px] mt-0.5">{parts.join(' · ')} — review the highlighted rows below.</p>
+                </div>
+              </div>
+            );
+          })()}
           <div className="glass-card rounded-[2rem] overflow-hidden border border-white/10">
             {workersLoading ? (
               <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#a855f7]" /></div>
             ) : (
               <div className="overflow-x-auto">
+                {(() => {
+                  const dupeIds   = new Set(workerRecords.map(w => w.workerId).filter((v, i, a) => v && a.indexOf(v) !== i));
+                  const dupeNames = new Set(workerRecords.map(w => w.name.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+                  const dupeRoles = new Set(workerRecords.map(w => w.role.trim().toLowerCase()).filter((v, i, a) => a.indexOf(v) !== i));
+                  return (
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-white/[0.02] text-slate-500 text-[10px] uppercase tracking-[0.15em] font-black border-b border-white/5">
@@ -676,16 +701,24 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {workerRecords.map(w => (
-                      <tr key={w.id} className="hover:bg-white/[0.02] transition-colors">
+                    {workerRecords.map(w => {
+                      const hasDupeId   = !!(w.workerId && dupeIds.has(w.workerId));
+                      const hasDupeName = dupeNames.has(w.name.trim().toLowerCase());
+                      const hasDupeRole = dupeRoles.has(w.role.trim().toLowerCase());
+                      const isDupe = hasDupeId || hasDupeName || hasDupeRole;
+                      const dupeLabels = [hasDupeId && 'ID', hasDupeName && 'Name', hasDupeRole && 'Role'].filter(Boolean).join(', ');
+                      return (
+                      <tr key={w.id} className={`transition-colors ${isDupe ? 'bg-yellow-500/5 hover:bg-yellow-500/10' : 'hover:bg-white/[0.02]'}`}>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-white">{w.name}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-sm font-bold ${hasDupeName ? 'text-yellow-300' : 'text-white'}`}>{w.name}</span>
+                            {hasDupeName && <span title="Duplicate name" className="text-yellow-400 text-xs">⚠</span>}
                             <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded-full">No account</span>
+                            {isDupe && <span className="text-[9px] font-black uppercase tracking-widest text-yellow-500 bg-yellow-500/10 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Dupe {dupeLabels}</span>}
                           </div>
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
-                          <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-400">{w.role}</span>
+                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${hasDupeRole ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-300' : 'border-white/10 bg-white/5 text-slate-400'}`}>{w.role}</span>
                         </td>
                         <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4"><span className="text-xs text-slate-500">{w.email || '—'}</span></td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
@@ -695,10 +728,13 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                     {workerRecords.length === 0 && <tr><td colSpan={4} className="text-center py-16 text-slate-600 italic text-sm">No worker records yet. Click "Add Worker" to create one.</td></tr>}
                   </tbody>
                 </table>
+                  );
+                })()}
               </div>
             )}
           </div>
