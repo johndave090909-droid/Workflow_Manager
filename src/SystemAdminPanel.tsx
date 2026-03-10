@@ -50,6 +50,44 @@ const EMPTY_USER_FORM = {
 interface WorkerRecord { id: string; workerId: string; name: string; role: string; email?: string; phone?: string; notes?: string; }
 const EMPTY_WORKER_FORM = { workerId: '', name: '', role: '', email: '' };
 
+const ORG_POSITIONS: { category: string; positions: string[] }[] = [
+  { category: 'Leadership', positions: [
+    'Culinary Director/Executive Chef', 'Sous Chef', 'Junior Sous Chef',
+    'Accountant', 'Leadership', 'Supply Chain', 'Pastry Chef',
+  ]},
+  { category: 'Kitchen', positions: [
+    'CDP',
+    'Front of the House Lead', 'Student Lead Morning', 'Student Lead Afternoon',
+    'Student Lead Kitchen Pass', 'Student Lead Prep Team',
+    'Beef & Ribs Prep', 'Luau Prep', 'Gateway Braiser', 'Oven & Wok Prep',
+    'Student Expo', 'Wok', 'Poke Bar 1', 'Poke Bar 2', 'Poke Bar 3',
+    'Night Prep 1', 'Garnish Prep',
+    'Prep Cook 1', 'Prep Cook 2', 'Prep Cook 3', 'Prep Cook 4',
+    'Prep Cook 5', 'Prep Cook 6', 'Prep Cook 7', 'Prep Cook 8',
+    'Veg Prep', 'Sauce Prep', 'AM Fryer 1', 'AM Fryer 2',
+    'PM Fryer 1', 'PM Fryer 2', 'Grill Station', 'Sashimi Station',
+    'Imu Carver', 'Imu Student', 'Night Oven 1', 'Night Oven 2',
+    'Luau Braiser', 'Rice Prep', 'Sauces & Soup', 'Oven & Weight',
+    'Chicken Carver', 'Kampachi Carver', 'Night Garnish 1', 'Night Garnish 2',
+    'Chicken & Fish Prep', 'Poisson Cru 1', 'Poisson Cru 2',
+    'Stock Carver 1', 'Stock Carver 2',
+  ]},
+  { category: 'Pantry', positions: [
+    'Pantry Lead',
+    'Pantry Prep 1', 'Pantry Prep 2', 'Pantry Prep 3', 'Pantry Prep 4',
+    'Pantry Prep 5', 'Pantry Prep 6', 'Pantry Prep 7', 'Pantry Prep 8',
+    'Pantry Prep 9', 'Pantry Prep 10',
+  ]},
+  { category: 'Student', positions: [
+    'Student Early Morning 1', 'Student Early Morning 2', 'Student Early Morning 3',
+    'Student Early Morning 4', 'Student Early Morning 5',
+    'Student Morning 1', 'Student Morning 2', 'Student Morning 3',
+    'Student Morning 4', 'Student Morning 5',
+    'Student Afternoon 1', 'Student Afternoon 2', 'Student Afternoon 3', 'Student Afternoon 4',
+    'Student Night 1', 'Student Night 2', 'Student Night 3', 'Student Night 4', 'Student Night 5',
+  ]},
+];
+
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
   // Guard
   if (!permissions.access_it_admin) { onBackToHub(); return null; }
@@ -82,6 +120,8 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [workerSubmitting, setWorkerSubmitting] = useState(false);
   const [workerFormError,  setWorkerFormError]  = useState('');
   const [workerForm,       setWorkerForm]       = useState({ ...EMPTY_WORKER_FORM });
+  const [roleSearch,       setRoleSearch]       = useState('');
+  const [showRoleDropdown, setShowRoleDropdown] = useState(false);
 
   // ── Roles state ────────────────────────────────────────────────
   const [roles,        setRoles]        = useState<Role[]>([]);
@@ -355,12 +395,12 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const openAddWorker = () => {
     setEditingWorker(null);
     setWorkerForm({ ...EMPTY_WORKER_FORM });
-    setWorkerFormError(''); setShowWorkerForm(true);
+    setWorkerFormError(''); setRoleSearch(''); setShowRoleDropdown(false); setShowWorkerForm(true);
   };
   const openEditWorker = (w: WorkerRecord) => {
     setEditingWorker(w);
     setWorkerForm({ workerId: w.workerId || '', name: w.name, role: w.role, email: w.email || '' });
-    setWorkerFormError(''); setShowWorkerForm(true);
+    setWorkerFormError(''); setRoleSearch(''); setShowRoleDropdown(false); setShowWorkerForm(true);
   };
   const handleWorkerSubmit = async () => {
     if (!workerForm.workerId.trim()) { setWorkerFormError('Worker ID is required.'); return; }
@@ -941,9 +981,42 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 <label className={labelCls}>Full Name <span className="text-[#ff4d4d]">*</span></label>
                 <input type="text" className={inputCls} placeholder="e.g. Jane Smith" value={workerForm.name} onChange={e => setWorkerForm(f => ({ ...f, name: e.target.value }))} />
               </div>
-              <div>
+              <div className="relative">
                 <label className={labelCls}>Role / Position <span className="text-[#ff4d4d]">*</span></label>
-                <input type="text" className={inputCls} placeholder="e.g. Line Cook" value={workerForm.role} onChange={e => setWorkerForm(f => ({ ...f, role: e.target.value }))} />
+                <input
+                  type="text"
+                  className={inputCls}
+                  placeholder="Search position..."
+                  value={roleSearch || workerForm.role}
+                  onFocus={() => { setRoleSearch(workerForm.role); setShowRoleDropdown(true); }}
+                  onChange={e => { setRoleSearch(e.target.value); setWorkerForm(f => ({ ...f, role: e.target.value })); setShowRoleDropdown(true); }}
+                  onBlur={() => setTimeout(() => setShowRoleDropdown(false), 150)}
+                  autoComplete="off"
+                />
+                {showRoleDropdown && (() => {
+                  const q = (roleSearch || workerForm.role).toLowerCase();
+                  const filtered = ORG_POSITIONS.map(g => ({
+                    category: g.category,
+                    positions: g.positions.filter(p => p.toLowerCase().includes(q)),
+                  })).filter(g => g.positions.length > 0);
+                  return filtered.length > 0 ? (
+                    <div className="absolute z-50 left-0 right-0 mt-1 bg-[#1a0f2e] border border-white/10 rounded-xl shadow-2xl max-h-56 overflow-y-auto">
+                      {filtered.map(g => (
+                        <div key={g.category}>
+                          <p className="px-3 pt-2 pb-0.5 text-[9px] font-black uppercase tracking-widest text-purple-400">{g.category}</p>
+                          {g.positions.map(p => (
+                            <button
+                              key={p}
+                              type="button"
+                              className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-white/10 transition-colors"
+                              onMouseDown={() => { setWorkerForm(f => ({ ...f, role: p })); setRoleSearch(''); setShowRoleDropdown(false); }}
+                            >{p}</button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div>
                 <label className={labelCls}>Email (optional)</label>
