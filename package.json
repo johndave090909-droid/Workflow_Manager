@@ -25,6 +25,7 @@
     "better-sqlite3": "^12.4.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "docx-preview": "^0.3.7",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "firebase": "^12.9.0",
