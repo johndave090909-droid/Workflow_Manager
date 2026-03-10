@@ -2881,14 +2881,6 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                         placeholder="Position"
                         className="w-full text-[9px] font-semibold text-white text-center leading-tight bg-black/30 border border-white/20 rounded px-1 py-1"
                       />
-                      <input
-                        value={card.personName ?? ''}
-                        onChange={(event) => updateCard(card.id, { personName: event.target.value })}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onClick={(event) => event.stopPropagation()}
-                        placeholder="Name"
-                        className="w-full text-[8px] font-medium text-cyan-200 text-center leading-tight bg-black/25 border border-cyan-300/25 rounded px-1 py-0.5"
-                      />
                     </div>
                   ) : (
                     <div className="space-y-0.5">
@@ -2917,13 +2909,7 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                   value={selectedCard.name}
                   onChange={e => updateCard(selectedCard.id, { name: e.target.value })}
                   placeholder="Position"
-                  className="sm:col-span-2 w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
-                />
-                <input
-                  value={selectedCard.personName ?? ''}
-                  onChange={e => updateCard(selectedCard.id, { personName: e.target.value })}
-                  placeholder="Name"
-                  className="w-full text-xs text-cyan-200 bg-black/30 border border-cyan-300/30 rounded px-2 py-2"
+                  className="sm:col-span-3 w-full text-xs text-white bg-black/30 border border-white/20 rounded px-2 py-2"
                 />
                 <select
                   value={selectedCard.tone}
