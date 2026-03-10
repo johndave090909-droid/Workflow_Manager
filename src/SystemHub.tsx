@@ -4,7 +4,7 @@ import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
-import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { renderAsync as docxRenderAsync } from 'docx-preview';
 
@@ -451,6 +451,8 @@ export default function SystemHub({
               onNavigate={onNavigate}
               systemCards={systemCards}
               defaultTab={hubReturnTarget?.user.id === profileUser?.id ? hubReturnTarget?.tab : undefined}
+              currentUser={currentUser}
+              isDirector={isDirector}
             />
           )}
 
@@ -768,20 +770,34 @@ function DocxIframe({ html, editing, iframeRef }: { html: string; editing: boole
 
 // ── WorkDocuments ──────────────────────────────────────────────────────────────
 
-interface WorkDoc { id: string; name: string; url: string; storagePath: string; uploadedAt: string; htmlContent?: string; }
+interface WorkDoc {
+  id: string; name: string; url: string; storagePath: string; uploadedAt: string;
+  htmlContent?: string;
+  approved?: boolean; approvedBy?: string; approvedAt?: string;
+}
+interface DocComment { id: string; text: string; authorName: string; authorId: string; createdAt: string; }
 
 function fileExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? ''; }
 function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].includes(fileExt(name)); }
 function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
 function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
 
-function WorkDocuments({ collPath }: { collPath: string }) {
+function WorkDocuments({ collPath, currentUser, isDirector }: {
+  collPath: string;
+  currentUser: { id: string; name: string };
+  isDirector: boolean;
+}) {
   const [docs,      setDocs]      = useState<WorkDoc[]>([]);
   const [uploading, setUploading] = useState(false);
   const [progress,  setProgress]  = useState(0);
   const [viewing,   setViewing]   = useState<WorkDoc | null>(null);
   const [editing,   setEditing]   = useState(false);
   const [saving,    setSaving]    = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [comments,  setComments]  = useState<DocComment[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+  const commentsEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const load = () =>
@@ -791,21 +807,35 @@ function WorkDocuments({ collPath }: { collPath: string }) {
 
   useEffect(() => { load(); }, [collPath]);
 
+  // Load comments in real-time whenever a document is opened
+  useEffect(() => {
+    if (!viewing) { setComments([]); return; }
+    const commentsCol = collection(db, `${collPath}/${viewing.id}/comments`);
+    const q = query(commentsCol, orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(q, snap => {
+      setComments(snap.docs.map(d => {
+        const data = d.data();
+        const ts = data.createdAt;
+        const createdAt = ts instanceof Timestamp ? ts.toDate().toISOString() : (ts ?? '');
+        return { id: d.id, text: data.text, authorName: data.authorName, authorId: data.authorId, createdAt };
+      }));
+      setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    });
+    return unsub;
+  }, [viewing?.id, collPath]);
+
   const handleUpload = async (file: File) => {
     setUploading(true); setProgress(0);
-    // Convert DOCX to HTML NOW while the file is in memory (no CORS needed)
     let htmlContent: string | undefined;
     if (isDocx(file.name)) {
       try {
         const buf = await file.arrayBuffer();
         const container = document.createElement('div');
         const styleContainer = document.createElement('div');
-        // Mount off-screen so docx-preview can measure layout
         container.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:800px;';
         document.body.appendChild(container);
         document.body.appendChild(styleContainer);
         await docxRenderAsync(buf, container, styleContainer);
-        // styleContainer holds <style> tags injected by docx-preview
         htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8">${styleContainer.innerHTML}</head><body style="margin:0;padding:32px;background:#fff;color:#000;">${container.innerHTML}</body></html>`;
         document.body.removeChild(container);
         document.body.removeChild(styleContainer);
@@ -855,14 +885,66 @@ function WorkDocuments({ collPath }: { collPath: string }) {
     }
   };
 
+  const handleApprove = async () => {
+    if (!viewing || !isDirector) return;
+    setApproving(true);
+    try {
+      const already = !!viewing.approved;
+      const update = already
+        ? { approved: false, approvedBy: null, approvedAt: null }
+        : { approved: true, approvedBy: currentUser.name, approvedAt: new Date().toISOString() };
+      await updateDoc(doc(db, collPath, viewing.id), update);
+      const updated = { ...viewing, ...update } as WorkDoc;
+      setDocs(prev => prev.map(d => d.id === viewing.id ? updated : d));
+      setViewing(updated);
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handlePostComment = async () => {
+    const text = newComment.trim();
+    if (!text || !viewing) return;
+    setPostingComment(true);
+    try {
+      await addDoc(collection(db, `${collPath}/${viewing.id}/comments`), {
+        text,
+        authorName: currentUser.name,
+        authorId: currentUser.id,
+        createdAt: serverTimestamp(),
+      });
+      setNewComment('');
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
   return (
     <>
       {/* Inline viewer modal */}
       {viewing && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm">
+          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d0816] shrink-0">
-            <p className="text-sm font-bold text-white truncate max-w-[40%]">{viewing.name}</p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <p className="text-sm font-bold text-white truncate max-w-[300px]">{viewing.name}</p>
+              {viewing.approved && (
+                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-300">
+                  ✓ Approved by {viewing.approvedBy}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {isDirector && (
+                <button onClick={handleApprove} disabled={approving}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-colors disabled:opacity-50 ${
+                    viewing.approved
+                      ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300 hover:bg-rose-500/20 hover:border-rose-400/30 hover:text-rose-300'
+                      : 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/30'
+                  }`}>
+                  {approving ? '…' : viewing.approved ? 'Revoke Approval' : 'Approve'}
+                </button>
+              )}
               {isDocx(viewing.name) && viewing.htmlContent && !editing && (
                 <button onClick={() => setEditing(true)}
                   className="px-3 py-1.5 rounded-lg text-[10px] font-bold bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 hover:bg-indigo-500/30 transition-colors">
@@ -896,29 +978,73 @@ function WorkDocuments({ collPath }: { collPath: string }) {
               <p className="text-[10px] text-indigo-300 font-semibold">Editing — click anywhere in the document to start typing. Press Save when done.</p>
             </div>
           )}
-          <div className="flex-1 overflow-hidden">
-            {isImage(viewing.name) ? (
-              <img src={viewing.url} alt={viewing.name} className="w-full h-full object-contain p-4" />
-            ) : isPdf(viewing.name) ? (
-              <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
-            ) : isDocx(viewing.name) ? (
-              viewing.htmlContent
-                ? <DocxIframe html={viewing.htmlContent} editing={editing} iframeRef={iframeRef} />
-                : <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400 text-center px-6">
-                    <span className="text-4xl">📄</span>
-                    <p className="text-sm font-semibold text-white">Preview not available</p>
-                    <p className="text-xs text-slate-500">This file was uploaded before preview support was added.<br/>Delete it and re-upload to enable inline viewing.</p>
-                  </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
-                <span className="text-4xl">📄</span>
-                <p className="text-sm">Preview not available for this file type.</p>
-                <a href={viewing.url} download={viewing.name}
-                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold transition-colors">
-                  Download to open
-                </a>
+
+          {/* Body: document + comments side panel */}
+          <div className="flex-1 flex overflow-hidden">
+            {/* Document area */}
+            <div className="flex-1 overflow-hidden">
+              {isImage(viewing.name) ? (
+                <img src={viewing.url} alt={viewing.name} className="w-full h-full object-contain p-4" />
+              ) : isPdf(viewing.name) ? (
+                <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
+              ) : isDocx(viewing.name) ? (
+                viewing.htmlContent
+                  ? <DocxIframe html={viewing.htmlContent} editing={editing} iframeRef={iframeRef} />
+                  : <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400 text-center px-6">
+                      <span className="text-4xl">📄</span>
+                      <p className="text-sm font-semibold text-white">Preview not available</p>
+                      <p className="text-xs text-slate-500">This file was uploaded before preview support was added.<br/>Delete it and re-upload to enable inline viewing.</p>
+                    </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-400">
+                  <span className="text-4xl">📄</span>
+                  <p className="text-sm">Preview not available for this file type.</p>
+                  <a href={viewing.url} download={viewing.name}
+                    className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-bold transition-colors">
+                    Download to open
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Comments panel */}
+            <div className="w-72 shrink-0 border-l border-white/10 bg-[#0d0816] flex flex-col">
+              <div className="px-4 py-3 border-b border-white/10 shrink-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Comments</p>
               </div>
-            )}
+              <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+                {comments.length === 0 && (
+                  <p className="text-xs text-slate-600 italic text-center mt-4">No comments yet.</p>
+                )}
+                {comments.map(c => (
+                  <div key={c.id} className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold text-cyan-400 truncate">{c.authorName}</span>
+                      <span className="text-[9px] text-slate-600 shrink-0">
+                        {(() => { try { return format(new Date(c.createdAt), 'MMM d, h:mm a'); } catch { return ''; } })()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{c.text}</p>
+                  </div>
+                ))}
+                <div ref={commentsEndRef} />
+              </div>
+              {/* Comment input */}
+              <div className="px-3 py-3 border-t border-white/10 shrink-0 space-y-2">
+                <textarea
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handlePostComment(); } }}
+                  placeholder="Add a comment…"
+                  rows={3}
+                  className="w-full bg-white/[0.05] border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 resize-none focus:outline-none focus:border-cyan-500/50 focus:bg-white/[0.08] transition-colors"
+                />
+                <button onClick={handlePostComment} disabled={postingComment || !newComment.trim()}
+                  className="w-full py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/20 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/30 transition-colors disabled:opacity-40">
+                  {postingComment ? 'Posting…' : 'Post'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -940,10 +1066,15 @@ function WorkDocuments({ collPath }: { collPath: string }) {
           <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 group">
             <span className="text-lg">{isImage(d.name) ? '🖼️' : isPdf(d.name) ? '📋' : '📄'}</span>
             <div className="flex-1 min-w-0">
-              <button onClick={() => setViewing(d)}
-                className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block text-left w-full">
-                {d.name}
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setViewing(d)}
+                  className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block text-left">
+                  {d.name}
+                </button>
+                {d.approved && (
+                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-400">✓</span>
+                )}
+              </div>
               <p className="text-[10px] text-slate-600 mt-0.5">
                 {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
               </p>
@@ -980,9 +1111,11 @@ interface MemberProfilePageProps {
   onNavigate: (view: AppView) => void;
   systemCards: SystemCard[];
   defaultTab?: 'profile' | 'work';
+  currentUser: User;
+  isDirector: boolean;
 }
 
-function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNavigate, systemCards, defaultTab }: MemberProfilePageProps) {
+function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNavigate, systemCards, defaultTab, currentUser, isDirector }: MemberProfilePageProps) {
   const rc = ROLE_PALETTE[profileUser.role] ?? '#64748b';
 
   const [profileTab, setProfileTab] = React.useState<'profile' | 'work'>(defaultTab ?? 'profile');
@@ -1067,11 +1200,13 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           ? `workers/${worker.id}/work_documents`
           : `users/${profileUser.id}/work_documents`;
 
+        const docProps = { collPath: docsPath, currentUser, isDirector };
+
         if (profileUser.role === 'Accountant') {
           return (
             <div>
               <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
-              <WorkDocuments collPath={docsPath} />
+              <WorkDocuments {...docProps} />
             </div>
           );
         }
@@ -1102,13 +1237,13 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
                   </button>
                 </div>
               )}
-              <WorkDocuments collPath={docsPath} />
+              <WorkDocuments {...docProps} />
             </div>
           );
         }
         return (
           <div>
-            <WorkDocuments collPath={docsPath} />
+            <WorkDocuments {...docProps} />
           </div>
         );
       })()}
