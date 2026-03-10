@@ -4,7 +4,7 @@ import { Calendar, LogOut } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
-import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp, increment } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { renderAsync as docxRenderAsync } from 'docx-preview';
 
@@ -774,6 +774,7 @@ interface WorkDoc {
   id: string; name: string; url: string; storagePath: string; uploadedAt: string;
   htmlContent?: string;
   approved?: boolean; approvedBy?: string; approvedAt?: string;
+  commentCount?: number;
 }
 interface DocComment { id: string; text: string; authorName: string; authorId: string; createdAt: string; }
 
@@ -797,8 +798,18 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
   const [comments,  setComments]  = useState<DocComment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
+  const [readTick, setReadTick] = useState(0); // bumped to re-render list after marking read
   const commentsEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // localStorage helpers for tracking unread comments
+  const seenKey = (docId: string) => `comments_seen_${currentUser.id}_${collPath}_${docId}`;
+  const getSeen  = (docId: string) => parseInt(localStorage.getItem(seenKey(docId)) ?? '0', 10);
+  const markSeen = (docId: string, count: number) => {
+    localStorage.setItem(seenKey(docId), String(count));
+    setReadTick(t => t + 1);
+  };
+  const getUnread = (d: WorkDoc) => Math.max(0, (d.commentCount ?? 0) - getSeen(d.id));
 
   const load = () =>
     getDocs(collection(db, collPath))
@@ -807,10 +818,11 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
 
   useEffect(() => { load(); }, [collPath]);
 
-  // Load comments in real-time whenever a document is opened
+  // Real-time comments; syncs count + marks as read while doc is open
   useEffect(() => {
     if (!viewing) { setComments([]); return; }
-    const commentsCol = collection(db, `${collPath}/${viewing.id}/comments`);
+    const docId = viewing.id;
+    const commentsCol = collection(db, `${collPath}/${docId}/comments`);
     const q = query(commentsCol, orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(q, snap => {
       setComments(snap.docs.map(d => {
@@ -819,6 +831,11 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
         const createdAt = ts instanceof Timestamp ? ts.toDate().toISOString() : (ts ?? '');
         return { id: d.id, text: data.text, authorName: data.authorName, authorId: data.authorId, createdAt };
       }));
+      const liveCount = snap.docs.length;
+      // Keep commentCount in sync on the doc list
+      setDocs(prev => prev.map(d => d.id === docId ? { ...d, commentCount: liveCount } : d));
+      // Auto-mark as read while the viewer is open
+      markSeen(docId, liveCount);
       setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     });
     return unsub;
@@ -913,6 +930,8 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
         authorId: currentUser.id,
         createdAt: serverTimestamp(),
       });
+      // Persist comment count on the parent doc for list-view badge
+      await updateDoc(doc(db, collPath, viewing.id), { commentCount: increment(1) });
       setNewComment('');
     } finally {
       setPostingComment(false);
@@ -1062,8 +1081,13 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
         {docs.length === 0 && !uploading && (
           <p className="text-xs text-slate-600 italic">No documents yet.</p>
         )}
-        {docs.map(d => (
-          <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/10 group">
+        {docs.map(d => {
+          const unread = getUnread(d);
+          const total  = d.commentCount ?? 0;
+          return (
+          <div key={d.id} className={`flex items-center gap-3 p-3 rounded-xl border group transition-colors ${
+            unread > 0 ? 'bg-cyan-500/[0.06] border-cyan-500/25' : 'bg-white/[0.03] border-white/10'
+          }`}>
             <span className="text-lg">{isImage(d.name) ? '🖼️' : isPdf(d.name) ? '📋' : '📄'}</span>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
@@ -1073,6 +1097,16 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
                 </button>
                 {d.approved && (
                   <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-400">✓</span>
+                )}
+                {unread > 0 && (
+                  <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black bg-cyan-500 text-white flex items-center justify-center">
+                    {unread}
+                  </span>
+                )}
+                {unread === 0 && total > 0 && (
+                  <span className="shrink-0 flex items-center gap-0.5 text-[9px] text-slate-500 font-semibold">
+                    💬 {total}
+                  </span>
                 )}
               </div>
               <p className="text-[10px] text-slate-600 mt-0.5">
@@ -1088,7 +1122,8 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
                 className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors">✕</button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );
