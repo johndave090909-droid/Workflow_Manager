@@ -778,10 +778,23 @@ interface WorkDoc {
 }
 interface DocComment { id: string; text: string; authorName: string; authorId: string; createdAt: string; }
 
-function fileExt(name: string) { return name.split('.').pop()?.toLowerCase() ?? ''; }
-function isImage(name: string) { return ['jpg','jpeg','png','gif','webp','svg'].includes(fileExt(name)); }
-function isPdf(name: string)   { return fileExt(name) === 'pdf'; }
-function isDocx(name: string)  { return ['doc','docx'].includes(fileExt(name)); }
+function fileExt(name: string)        { return name.split('.').pop()?.toLowerCase() ?? ''; }
+function isImage(name: string)        { return ['jpg','jpeg','png','gif','webp','svg'].includes(fileExt(name)); }
+function isPdf(name: string)          { return fileExt(name) === 'pdf'; }
+function isDocx(name: string)         { return ['doc','docx'].includes(fileExt(name)); }
+function isVideo(name: string)        { return ['mp4','mov','webm','avi','mkv','m4v'].includes(fileExt(name)); }
+function isSpreadsheet(name: string)  { return ['xls','xlsx','csv','ods'].includes(fileExt(name)); }
+function isPptx(name: string)         { return ['ppt','pptx','odp'].includes(fileExt(name)); }
+function isOfficeViewer(name: string) { return isSpreadsheet(name) || isPptx(name); }
+function getDocIcon(name: string) {
+  if (isImage(name))       return '🖼️';
+  if (isPdf(name))         return '📋';
+  if (isDocx(name))        return '📝';
+  if (isVideo(name))       return '🎬';
+  if (isSpreadsheet(name)) return '📊';
+  if (isPptx(name))        return '📊';
+  return '📄';
+}
 
 function WorkDocuments({ collPath, currentUser, isDirector }: {
   collPath: string;
@@ -799,8 +812,10 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
   const [readTick, setReadTick] = useState(0); // bumped to re-render list after marking read
+  const [dragging, setDragging] = useState(false);
   const commentsEndRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeRef      = useRef<HTMLIFrameElement>(null);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
 
   // localStorage helpers for tracking unread comments
   const seenKey = (docId: string) => `comments_seen_${currentUser.id}_${collPath}_${docId}`;
@@ -1006,6 +1021,16 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
                 <img src={viewing.url} alt={viewing.name} className="w-full h-full object-contain p-4" />
               ) : isPdf(viewing.name) ? (
                 <iframe src={viewing.url} className="w-full h-full border-0" title={viewing.name} />
+              ) : isVideo(viewing.name) ? (
+                <div className="w-full h-full flex items-center justify-center bg-black p-4">
+                  <video src={viewing.url} controls className="max-w-full max-h-full rounded-xl" />
+                </div>
+              ) : isOfficeViewer(viewing.name) ? (
+                <iframe
+                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(viewing.url)}`}
+                  className="w-full h-full border-0 bg-white"
+                  title={viewing.name}
+                />
               ) : isDocx(viewing.name) ? (
                 viewing.htmlContent
                   ? <DocxIframe html={viewing.htmlContent} editing={editing} iframeRef={iframeRef} />
@@ -1069,61 +1094,99 @@ function WorkDocuments({ collPath, currentUser, isDirector }: {
       )}
 
       <div className="mt-6 space-y-3">
+        {/* Header */}
         <div className="flex items-center justify-between">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Documents</p>
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            Documents{docs.length > 0 && <span className="ml-1.5 text-slate-600 font-normal normal-case tracking-normal">{docs.length} file{docs.length !== 1 ? 's' : ''}</span>}
+          </p>
           <label className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all
             ${uploading ? 'opacity-50 cursor-wait bg-white/5 text-slate-500' : 'bg-white/10 hover:bg-white/15 text-white'}`}>
-            {uploading ? `Uploading ${progress}%…` : '+ Upload'}
-            <input type="file" className="hidden" disabled={uploading}
+            {uploading ? (
+              <><span className="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin block" />{progress}%</>
+            ) : '+ Upload File'}
+            <input ref={fileInputRef} type="file" className="hidden" disabled={uploading}
+              accept="image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.csv"
               onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); e.target.value = ''; }} />
           </label>
         </div>
-        {docs.length === 0 && !uploading && (
-          <p className="text-xs text-slate-600 italic">No documents yet.</p>
-        )}
-        {docs.map(d => {
-          const unread = getUnread(d);
-          const total  = d.commentCount ?? 0;
-          return (
-          <div key={d.id} className={`flex items-center gap-3 p-3 rounded-xl border group transition-colors ${
-            unread > 0 ? 'bg-cyan-500/[0.06] border-cyan-500/25' : 'bg-white/[0.03] border-white/10'
-          }`}>
-            <span className="text-lg">{isImage(d.name) ? '🖼️' : isPdf(d.name) ? '📋' : '📄'}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <button onClick={() => setViewing(d)}
-                  className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block text-left">
-                  {d.name}
-                </button>
-                {d.approved && (
-                  <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-400">✓</span>
-                )}
-                {unread > 0 && (
-                  <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black bg-cyan-500 text-white flex items-center justify-center">
-                    {unread}
-                  </span>
-                )}
-                {unread === 0 && total > 0 && (
-                  <span className="shrink-0 flex items-center gap-0.5 text-[9px] text-slate-500 font-semibold">
-                    💬 {total}
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-slate-600 mt-0.5">
-                {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
-              </p>
-            </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={() => setViewing(d)}
-                className="px-2 py-1 rounded-lg text-[10px] font-bold text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors">
-                View
-              </button>
-              <button onClick={() => handleDelete(d)}
-                className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors">✕</button>
-            </div>
+
+        {/* Upload progress bar */}
+        {uploading && (
+          <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-cyan-500 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
-          );
-        })}
+        )}
+
+        {/* Empty drop zone */}
+        {docs.length === 0 && !uploading && (
+          <div
+            className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all
+              ${dragging ? 'border-cyan-500/50 bg-cyan-500/5' : 'border-white/10 hover:border-white/20'}`}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <p className="text-slate-500 text-sm font-medium">Drop files here or click to upload</p>
+            <p className="text-slate-700 text-[10px] mt-1">PDF · Excel · Word · PowerPoint · Images · Videos · Max 100 MB</p>
+          </div>
+        )}
+
+        {/* File list (also a drop target) */}
+        {docs.length > 0 && (
+          <div
+            className={`space-y-2 rounded-2xl transition-all ${dragging ? 'outline-dashed outline-2 outline-cyan-500/30 outline-offset-4' : ''}`}
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]); }}
+          >
+            {docs.map(d => {
+              const unread = getUnread(d);
+              const total  = d.commentCount ?? 0;
+              return (
+                <div key={d.id} className={`flex items-center gap-3 p-3 rounded-xl border group transition-colors ${
+                  unread > 0 ? 'bg-cyan-500/[0.06] border-cyan-500/25' : 'bg-white/[0.03] border-white/10'
+                }`}>
+                  <span className="text-lg shrink-0">{getDocIcon(d.name)}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={() => setViewing(d)}
+                        className="text-sm font-semibold text-white hover:text-cyan-300 transition-colors truncate block text-left">
+                        {d.name}
+                      </button>
+                      {d.approved && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-400">✓</span>
+                      )}
+                      {unread > 0 && (
+                        <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-black bg-cyan-500 text-white flex items-center justify-center">
+                          {unread}
+                        </span>
+                      )}
+                      {unread === 0 && total > 0 && (
+                        <span className="shrink-0 flex items-center gap-0.5 text-[9px] text-slate-500 font-semibold">
+                          💬 {total}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-600 mt-0.5">
+                      {(() => { try { return format(new Date(d.uploadedAt), 'MMM d, yyyy'); } catch { return ''; } })()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick={() => setViewing(d)}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold text-slate-400 hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors">
+                      View
+                    </button>
+                    <a href={d.url} download={d.name}
+                      className="px-2 py-1 rounded-lg text-[10px] font-bold text-slate-400 hover:text-white hover:bg-white/10 transition-colors">↓</a>
+                    <button onClick={() => handleDelete(d)}
+                      className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors">✕</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </>
   );
