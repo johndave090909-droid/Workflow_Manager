@@ -1306,9 +1306,60 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
 
         const docProps = { collPath: docsPath, currentUser, isDirector };
 
+        // ── Generic work info card shown for ALL roles ──────────────
+        const workInfoCard = (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 mb-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Work Information</p>
+              {!editing ? (
+                <button onClick={() => setEditing(true)}
+                  className="px-3 py-1 rounded-lg text-[10px] font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-colors">
+                  Edit
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <button onClick={handleSave} disabled={saving}
+                    className="px-3 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50">
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => setEditing(false)} disabled={saving}
+                    className="px-3 py-1 rounded-lg text-[10px] font-bold border border-white/10 text-slate-400 hover:text-white transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Position / Role</p>
+                <p className="text-sm font-semibold text-slate-300">{profileUser.role}</p>
+              </div>
+              {renderField('Worker ID', 'workerId')}
+              {renderField('Email', 'email')}
+              {renderField('Phone', 'phone')}
+            </div>
+            {(editing || worker?.notes) && (
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600 mb-1">Notes</p>
+                {editing ? (
+                  <textarea
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25 resize-none"
+                    rows={3}
+                    value={form.notes || ''}
+                    onChange={e => setForm(prev => ({ ...prev, notes: e.target.value }))}
+                  />
+                ) : (
+                  <p className="text-sm font-semibold text-slate-300">{worker?.notes || '—'}</p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+
         if (profileUser.role === 'Accountant') {
           return (
             <div>
+              {workInfoCard}
               <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
               <WorkDocuments {...docProps} />
             </div>
@@ -1324,7 +1375,8 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           };
           return (
             <div className="space-y-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-4">Tools</p>
+              {workInfoCard}
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Tools</p>
               {wfCard ? (
                 <SystemCardTile card={wfCard} onNavigate={navigateToWorkflow} />
               ) : (
@@ -1347,6 +1399,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
         }
         return (
           <div>
+            {workInfoCard}
             <WorkDocuments {...docProps} />
           </div>
         );
