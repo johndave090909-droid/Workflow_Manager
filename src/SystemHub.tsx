@@ -2650,12 +2650,36 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
       .finally(() => { isLoadedRef.current = true; });
   }, []);
 
-  // Debounced save to Firestore whenever cards change (after initial load)
+  // Debounced save to Firestore whenever cards change (after initial load).
+  // Also detects card renames and syncs matching worker roles automatically.
   useEffect(() => {
     if (!isLoadedRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      setDoc(doc(db, 'org_chart', 'layout'), { cards });
+    saveTimerRef.current = setTimeout(async () => {
+      // Detect renames by comparing with the previously saved state
+      const prevSnap = await getDoc(doc(db, 'org_chart', 'layout'));
+      if (prevSnap.exists()) {
+        const prevCards = (prevSnap.data().cards ?? []) as { id: string; name: string }[];
+        const prevMap: Record<string, string> = {};
+        prevCards.forEach(c => { prevMap[c.id] = c.name; });
+
+        const renames: { oldName: string; newName: string }[] = [];
+        cards.forEach(c => {
+          const prev = prevMap[c.id];
+          if (prev && prev !== c.name) renames.push({ oldName: prev, newName: c.name });
+        });
+
+        if (renames.length > 0) {
+          const workersSnap = await getDocs(collection(db, 'workers'));
+          await Promise.all(
+            workersSnap.docs.flatMap(d => {
+              const rename = renames.find(r => r.oldName === (d.data() as { role: string }).role);
+              return rename ? [updateDoc(doc(db, 'workers', d.id), { role: rename.newName })] : [];
+            })
+          );
+        }
+      }
+      await setDoc(doc(db, 'org_chart', 'layout'), { cards });
     }, 1500);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
   }, [cards]);
