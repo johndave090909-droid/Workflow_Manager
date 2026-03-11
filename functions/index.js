@@ -817,7 +817,7 @@ exports.driveWatcherScheduled = onSchedule(
 
 // ── Food Prep Drive Watcher (separate folder, separate collections) ───────────
 exports.foodPrepWatcherScheduled = onSchedule(
-  { schedule: "every 5 minutes", region: "us-central1" },
+  { schedule: "every 2 minutes", region: "us-central1" },
   async () => {
     const HISTORY_COL = "food-prep_pdf_history";
     const STATUS_COL  = "food-prep_watcher_state";
