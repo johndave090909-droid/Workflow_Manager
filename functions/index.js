@@ -815,6 +815,103 @@ exports.driveWatcherScheduled = onSchedule(
   }
 );
 
+// ── Food Prep Drive Watcher (separate folder, separate collections) ───────────
+exports.foodPrepWatcherScheduled = onSchedule(
+  { schedule: "every 5 minutes", region: "us-central1" },
+  async () => {
+    const folderId = process.env.FOOD_PREP_DRIVE_FOLDER_ID;
+    if (!folderId) {
+      console.log("FOOD_PREP_DRIVE_FOLDER_ID not set — skipping food prep poll");
+      return;
+    }
+
+    const HISTORY_COL = "food-prep_pdf_history";
+    const STATUS_COL  = "food-prep_watcher_state";
+    const LAYOUT_KEY  = "food-prep";
+
+    try {
+      const token = await getDriveAccessToken(null);
+      const q = `'${folderId}' in parents and mimeType='application/pdf' and trashed=false`;
+      const driveResp = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime,webViewLink,size,mimeType)&orderBy=createdTime%20desc`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (!driveResp.ok) {
+        const text = await driveResp.text();
+        console.error(`Food Prep Drive API error ${driveResp.status}: ${text.slice(0, 400)}`);
+        return;
+      }
+
+      const data = await driveResp.json();
+      const files = data.files || [];
+
+      const existingSnap = await db.collection(HISTORY_COL).select().get();
+      const existingIds = new Set(existingSnap.docs.map((d) => d.id));
+      const newFiles = files.filter((f) => !existingIds.has(f.id));
+
+      const savedAt = new Date().toISOString();
+      let facebookForward = null;
+
+      if (newFiles.length > 0) {
+        const batch = db.batch();
+        for (const f of newFiles) {
+          const ref = db.collection(HISTORY_COL).doc(f.id);
+          batch.set(ref, {
+            fileId: f.id,
+            name: f.name,
+            webViewLink: f.webViewLink || "",
+            discoveredAt: f.createdTime || savedAt,
+            savedAt,
+            size: f.size || "",
+            mimeType: f.mimeType || "application/pdf",
+          });
+        }
+        await batch.commit();
+        console.log(`Food Prep: saved ${newFiles.length} new PDF(s) to Firestore`);
+
+        try {
+          const layoutSnap = await db.collection("workflow_layouts").doc(LAYOUT_KEY).get();
+          if (layoutSnap.exists) {
+            const layout = layoutSnap.data();
+            const wfNodes = Array.isArray(layout.nodes) ? layout.nodes : [];
+            const wfEdges = Array.isArray(layout.edges) ? layout.edges : [];
+            facebookForward = await executeWorkflowNodes(wfNodes, wfEdges, newFiles);
+            facebookForward.sentAt = savedAt;
+            facebookForward.source = "workflow";
+          }
+        } catch (fbErr) {
+          facebookForward = { ok: false, reason: "workflow_failed", error: fbErr?.message };
+          console.error("Food Prep workflow error:", fbErr?.message);
+        }
+      } else {
+        console.log(`Food Prep: ${files.length} PDF(s) in folder, all already recorded`);
+      }
+
+      const statusUpdate = {
+        lastRun: savedAt,
+        status: "ok",
+        newFilesFound: newFiles.length,
+        totalInFolder: files.length,
+        lastFoundFileIds: newFiles.map((f) => f.id),
+      };
+      if (newFiles.length > 0) statusUpdate.lastCheckWithFiles = { runAt: savedAt, fileIds: newFiles.map((f) => f.id) };
+      if (facebookForward) statusUpdate.facebookForward = facebookForward;
+      await db.collection(STATUS_COL).doc("status").set(statusUpdate, { merge: true });
+
+    } catch (e) {
+      console.error("foodPrepWatcherScheduled error:", e?.message || e);
+      await db.collection(STATUS_COL).doc("status").set({
+        lastRun: new Date().toISOString(),
+        status: "error",
+        error: e?.message || "Unknown error",
+        newFilesFound: 0,
+        totalInFolder: 0,
+      }).catch(() => {});
+    }
+  }
+);
+
 // ── Facebook Messenger ───────────────────────────────────────────────────────────
 exports.sendFacebookMessage = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
   if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
