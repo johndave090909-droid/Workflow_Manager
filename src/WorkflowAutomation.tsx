@@ -151,23 +151,22 @@ function hydrateNodes(savedNodes: WFNode[], fallbackNodes: WFNode[]): WFNode[] {
   });
 }
 
-function normalizeGDriveLayout(rawNodes: WFNode[], rawEdges: WFEdge[]): { nodes: WFNode[]; edges: WFEdge[] } {
-  let nodes = hydrateNodes(rawNodes, INITIAL_GDRIVE_NODES)
-    // Remove legacy email node from Drive workflow; this flow now fans out to Facebook nodes.
+function normalizeGDriveLayout(rawNodes: WFNode[], rawEdges: WFEdge[], initialNodes = INITIAL_GDRIVE_NODES, initialEdges = INITIAL_GDRIVE_EDGES): { nodes: WFNode[]; edges: WFEdge[] } {
+  let nodes = hydrateNodes(rawNodes, initialNodes)
     .filter(n => n.type !== 'email');
 
+  // Only enforce nodes that belong to this workflow's initial set
   const byId = new Map(nodes.map(n => [n.id, n]));
-  if (!byId.has('g1')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g1')!);
-  if (!byId.has('g3')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g3')!);
-  if (!nodes.some(n => n.id === 'g4')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g4')!);
-  if (!nodes.some(n => n.id === 'g5')) nodes.push(INITIAL_GDRIVE_NODES.find(n => n.id === 'g5')!);
+  for (const def of initialNodes) {
+    if (!byId.has(def.id)) nodes.push(def);
+  }
 
   const valid = new Set(nodes.map(n => n.id));
   let edges = rawEdges.filter(e => valid.has(e.fromId) && valid.has(e.toId));
   const has = (fromId: string, toId: string) => edges.some(e => e.fromId === fromId && e.toId === toId);
-  if (!has('g1', 'g3')) edges.push({ id: 'ge1', fromId: 'g1', toId: 'g3' });
-  if (!has('g3', 'g4')) edges.push({ id: 'ge2', fromId: 'g3', toId: 'g4' });
-  if (!has('g3', 'g5')) edges.push({ id: 'ge3', fromId: 'g3', toId: 'g5' });
+  for (const def of initialEdges) {
+    if (!has(def.fromId, def.toId)) edges.push(def);
+  }
   return { nodes, edges };
 }
 
@@ -1786,7 +1785,7 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
       const rawEdges: WFEdge[] = (() => {
         try { return JSON.parse(localStorage.getItem(`wf_${lk}_edges`) || '[]'); } catch { return []; }
       })();
-      return normalizeGDriveLayout(rawNodes, rawEdges).nodes;
+      return normalizeGDriveLayout(rawNodes, rawEdges, defaultNodes, defaultEdges).nodes;
     } catch { return defaultNodes; }
   });
   const [edges, setEdges] = useState<WFEdge[]>(() => {
@@ -1796,7 +1795,7 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
       const rawNodes: WFNode[] = (() => {
         try { return JSON.parse(localStorage.getItem(`wf_${lk}_nodes`) || '[]'); } catch { return []; }
       })();
-      return normalizeGDriveLayout(rawNodes.length ? rawNodes : defaultNodes, rawEdges).edges;
+      return normalizeGDriveLayout(rawNodes.length ? rawNodes : defaultNodes, rawEdges, defaultNodes, defaultEdges).edges;
     } catch { return defaultEdges; }
   });
   const [selectedId, setSelectedId]     = useState<string | null>(null);
@@ -1870,11 +1869,11 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
       if (snap.exists()) {
         const d = snap.data() as WorkflowLayoutDoc;
         if (Array.isArray(d.nodes) && d.nodes.length) {
-          const normalized = normalizeGDriveLayout(d.nodes, Array.isArray(d.edges) ? d.edges : []);
+          const normalized = normalizeGDriveLayout(d.nodes, Array.isArray(d.edges) ? d.edges : [], defaultNodes, defaultEdges);
           setNodes(normalized.nodes);
           setEdges(normalized.edges);
         } else if (Array.isArray(d.edges) && d.edges.length) {
-          const normalized = normalizeGDriveLayout(nodes, d.edges);
+          const normalized = normalizeGDriveLayout(nodes, d.edges, defaultNodes, defaultEdges);
           setNodes(normalized.nodes);
           setEdges(normalized.edges);
         }
