@@ -42,7 +42,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'food-prep';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -57,6 +57,7 @@ const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
   { id: 'org-chart',    label: 'Org Chart',         emoji: '🧭' },
   { id: 'directory',    label: 'Directory',         emoji: '👥' },
   { id: 'rules',        label: 'Rules & Policies',  emoji: '📜' },
+  { id: 'food-prep',    label: 'Food Prep',         emoji: '🍽️' },
 ];
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -454,6 +455,11 @@ export default function SystemHub({
               currentUser={currentUser}
               isDirector={isDirector}
             />
+          )}
+
+          {/* FOOD PREP */}
+          {activeSection === 'food-prep' && (
+            <FoodPrepView roleColor={roleColor} />
           )}
 
           {/* RULES & POLICIES */}
@@ -2027,6 +2033,83 @@ function EmployeeDetailModal({ entry, isMe, isAdmin, onClose, onSaved }: Employe
       {viewingPolicy && (
         <SignedPolicyViewer record={viewingPolicy} onClose={() => setViewingPolicy(null)} />
       )}
+    </div>
+  );
+}
+
+// ── Food Prep Report ──────────────────────────────────────────────────────────
+
+interface FoodPrepReport {
+  url: string;
+  updatedAt: string;
+  size?: number;
+}
+
+function FoodPrepView({ roleColor }: { roleColor: string }) {
+  const [report, setReport] = useState<FoodPrepReport | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'food_prep_reports', 'latest'), snap => {
+      if (snap.exists()) {
+        setReport(snap.data() as FoodPrepReport);
+      } else {
+        setReport(null);
+      }
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  const formattedDate = report?.updatedAt
+    ? new Date(report.updatedAt).toLocaleString()
+    : null;
+
+  return (
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto h-full flex flex-col">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: roleColor }}>Live Report</p>
+          <h2 className="text-2xl font-bold text-white">Food Prep</h2>
+          {formattedDate && (
+            <p className="text-xs text-slate-500 mt-1">Last updated: {formattedDate}</p>
+          )}
+        </div>
+        {report && (
+          <a
+            href={report.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-semibold px-4 py-2 rounded-xl border transition-colors"
+            style={{ color: roleColor, borderColor: `${roleColor}40` }}
+          >
+            Open in new tab
+          </a>
+        )}
+      </div>
+
+      <div className="flex-1 rounded-2xl border border-white/10 overflow-hidden bg-white" style={{ minHeight: '70vh' }}>
+        {loading ? (
+          <div className="h-full flex items-center justify-center text-slate-500 text-sm bg-[#0d0816]">
+            Loading report...
+          </div>
+        ) : !report ? (
+          <div className="h-full flex flex-col items-center justify-center bg-[#0d0816] gap-4 text-center px-8">
+            <p className="text-4xl">🍽️</p>
+            <p className="text-white font-semibold">No report available yet</p>
+            <p className="text-slate-500 text-sm max-w-sm">
+              Set up Power Automate to send the Food Prep PDF to this page. It will appear here automatically every time it's updated.
+            </p>
+          </div>
+        ) : (
+          <iframe
+            src={report.url}
+            className="w-full h-full border-0"
+            title="Food Prep Report"
+            style={{ minHeight: '70vh' }}
+          />
+        )}
+      </div>
     </div>
   );
 }

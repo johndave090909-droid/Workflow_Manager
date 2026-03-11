@@ -899,3 +899,49 @@ exports.driveWatcherTestForward = onRequest({ region: "us-central1", cors: true 
     return sendJson(res, 500, { error: e?.message || "Drive forward test failed" });
   }
 });
+
+// ── Food Prep Report Receiver ─────────────────────────────────────────────────
+// Power Automate POSTs the PDF binary to this endpoint every 5 minutes.
+// Saves to Firebase Storage and records metadata in Firestore so the web app
+// can display the latest report in real time.
+exports.receiveFoodPrepReport = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+
+  // Optional API key check — set FOOD_PREP_API_KEY env var to secure the endpoint
+  const apiKey = process.env.FOOD_PREP_API_KEY;
+  if (apiKey && req.headers["x-api-key"] !== apiKey) {
+    return sendJson(res, 401, { error: "Unauthorized" });
+  }
+
+  try {
+    const buffer = req.rawBody;
+    if (!buffer || buffer.length === 0) {
+      return sendJson(res, 400, { error: "No PDF data received" });
+    }
+
+    const bucket = admin.storage().bucket();
+    const storagePath = "food_prep/latest.pdf";
+    const file = bucket.file(storagePath);
+
+    await file.save(buffer, {
+      metadata: { contentType: "application/pdf", cacheControl: "no-cache" },
+    });
+
+    // Make publicly readable so the iframe can display it directly
+    await file.makePublic();
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+
+    const updatedAt = new Date().toISOString();
+    await db.collection("food_prep_reports").doc("latest").set({
+      url: publicUrl,
+      storagePath,
+      updatedAt,
+      size: buffer.length,
+    });
+
+    return sendJson(res, 200, { ok: true, url: publicUrl, updatedAt });
+  } catch (e) {
+    return sendJson(res, 500, { error: e?.message || "Failed to save report" });
+  }
+});
