@@ -1096,3 +1096,27 @@ exports.receiveFoodPrepReport = onRequest({ region: "us-central1", cors: true },
     return sendJson(res, 500, { error: e?.message || "Failed to save report" });
   }
 });
+
+// ── Food Prep History Cleanup ────────────────────────────────────────────────
+// Runs every hour and deletes food-prep_pdf_history entries older than 1 hour
+exports.foodPrepHistoryCleanup = onSchedule(
+  { schedule: "every 60 minutes", region: "us-central1" },
+  async () => {
+    const HISTORY_COL = "food-prep_pdf_history";
+    const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+    const snap = await db.collection(HISTORY_COL)
+      .where("savedAt", "<", cutoff)
+      .get();
+
+    if (snap.empty) {
+      console.log("Food Prep Cleanup: nothing to delete");
+      return;
+    }
+
+    const batch = db.batch();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    console.log(`Food Prep Cleanup: deleted ${snap.docs.length} record(s) older than 1 hour`);
+  }
+);
