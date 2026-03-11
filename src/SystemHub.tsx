@@ -42,7 +42,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'food-prep';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'food-prep' | 'live-guest-count';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -51,13 +51,14 @@ type DeliverableWithProject = Deliverable & {
 };
 
 const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
-  { id: 'home',         label: 'Home',              emoji: '🏠' },
-  { id: 'complaints',   label: 'Guest Experience',  emoji: '📋' },
-  { id: 'deliverables', label: 'Deliverables',      emoji: '📁' },
-  { id: 'org-chart',    label: 'Org Chart',         emoji: '🧭' },
-  { id: 'directory',    label: 'Directory',         emoji: '👥' },
-  { id: 'rules',        label: 'Rules & Policies',  emoji: '📜' },
-  { id: 'food-prep',    label: 'Food Prep',         emoji: '🍽️' },
+  { id: 'home',              label: 'Home',              emoji: '🏠' },
+  { id: 'complaints',        label: 'Guest Experience',  emoji: '📋' },
+  { id: 'deliverables',      label: 'Deliverables',      emoji: '📁' },
+  { id: 'org-chart',         label: 'Org Chart',         emoji: '🧭' },
+  { id: 'directory',         label: 'Directory',         emoji: '👥' },
+  { id: 'rules',             label: 'Rules & Policies',  emoji: '📜' },
+  { id: 'food-prep',         label: 'Food Prep',         emoji: '🍽️' },
+  { id: 'live-guest-count',  label: 'Live Guest Count',  emoji: '👥' },
 ];
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -455,6 +456,11 @@ export default function SystemHub({
               currentUser={currentUser}
               isDirector={isDirector}
             />
+          )}
+
+          {/* LIVE GUEST COUNT */}
+          {activeSection === 'live-guest-count' && (
+            <LiveGuestCountView roleColor={roleColor} />
           )}
 
           {/* FOOD PREP */}
@@ -2032,6 +2038,92 @@ function EmployeeDetailModal({ entry, isMe, isAdmin, onClose, onSaved }: Employe
       {/* Signed policy viewer */}
       {viewingPolicy && (
         <SignedPolicyViewer record={viewingPolicy} onClose={() => setViewingPolicy(null)} />
+      )}
+    </div>
+  );
+}
+
+// ── Live Guest Count ──────────────────────────────────────────────────────────
+
+interface DailyGuestCounts {
+  aloha?: number;
+  ohana?: number;
+  gateway?: number;
+  savedAt?: string;
+}
+
+function LiveGuestCountView({ roleColor }: { roleColor: string }) {
+  const [counts, setCounts] = useState<DailyGuestCounts | null>(null);
+  const [loading, setLoading] = useState(true);
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'daily_guest_counts', todayKey), snap => {
+      setCounts(snap.exists() ? (snap.data() as DailyGuestCounts) : null);
+      setLoading(false);
+    });
+    return unsub;
+  }, [todayKey]);
+
+  const venues = [
+    { key: 'aloha',   label: 'Aloha Luau',      color: '#f59e0b' },
+    { key: 'ohana',   label: 'Hale Ohana Luau', color: '#10b981' },
+    { key: 'gateway', label: 'Gateway Buffet',  color: '#6366f1' },
+  ] as const;
+
+  const total = (counts?.aloha ?? 0) + (counts?.ohana ?? 0) + (counts?.gateway ?? 0);
+  const updatedAt = counts?.savedAt ? new Date(counts.savedAt).toLocaleTimeString() : null;
+
+  return (
+    <div className="p-4 sm:p-8 max-w-4xl mx-auto">
+      <div className="mb-8">
+        <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: roleColor }}>Real-time</p>
+        <h2 className="text-2xl font-bold text-white">Live Guest Count</h2>
+        <p className="text-xs text-slate-500 mt-1">
+          {loading ? 'Loading…' : updatedAt ? `Last updated at ${updatedAt}` : `No data for today (${todayKey})`}
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="text-slate-500 text-sm">Loading…</div>
+      ) : !counts ? (
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-10 text-center">
+          <p className="text-4xl mb-3">📊</p>
+          <p className="text-white font-semibold">No guest counts yet for today</p>
+          <p className="text-slate-500 text-sm mt-1">Counts appear here automatically once the Daily Counts PDF is processed.</p>
+        </div>
+      ) : (
+        <>
+          {/* Total */}
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 mb-6 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Total Guests Today</p>
+            <p className="text-6xl font-black text-white">{total.toLocaleString()}</p>
+          </div>
+
+          {/* Per-venue cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {venues.map(v => {
+              const val = counts[v.key];
+              return (
+                <div key={v.key} className="rounded-2xl border bg-white/[0.02] p-6"
+                  style={{ borderColor: `${v.color}33` }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-2 h-2 rounded-full" style={{ background: v.color }} />
+                    <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: v.color }}>{v.label}</p>
+                  </div>
+                  <p className="text-4xl font-black text-white">
+                    {val != null ? val.toLocaleString() : '—'}
+                  </p>
+                  {total > 0 && val != null && (
+                    <p className="text-xs text-slate-500 mt-2">
+                      {((val / total) * 100).toFixed(1)}% of total
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
