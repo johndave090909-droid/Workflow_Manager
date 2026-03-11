@@ -874,6 +874,40 @@ exports.foodPrepWatcherScheduled = onSchedule(
       const fileChanged = latestFile && latestFile.modifiedTime !== lastModifiedTime;
 
       if (fileChanged) {
+        // Download PDF and extract guest counts from the summary table
+        let guestCounts = null;
+        try {
+          const pdfResp = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (pdfResp.ok) {
+            const pdfBuffer = Buffer.from(await pdfResp.arrayBuffer());
+            const parsed = await pdfParse(pdfBuffer);
+            const text = parsed.text || "";
+
+            // Extract pax from lines like "Luau at Hale Ohana 5:00 PM  203"
+            const extractPax = (label) => {
+              const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const m = text.match(new RegExp(escaped + "[^\\n]*?(\\d+)\\s*(?:\\n|$)", "i"));
+              return m ? parseInt(m[1], 10) : null;
+            };
+
+            const ohana   = extractPax("Luau at Hale Ohana");
+            const aloha   = extractPax("Luau at Hale Aloha");
+            const gateway = extractPax("Gateway Buffet");
+
+            if (ohana !== null || aloha !== null || gateway !== null) {
+              guestCounts = { ohana, aloha, gateway, total: (ohana||0) + (aloha||0) + (gateway||0) };
+              console.log(`Food Prep: extracted counts — Ohana:${ohana} Aloha:${aloha} Gateway:${gateway}`);
+            } else {
+              console.log("Food Prep: PDF parsed but no guest counts found in text");
+            }
+          }
+        } catch (pdfErr) {
+          console.error("Food Prep: PDF extraction error:", pdfErr?.message);
+        }
+
         // Record this version in history (keyed by modifiedTime so each overwrite is a new entry)
         const historyId = `${latestFile.id}_${latestFile.modifiedTime.replace(/[:.]/g, "-")}`;
         await db.collection(HISTORY_COL).doc(historyId).set({
@@ -885,6 +919,7 @@ exports.foodPrepWatcherScheduled = onSchedule(
           savedAt,
           size: latestFile.size || "",
           mimeType: latestFile.mimeType || "application/pdf",
+          ...(guestCounts ? { guestCounts } : {}),
         });
         console.log(`Food Prep: new version detected — ${latestFile.name} (modified ${latestFile.modifiedTime})`);
 
