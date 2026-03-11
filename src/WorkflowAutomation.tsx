@@ -621,7 +621,7 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
     nodeLogs: Record<string, string[]>;
   } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
-  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | null>(null); // always start at picker
+  const [wfPage, setWfPage] = useState<'main' | 'gdrive' | 'food-prep' | null>(null); // always start at picker
   const [mainLayoutReady, setMainLayoutReady] = useState(false);
 
   const dragging            = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
@@ -1265,8 +1265,9 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
             </button>
             <div className="flex items-center gap-1 p-0.5 rounded-xl" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}>
               {([
-                { key: 'main',   label: '📸 Screenshot Reporter' },
-                { key: 'gdrive', label: '📂 Drive PDF Watcher' },
+                { key: 'main',       label: '📸 Screenshot Reporter' },
+                { key: 'gdrive',     label: '📂 Drive PDF Watcher' },
+                { key: 'food-prep',  label: '🍽️ Food Prep Watcher' },
               ] as const).map(tab => (
                 <button key={tab.key} onClick={() => setWfPage(tab.key)}
                   className="px-3 py-1 rounded-lg text-[10px] font-bold transition-all"
@@ -1381,7 +1382,9 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       {wfPage === null ? (
         <WorkflowPicker onSelect={(page) => setWfPage(page)} />
       ) : wfPage === 'gdrive' ? (
-        <GDriveWorkflowPage viewOnly={viewOnly} />
+        <GDriveWorkflowPage viewOnly={viewOnly} layoutKey="gdrive" />
+      ) : wfPage === 'food-prep' ? (
+        <GDriveWorkflowPage viewOnly={viewOnly} layoutKey="food-prep" />
       ) : (<>
 
         {/* Left sidebar — hidden in view-only mode */}
@@ -1674,8 +1677,8 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
   );
 }
 
-function WorkflowPicker({ onSelect }: { onSelect: (page: 'main' | 'gdrive') => void }) {
-  const workflows: Array<{ key: 'main' | 'gdrive'; title: string; subtitle: string; points: string[]; accent: string }> = [
+function WorkflowPicker({ onSelect }: { onSelect: (page: 'main' | 'gdrive' | 'food-prep') => void }) {
+  const workflows: Array<{ key: 'main' | 'gdrive' | 'food-prep'; title: string; subtitle: string; points: string[]; accent: string }> = [
     {
       key: 'main',
       title: 'Screenshot Reporter',
@@ -1695,6 +1698,16 @@ function WorkflowPicker({ onSelect }: { onSelect: (page: 'main' | 'gdrive') => v
         'Supports IF branches, Facebook notifications, and email delivery.',
       ],
       accent: '#4285f4',
+    },
+    {
+      key: 'food-prep',
+      title: 'Food Prep Watcher',
+      subtitle: 'Watch a Google Drive folder for the Food Prep Power BI report and sync it to the website.',
+      points: [
+        'Same Google Drive integration as Drive PDF Watcher.',
+        'Dedicated layout key — configure a separate folder for Food Prep PDFs.',
+      ],
+      accent: '#f59e0b',
     },
   ];
 
@@ -1748,24 +1761,25 @@ function WorkflowPicker({ onSelect }: { onSelect: (page: 'main' | 'gdrive') => v
 }
 
 // ── Google Drive Workflow Page ─────────────────────────────────────────────────
-function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
+function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: boolean; layoutKey?: string }) {
+  const lk = layoutKey;
   const [nodes, setNodes] = useState<WFNode[]>(() => {
     try {
-      const s = localStorage.getItem('wf_gdrive_nodes');
+      const s = localStorage.getItem(`wf_${lk}_nodes`);
       if (!s) return INITIAL_GDRIVE_NODES;
       const rawNodes: WFNode[] = JSON.parse(s);
       const rawEdges: WFEdge[] = (() => {
-        try { return JSON.parse(localStorage.getItem('wf_gdrive_edges') || '[]'); } catch { return []; }
+        try { return JSON.parse(localStorage.getItem(`wf_${lk}_edges`) || '[]'); } catch { return []; }
       })();
       return normalizeGDriveLayout(rawNodes, rawEdges).nodes;
     } catch { return INITIAL_GDRIVE_NODES; }
   });
   const [edges, setEdges] = useState<WFEdge[]>(() => {
     try {
-      const s = localStorage.getItem('wf_gdrive_edges');
+      const s = localStorage.getItem(`wf_${lk}_edges`);
       const rawEdges: WFEdge[] = s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES;
       const rawNodes: WFNode[] = (() => {
-        try { return JSON.parse(localStorage.getItem('wf_gdrive_nodes') || '[]'); } catch { return []; }
+        try { return JSON.parse(localStorage.getItem(`wf_${lk}_nodes`) || '[]'); } catch { return []; }
       })();
       return normalizeGDriveLayout(rawNodes.length ? rawNodes : INITIAL_GDRIVE_NODES, rawEdges).edges;
     } catch { return INITIAL_GDRIVE_EDGES; }
@@ -1796,8 +1810,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
   type WatcherStatus = { lastRun: string; status: 'ok' | 'error'; newFilesFound: number; totalInFolder: number; lastFoundFileIds?: string[]; lastCheckWithFiles?: { runAt: string; fileIds: string[] }; error?: string };
   const [watcherStatus, setWatcherStatus] = useState<WatcherStatus | null>(null);
 
-  const [paBoxPos,  setPaBoxPos]  = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_pabox')  || 'null') ?? {x:30,  y:360}; } catch { return {x:30,  y:360}; } });
-  const [notePos,   setNotePos]   = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem('wf_gdrive_note')   || 'null') ?? {x:310, y:360}; } catch { return {x:310, y:360}; } });
+  const [paBoxPos,  setPaBoxPos]  = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem(`wf_${lk}_pabox`)  || 'null') ?? {x:30,  y:360}; } catch { return {x:30,  y:360}; } });
+  const [notePos,   setNotePos]   = useState<{x:number;y:number}>(() => { try { return JSON.parse(localStorage.getItem(`wf_${lk}_note`)   || 'null') ?? {x:310, y:360}; } catch { return {x:310, y:360}; } });
   const [gdriveLayoutReady, setGdriveLayoutReady] = useState(false);
 
   const dragging              = useRef<{ nodeId: string; offX: number; offY: number } | null>(null);
@@ -1822,14 +1836,14 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     action?.();
   };
 
-  useEffect(() => { localStorage.setItem('wf_gdrive_nodes',  JSON.stringify(nodes));  }, [nodes]);
-  useEffect(() => { localStorage.setItem('wf_gdrive_edges',  JSON.stringify(edges));  }, [edges]);
-  useEffect(() => { localStorage.setItem('wf_gdrive_pabox',  JSON.stringify(paBoxPos)); }, [paBoxPos]);
-  useEffect(() => { localStorage.setItem('wf_gdrive_note',   JSON.stringify(notePos));  }, [notePos]);
+  useEffect(() => { localStorage.setItem(`wf_${lk}_nodes`,  JSON.stringify(nodes));  }, [nodes]);
+  useEffect(() => { localStorage.setItem(`wf_${lk}_edges`,  JSON.stringify(edges));  }, [edges]);
+  useEffect(() => { localStorage.setItem(`wf_${lk}_pabox`,  JSON.stringify(paBoxPos)); }, [paBoxPos]);
+  useEffect(() => { localStorage.setItem(`wf_${lk}_note`,   JSON.stringify(notePos));  }, [notePos]);
 
   // Cloud-first layout sync for Drive workflow (shared across browsers).
   useEffect(() => {
-    const ref = doc(firestoreDb, 'workflow_layouts', 'gdrive');
+    const ref = doc(firestoreDb, 'workflow_layouts', lk);
     const unsub = onSnapshot(ref, snap => {
       // Skip remote updates while the user is dragging or has unsaved local changes
       if (dragging.current || pendingLocalChange.current) return;
@@ -1857,7 +1871,7 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
     if (!gdriveLayoutReady || viewOnly) return;
     pendingLocalChange.current = true;
     const timer = setTimeout(() => {
-      setDoc(doc(firestoreDb, 'workflow_layouts', 'gdrive'), {
+      setDoc(doc(firestoreDb, 'workflow_layouts', lk), {
         nodes,
         edges,
         paBoxPos,
@@ -2362,8 +2376,8 @@ function GDriveWorkflowPage({ viewOnly }: { viewOnly: boolean }) {
 
   const handleReset = () => {
     if (!window.confirm('Reset Google Drive workflow to default? This cannot be undone.')) return;
-    localStorage.removeItem('wf_gdrive_nodes');
-    localStorage.removeItem('wf_gdrive_edges');
+    localStorage.removeItem(`wf_${lk}_nodes`);
+    localStorage.removeItem(`wf_${lk}_edges`);
     setNodes(INITIAL_GDRIVE_NODES);
     setEdges(INITIAL_GDRIVE_EDGES);
     setNodeLog({});
