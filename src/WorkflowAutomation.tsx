@@ -1832,7 +1832,6 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
   const [history, setHistory] = useState<DriveFileRecord[]>([]);
   const [guestCountsByDate, setGuestCountsByDate] = useState<Record<string, { aloha?: number; ohana?: number; gateway?: number; sourceName?: string }>>({});
   const [backfilling, setBackfilling] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
 
   type WatcherStatus = { lastRun: string; status: 'ok' | 'error'; newFilesFound: number; totalInFolder: number; lastFoundFileIds?: string[]; lastCheckWithFiles?: { runAt: string; fileIds: string[] }; error?: string };
   const [watcherStatus, setWatcherStatus] = useState<WatcherStatus | null>(null);
@@ -1911,12 +1910,6 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
     return () => clearTimeout(timer);
   }, [gdriveLayoutReady, viewOnly, nodes, edges, paBoxPos, notePos]);
 
-  // Tick every second so countdown timers stay accurate (Food Prep only)
-  useEffect(() => {
-    if (!isFoodPrep) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [isFoodPrep]);
 
   // Live Firestore history — updated by the scheduled Cloud Function every 10 min
   useEffect(() => {
@@ -1944,6 +1937,7 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
     });
     return () => unsub();
   }, [statusDocRef]);
+
 
   // Load saved folder ID config from Firestore
   useEffect(() => {
@@ -3051,26 +3045,15 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
           {historyOpen && (
             <div className="flex-1 overflow-y-auto">
               {history.length === 0 ? (
-                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — the Drive folder is polled automatically every {isFoodPrep ? '2' : '5'} minutes.</p>
+                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — the Drive folder is polled automatically every 5 minutes.</p>
               ) : (
                 <div className="divide-y divide-white/5">
-                  {history.map(file => {
+                  {(isFoodPrep ? history.slice(0, 1) : history).map(file => {
                     const d = new Date(file.discoveredAt || file.savedAt || file.modifiedTime);
                     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                     const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                     const kb = file.size ? Math.round(Number(file.size) / 1024) : null;
                     const isDailyCounts = /daily\s*counts/i.test(file.name);
-
-                    // Countdown timer for Food Prep (deleted after 1 hour)
-                    const savedMs = new Date(file.savedAt || file.discoveredAt || 0).getTime();
-                    const expiresMs = savedMs + 60 * 60 * 1000;
-                    const remainMs = expiresMs - now;
-                    const remainSec = Math.max(0, Math.floor(remainMs / 1000));
-                    const mm = String(Math.floor(remainSec / 60)).padStart(2, '0');
-                    const ss = String(remainSec % 60).padStart(2, '0');
-                    const timerStr = `${mm}:${ss}`;
-                    const isWarning = remainMs < 10 * 60 * 1000; // < 10 min → red
-                    const isDanger  = remainMs < 2  * 60 * 1000; // < 2 min  → bright red + pulse
 
                     return (
                       <div key={file.fileId} className="flex items-center gap-3 px-5 py-2.5 hover:bg-white/3 transition-colors group">
@@ -3103,18 +3086,6 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
                               <span className="text-[9px] text-slate-600 italic">no counts</span>
                             )}
                           </div>
-                        )}
-                        {/* Countdown timer — Food Prep only */}
-                        {isFoodPrep && (
-                          <span
-                            className={`shrink-0 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md tabular-nums ${isDanger ? 'animate-pulse' : ''}`}
-                            style={{
-                              background: isWarning ? 'rgba(239,68,68,.12)' : 'rgba(255,255,255,.04)',
-                              color: isDanger ? '#ef4444' : isWarning ? '#f87171' : '#64748b',
-                              border: `1px solid ${isWarning ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.06)'}`,
-                            }}>
-                            🕐 {timerStr}
-                          </span>
                         )}
                         {/* Food Prep guest counts extracted from PDF */}
                         {isFoodPrep && file.guestCounts && (

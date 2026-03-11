@@ -817,7 +817,7 @@ exports.driveWatcherScheduled = onSchedule(
 
 // ── Food Prep Drive Watcher (separate folder, separate collections) ───────────
 exports.foodPrepWatcherScheduled = onSchedule(
-  { schedule: "every 2 minutes", region: "us-central1" },
+  { schedule: "every 5 minutes", region: "us-central1" },
   async () => {
     const HISTORY_COL = "food-prep_pdf_history";
     const STATUS_COL  = "food-prep_watcher_state";
@@ -1098,16 +1098,13 @@ exports.receiveFoodPrepReport = onRequest({ region: "us-central1", cors: true },
 });
 
 // ── Food Prep History Cleanup ────────────────────────────────────────────────
-// Runs every hour and deletes food-prep_pdf_history entries older than 1 hour
+// Runs at midnight and deletes all food-prep_pdf_history entries
 exports.foodPrepHistoryCleanup = onSchedule(
-  { schedule: "every 60 minutes", region: "us-central1" },
+  { schedule: "0 0 * * *", region: "us-central1" },
   async () => {
     const HISTORY_COL = "food-prep_pdf_history";
-    const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
-    const snap = await db.collection(HISTORY_COL)
-      .where("savedAt", "<", cutoff)
-      .get();
+    const snap = await db.collection(HISTORY_COL).get();
 
     if (snap.empty) {
       console.log("Food Prep Cleanup: nothing to delete");
@@ -1117,6 +1114,6 @@ exports.foodPrepHistoryCleanup = onSchedule(
     const batch = db.batch();
     snap.docs.forEach(d => batch.delete(d.ref));
     await batch.commit();
-    console.log(`Food Prep Cleanup: deleted ${snap.docs.length} record(s) older than 1 hour`);
+    console.log(`Food Prep Cleanup: deleted ${snap.docs.length} record(s) at midnight`);
   }
 );
