@@ -1390,9 +1390,9 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
       {wfPage === null ? (
         <WorkflowPicker onSelect={(page) => setWfPage(page)} />
       ) : wfPage === 'gdrive' ? (
-        <GDriveWorkflowPage viewOnly={viewOnly} layoutKey="gdrive" />
+        <GDriveWorkflowPage key="gdrive" viewOnly={viewOnly} layoutKey="gdrive" />
       ) : wfPage === 'food-prep' ? (
-        <GDriveWorkflowPage viewOnly={viewOnly} layoutKey="food-prep" />
+        <GDriveWorkflowPage key="food-prep" viewOnly={viewOnly} layoutKey="food-prep" />
       ) : (<>
 
         {/* Left sidebar — hidden in view-only mode */}
