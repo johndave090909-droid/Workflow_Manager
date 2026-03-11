@@ -823,18 +823,26 @@ exports.foodPrepWatcherScheduled = onSchedule(
     const STATUS_COL  = "food-prep_watcher_state";
     const LAYOUT_KEY  = "food-prep";
 
+    // Extract bare folder ID from either a full Drive URL or a plain ID
+    const extractFolderId = (val) => {
+      if (!val) return "";
+      const m = val.match(/folders\/([a-zA-Z0-9_-]+)/);
+      return m ? m[1] : val.trim();
+    };
+
     // Read folder ID from Firestore config first, fall back to env var, then hardcoded default
     const DEFAULT_FOOD_PREP_FOLDER = "1lfiinyI5VaZY9eWgpEaSUVxrQljOOTfp";
-    let folderId = process.env.FOOD_PREP_DRIVE_FOLDER_ID || DEFAULT_FOOD_PREP_FOLDER;
+    let folderId = extractFolderId(process.env.FOOD_PREP_DRIVE_FOLDER_ID) || DEFAULT_FOOD_PREP_FOLDER;
     try {
       const configSnap = await db.collection(STATUS_COL).doc("config").get();
       if (configSnap.exists && configSnap.data().folderId) {
-        folderId = configSnap.data().folderId;
+        folderId = extractFolderId(configSnap.data().folderId) || DEFAULT_FOOD_PREP_FOLDER;
       } else {
         // Save the default folder ID to Firestore config so the UI shows it
         await db.collection(STATUS_COL).doc("config").set({ folderId }, { merge: true });
       }
     } catch { /* use default */ }
+    console.log(`Food Prep: using folder ID "${folderId}"`);
 
     try {
       const token = await getDriveAccessToken(null);
