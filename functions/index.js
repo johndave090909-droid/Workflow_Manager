@@ -823,25 +823,24 @@ exports.foodPrepWatcherScheduled = onSchedule(
     const STATUS_COL  = "food-prep_watcher_state";
     const LAYOUT_KEY  = "food-prep";
 
-    // Read folder ID from Firestore config first, fall back to env var
-    let folderId = process.env.FOOD_PREP_DRIVE_FOLDER_ID || "";
+    // Read folder ID from Firestore config first, fall back to env var, then hardcoded default
+    const DEFAULT_FOOD_PREP_FOLDER = "1lfiinyI5VaZY9eWgpEaSUVxrQljOOTfp";
+    let folderId = process.env.FOOD_PREP_DRIVE_FOLDER_ID || DEFAULT_FOOD_PREP_FOLDER;
     try {
       const configSnap = await db.collection(STATUS_COL).doc("config").get();
       if (configSnap.exists && configSnap.data().folderId) {
         folderId = configSnap.data().folderId;
+      } else {
+        // Save the default folder ID to Firestore config so the UI shows it
+        await db.collection(STATUS_COL).doc("config").set({ folderId }, { merge: true });
       }
-    } catch { /* use env var fallback */ }
-
-    if (!folderId) {
-      console.log("Food Prep: no folder ID configured — skipping poll");
-      return;
-    }
+    } catch { /* use default */ }
 
     try {
       const token = await getDriveAccessToken(null);
       const q = `'${folderId}' in parents and mimeType='application/pdf' and trashed=false`;
       const driveResp = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,createdTime,webViewLink,size,mimeType)&orderBy=createdTime%20desc`,
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,modifiedTime,webViewLink,size,mimeType)&orderBy=modifiedTime%20desc`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -853,30 +852,32 @@ exports.foodPrepWatcherScheduled = onSchedule(
 
       const data = await driveResp.json();
       const files = data.files || [];
-
-      const existingSnap = await db.collection(HISTORY_COL).select().get();
-      const existingIds = new Set(existingSnap.docs.map((d) => d.id));
-      const newFiles = files.filter((f) => !existingIds.has(f.id));
-
       const savedAt = new Date().toISOString();
       let facebookForward = null;
 
-      if (newFiles.length > 0) {
-        const batch = db.batch();
-        for (const f of newFiles) {
-          const ref = db.collection(HISTORY_COL).doc(f.id);
-          batch.set(ref, {
-            fileId: f.id,
-            name: f.name,
-            webViewLink: f.webViewLink || "",
-            discoveredAt: f.createdTime || savedAt,
-            savedAt,
-            size: f.size || "",
-            mimeType: f.mimeType || "application/pdf",
-          });
-        }
-        await batch.commit();
-        console.log(`Food Prep: saved ${newFiles.length} new PDF(s) to Firestore`);
+      // Always take the most recently modified PDF regardless of whether we've seen it before.
+      // The file is overwritten in-place every 2 minutes, so we detect changes via modifiedTime.
+      const latestFile = files[0] || null;
+
+      // Read last processed modifiedTime from status doc
+      const statusSnap = await db.collection(STATUS_COL).doc("status").get();
+      const lastModifiedTime = statusSnap.exists ? (statusSnap.data().lastModifiedTime || "") : "";
+
+      const fileChanged = latestFile && latestFile.modifiedTime !== lastModifiedTime;
+
+      if (fileChanged) {
+        // Record this version in history (keyed by modifiedTime so each overwrite is a new entry)
+        const historyId = `${latestFile.id}_${latestFile.modifiedTime.replace(/[:.]/g, "-")}`;
+        await db.collection(HISTORY_COL).doc(historyId).set({
+          fileId: latestFile.id,
+          name: latestFile.name,
+          webViewLink: latestFile.webViewLink || "",
+          modifiedTime: latestFile.modifiedTime,
+          savedAt,
+          size: latestFile.size || "",
+          mimeType: latestFile.mimeType || "application/pdf",
+        });
+        console.log(`Food Prep: new version detected — ${latestFile.name} (modified ${latestFile.modifiedTime})`);
 
         try {
           const layoutSnap = await db.collection("workflow_layouts").doc(LAYOUT_KEY).get();
@@ -884,7 +885,7 @@ exports.foodPrepWatcherScheduled = onSchedule(
             const layout = layoutSnap.data();
             const wfNodes = Array.isArray(layout.nodes) ? layout.nodes : [];
             const wfEdges = Array.isArray(layout.edges) ? layout.edges : [];
-            facebookForward = await executeWorkflowNodes(wfNodes, wfEdges, newFiles);
+            facebookForward = await executeWorkflowNodes(wfNodes, wfEdges, [latestFile]);
             facebookForward.sentAt = savedAt;
             facebookForward.source = "workflow";
           }
@@ -893,17 +894,18 @@ exports.foodPrepWatcherScheduled = onSchedule(
           console.error("Food Prep workflow error:", fbErr?.message);
         }
       } else {
-        console.log(`Food Prep: ${files.length} PDF(s) in folder, all already recorded`);
+        console.log(`Food Prep: no change since last run (modifiedTime: ${lastModifiedTime})`);
       }
 
       const statusUpdate = {
         lastRun: savedAt,
         status: "ok",
-        newFilesFound: newFiles.length,
+        newFilesFound: fileChanged ? 1 : 0,
         totalInFolder: files.length,
-        lastFoundFileIds: newFiles.map((f) => f.id),
+        lastModifiedTime: latestFile ? latestFile.modifiedTime : lastModifiedTime,
+        lastFoundFileIds: fileChanged && latestFile ? [latestFile.id] : [],
       };
-      if (newFiles.length > 0) statusUpdate.lastCheckWithFiles = { runAt: savedAt, fileIds: newFiles.map((f) => f.id) };
+      if (fileChanged && latestFile) statusUpdate.lastCheckWithFiles = { runAt: savedAt, fileIds: [latestFile.id] };
       if (facebookForward) statusUpdate.facebookForward = facebookForward;
       await db.collection(STATUS_COL).doc("status").set(statusUpdate, { merge: true });
 
