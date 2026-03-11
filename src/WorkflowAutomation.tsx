@@ -155,16 +155,21 @@ function normalizeGDriveLayout(rawNodes: WFNode[], rawEdges: WFEdge[], initialNo
   let nodes = hydrateNodes(rawNodes, initialNodes)
     .filter(n => n.type !== 'email');
 
-  // Only enforce nodes that belong to this workflow's initial set
+  // Only enforce non-Facebook core nodes (Google Drive, Save PDFs, etc.)
+  // Facebook nodes are user-configurable — don't force them back if deleted
   const byId = new Map(nodes.map(n => [n.id, n]));
   for (const def of initialNodes) {
+    if (def.type === 'facebook' || def.type === 'facebook_daily_counts') continue;
     if (!byId.has(def.id)) nodes.push(def);
   }
 
   const valid = new Set(nodes.map(n => n.id));
   let edges = rawEdges.filter(e => valid.has(e.fromId) && valid.has(e.toId));
   const has = (fromId: string, toId: string) => edges.some(e => e.fromId === fromId && e.toId === toId);
+  const facebookIds = new Set(nodes.filter(n => n.type === 'facebook' || n.type === 'facebook_daily_counts').map(n => n.id));
   for (const def of initialEdges) {
+    // Don't enforce edges to/from Facebook nodes — those are user-managed
+    if (facebookIds.has(def.toId) || facebookIds.has(def.fromId)) continue;
     if (!has(def.fromId, def.toId)) edges.push(def);
   }
   return { nodes, edges };
