@@ -1763,6 +1763,9 @@ function WorkflowPicker({ onSelect }: { onSelect: (page: 'main' | 'gdrive' | 'fo
 // ── Google Drive Workflow Page ─────────────────────────────────────────────────
 function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: boolean; layoutKey?: string }) {
   const lk = layoutKey;
+  // Each workflow uses its own Firestore collections so histories don't mix
+  const historyCol   = lk === 'gdrive' ? 'drive_pdf_history'    : `${lk}_pdf_history`;
+  const statusDocRef = lk === 'gdrive' ? 'drive_watcher_state'  : `${lk}_watcher_state`;
   const [nodes, setNodes] = useState<WFNode[]>(() => {
     try {
       const s = localStorage.getItem(`wf_${lk}_nodes`);
@@ -1886,12 +1889,12 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
 
   // Live Firestore history — updated by the scheduled Cloud Function every 10 min
   useEffect(() => {
-    const q = query(collection(firestoreDb, 'drive_pdf_history'), orderBy('discoveredAt', 'desc'));
+    const q = query(collection(firestoreDb, historyCol), orderBy('discoveredAt', 'desc'));
     const unsub = onSnapshot(q, snap => {
       setHistory(snap.docs.map(d => d.data() as DriveFileRecord));
     });
     return () => unsub();
-  }, []);
+  }, [historyCol]);
 
   // Live guest counts by date
   useEffect(() => {
@@ -1905,11 +1908,11 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
 
   // Live watcher status — shows last time the scheduler ran
   useEffect(() => {
-    const unsub = onSnapshot(doc(firestoreDb, 'drive_watcher_state', 'status'), snap => {
+    const unsub = onSnapshot(doc(firestoreDb, statusDocRef, 'status'), snap => {
       if (snap.exists()) setWatcherStatus(snap.data() as WatcherStatus);
     });
     return () => unsub();
-  }, []);
+  }, [statusDocRef]);
 
   // Sync Facebook node config for backend-only scheduler forwarding.
   useEffect(() => {
@@ -2148,7 +2151,7 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
             log(id, `💾 Saving ${foundFiles.length} PDF${foundFiles.length > 1 ? 's' : ''} to Firestore…`);
             try {
               await Promise.all(foundFiles.map(f =>
-                setDoc(doc(firestoreDb, 'drive_pdf_history', f.id), {
+                setDoc(doc(firestoreDb, historyCol, f.id), {
                   fileId:       f.id,
                   name:         f.name,
                   webViewLink:  f.webViewLink || '',
@@ -2963,8 +2966,8 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
                   { title: 'Clear PDF History', message: 'Clear PDF history? This cannot be undone.', confirmLabel: 'Clear History' },
                   () => {
                     (async () => {
-                      const snap = await getDocs(collection(firestoreDb, 'drive_pdf_history'));
-                      await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, 'drive_pdf_history', d.id))));
+                      const snap = await getDocs(collection(firestoreDb, historyCol));
+                      await Promise.all(snap.docs.map(d => deleteDoc(doc(firestoreDb, historyCol, d.id))));
                     })();
                   }
                 );
