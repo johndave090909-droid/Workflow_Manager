@@ -1824,8 +1824,10 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
     webViewLink?: string;
     discoveredAt: string;
     savedAt?: string;
+    modifiedTime?: string;
     size?: string;
     guestCountSummary?: string;
+    guestCounts?: { ohana: number | null; aloha: number | null; gateway: number | null; total: number };
   };
   const [history, setHistory] = useState<DriveFileRecord[]>([]);
   const [guestCountsByDate, setGuestCountsByDate] = useState<Record<string, { aloha?: number; ohana?: number; gateway?: number; sourceName?: string }>>({});
@@ -3081,6 +3083,20 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
                               <span className="text-[9px] text-slate-600 italic">no counts</span>
                             )}
                           </div>
+                        )}
+                        {/* Food Prep guest counts extracted from PDF */}
+                        {isFoodPrep && file.guestCounts && (
+                          <div className="shrink-0 border-l border-white/8 pl-3 ml-1">
+                            <div className="text-[9px] font-mono space-y-0.5">
+                              {file.guestCounts.ohana   != null && <div style={{ color: '#60a5fa' }}>Ohana: {file.guestCounts.ohana}</div>}
+                              {file.guestCounts.aloha   != null && <div style={{ color: '#4ade80' }}>Aloha: {file.guestCounts.aloha}</div>}
+                              {file.guestCounts.gateway != null && <div style={{ color: '#f59e0b' }}>Gateway: {file.guestCounts.gateway}</div>}
+                              <div className="text-slate-400 border-t border-white/10 pt-0.5 mt-0.5">Total: {file.guestCounts.total}</div>
+                            </div>
+                          </div>
+                        )}
+                        {isFoodPrep && !file.guestCounts && (
+                          <span className="text-[9px] text-slate-600 italic shrink-0">no counts</span>
                         )}
                         {file.webViewLink && (
                           <a href={file.webViewLink} target="_blank" rel="noreferrer"
