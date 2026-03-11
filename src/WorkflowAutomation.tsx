@@ -1797,6 +1797,11 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
   const [historyOpen, setHistoryOpen]   = useState(true);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
 
+  // Folder config (stored in Firestore so backend reads it without env vars)
+  const [folderIdInput, setFolderIdInput] = useState('');
+  const [folderIdSaved, setFolderIdSaved] = useState('');
+  const [folderSaving, setFolderSaving]   = useState(false);
+
   type DriveFileRecord = {
     fileId: string;
     name: string;
@@ -1910,6 +1915,16 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
   useEffect(() => {
     const unsub = onSnapshot(doc(firestoreDb, statusDocRef, 'status'), snap => {
       if (snap.exists()) setWatcherStatus(snap.data() as WatcherStatus);
+    });
+    return () => unsub();
+  }, [statusDocRef]);
+
+  // Load saved folder ID config from Firestore
+  useEffect(() => {
+    const unsub = onSnapshot(doc(firestoreDb, statusDocRef, 'config'), snap => {
+      const id = snap.exists() ? (snap.data()?.folderId ?? '') : '';
+      setFolderIdSaved(id);
+      setFolderIdInput(id);
     });
     return () => unsub();
   }, [statusDocRef]);
@@ -2927,6 +2942,35 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
             )}
           </div>
         </div>
+
+        {/* Folder Config Panel — only shown for non-gdrive workflows */}
+        {lk !== 'gdrive' && (
+          <div className="shrink-0 border-t border-white/10 px-5 py-3 flex items-center gap-3" style={{ background: 'rgba(5,2,10,.98)' }}>
+            <span style={{ fontSize: 13 }}>📁</span>
+            <span className="text-xs font-bold text-white shrink-0">Drive Folder ID</span>
+            <input
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-amber-500/50 placeholder-slate-600 min-w-0"
+              placeholder="Paste Google Drive folder ID…"
+              value={folderIdInput}
+              onChange={e => setFolderIdInput(e.target.value)}
+            />
+            <button
+              disabled={folderSaving || folderIdInput.trim() === folderIdSaved}
+              onClick={async () => {
+                setFolderSaving(true);
+                try {
+                  await setDoc(doc(firestoreDb, statusDocRef, 'config'), { folderId: folderIdInput.trim() }, { merge: true });
+                } finally { setFolderSaving(false); }
+              }}
+              className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-40"
+              style={{ background: '#f59e0b22', border: '1px solid #f59e0b55', color: '#f59e0b' }}>
+              {folderSaving ? 'Saving…' : folderIdInput.trim() === folderIdSaved && folderIdSaved ? '✓ Saved' : 'Save'}
+            </button>
+            {folderIdSaved && (
+              <span className="text-[10px] text-emerald-500 font-bold shrink-0">● Active</span>
+            )}
+          </div>
+        )}
 
         {/* PDF History Panel */}
         <div className="shrink-0 border-t border-white/10 flex flex-col" style={{ height: 260, background: 'rgba(5,2,10,.98)' }}>

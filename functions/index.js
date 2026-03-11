@@ -819,15 +819,23 @@ exports.driveWatcherScheduled = onSchedule(
 exports.foodPrepWatcherScheduled = onSchedule(
   { schedule: "every 5 minutes", region: "us-central1" },
   async () => {
-    const folderId = process.env.FOOD_PREP_DRIVE_FOLDER_ID;
-    if (!folderId) {
-      console.log("FOOD_PREP_DRIVE_FOLDER_ID not set — skipping food prep poll");
-      return;
-    }
-
     const HISTORY_COL = "food-prep_pdf_history";
     const STATUS_COL  = "food-prep_watcher_state";
     const LAYOUT_KEY  = "food-prep";
+
+    // Read folder ID from Firestore config first, fall back to env var
+    let folderId = process.env.FOOD_PREP_DRIVE_FOLDER_ID || "";
+    try {
+      const configSnap = await db.collection(STATUS_COL).doc("config").get();
+      if (configSnap.exists && configSnap.data().folderId) {
+        folderId = configSnap.data().folderId;
+      }
+    } catch { /* use env var fallback */ }
+
+    if (!folderId) {
+      console.log("Food Prep: no folder ID configured — skipping poll");
+      return;
+    }
 
     try {
       const token = await getDriveAccessToken(null);
