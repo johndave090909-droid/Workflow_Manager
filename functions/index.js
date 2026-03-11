@@ -873,6 +873,7 @@ exports.foodPrepWatcherScheduled = onSchedule(
           name: latestFile.name,
           webViewLink: latestFile.webViewLink || "",
           modifiedTime: latestFile.modifiedTime,
+          discoveredAt: savedAt,
           savedAt,
           size: latestFile.size || "",
           mimeType: latestFile.mimeType || "application/pdf",

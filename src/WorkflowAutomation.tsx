@@ -3041,11 +3041,11 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
           {historyOpen && (
             <div className="flex-1 overflow-y-auto">
               {history.length === 0 ? (
-                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — the Drive folder is polled automatically every 10 minutes.</p>
+                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — the Drive folder is polled automatically every {isFoodPrep ? '2' : '5'} minutes.</p>
               ) : (
                 <div className="divide-y divide-white/5">
                   {history.map(file => {
-                    const d = new Date(file.discoveredAt);
+                    const d = new Date(file.discoveredAt || file.savedAt || file.modifiedTime);
                     const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                     const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                     const kb = file.size ? Math.round(Number(file.size) / 1024) : null;
