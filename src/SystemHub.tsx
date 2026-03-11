@@ -42,7 +42,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'food-prep' | 'live-guest-count';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'live-guest-count';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -57,7 +57,6 @@ const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
   { id: 'org-chart',         label: 'Org Chart',         emoji: '🧭' },
   { id: 'directory',         label: 'Directory',         emoji: '👥' },
   { id: 'rules',             label: 'Rules & Policies',  emoji: '📜' },
-  { id: 'food-prep',         label: 'Food Prep',         emoji: '🍽️' },
   { id: 'live-guest-count',  label: 'Live Guest Count',  emoji: '👥' },
 ];
 
@@ -461,11 +460,6 @@ export default function SystemHub({
           {/* LIVE GUEST COUNT */}
           {activeSection === 'live-guest-count' && (
             <LiveGuestCountView roleColor={roleColor} />
-          )}
-
-          {/* FOOD PREP */}
-          {activeSection === 'food-prep' && (
-            <FoodPrepView roleColor={roleColor} />
           )}
 
           {/* RULES & POLICIES */}
