@@ -123,6 +123,15 @@ const INITIAL_GDRIVE_EDGES: WFEdge[] = [
   { id: 'ge3', fromId: 'g3', toId: 'g5' },
 ];
 
+// Food Prep Watcher — no Facebook nodes
+const INITIAL_FOOD_PREP_NODES: WFNode[] = [
+  { id: 'g1', type: 'google_drive', label: 'Google Drive PDF', icon: '📂', color: '#4285f4', x: 320, y: 290, status: 'idle', config: { folderId: '', watchInterval: '60', serviceAccountJson: '' } },
+  { id: 'g3', type: 'save_pdf',     label: 'Save PDFs',        icon: '💾', color: '#8b5cf6', x: 590, y: 290, status: 'idle', config: { collection: 'food-prep_pdf_history' } },
+];
+const INITIAL_FOOD_PREP_EDGES: WFEdge[] = [
+  { id: 'ge1', fromId: 'g1', toId: 'g3' },
+];
+
 function mergeNodeWithDefaults(node: WFNode): WFNode {
   const def = NODE_TYPE_DEFS.find(d => d.type === node.type);
   if (!def) return node;
@@ -1766,26 +1775,29 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
   // Each workflow uses its own Firestore collections so histories don't mix
   const historyCol   = lk === 'gdrive' ? 'drive_pdf_history'    : `${lk}_pdf_history`;
   const statusDocRef = lk === 'gdrive' ? 'drive_watcher_state'  : `${lk}_watcher_state`;
+  const isFoodPrep   = lk === 'food-prep';
+  const defaultNodes = isFoodPrep ? INITIAL_FOOD_PREP_NODES : INITIAL_GDRIVE_NODES;
+  const defaultEdges = isFoodPrep ? INITIAL_FOOD_PREP_EDGES : INITIAL_GDRIVE_EDGES;
   const [nodes, setNodes] = useState<WFNode[]>(() => {
     try {
       const s = localStorage.getItem(`wf_${lk}_nodes`);
-      if (!s) return INITIAL_GDRIVE_NODES;
+      if (!s) return defaultNodes;
       const rawNodes: WFNode[] = JSON.parse(s);
       const rawEdges: WFEdge[] = (() => {
         try { return JSON.parse(localStorage.getItem(`wf_${lk}_edges`) || '[]'); } catch { return []; }
       })();
       return normalizeGDriveLayout(rawNodes, rawEdges).nodes;
-    } catch { return INITIAL_GDRIVE_NODES; }
+    } catch { return defaultNodes; }
   });
   const [edges, setEdges] = useState<WFEdge[]>(() => {
     try {
       const s = localStorage.getItem(`wf_${lk}_edges`);
-      const rawEdges: WFEdge[] = s ? JSON.parse(s) : INITIAL_GDRIVE_EDGES;
+      const rawEdges: WFEdge[] = s ? JSON.parse(s) : defaultEdges;
       const rawNodes: WFNode[] = (() => {
         try { return JSON.parse(localStorage.getItem(`wf_${lk}_nodes`) || '[]'); } catch { return []; }
       })();
-      return normalizeGDriveLayout(rawNodes.length ? rawNodes : INITIAL_GDRIVE_NODES, rawEdges).edges;
-    } catch { return INITIAL_GDRIVE_EDGES; }
+      return normalizeGDriveLayout(rawNodes.length ? rawNodes : defaultNodes, rawEdges).edges;
+    } catch { return defaultEdges; }
   });
   const [selectedId, setSelectedId]     = useState<string | null>(null);
   const [nodeModal, setNodeModal]       = useState<WFNode | null>(null);
@@ -2396,8 +2408,8 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
     if (!window.confirm('Reset Google Drive workflow to default? This cannot be undone.')) return;
     localStorage.removeItem(`wf_${lk}_nodes`);
     localStorage.removeItem(`wf_${lk}_edges`);
-    setNodes(INITIAL_GDRIVE_NODES);
-    setEdges(INITIAL_GDRIVE_EDGES);
+    setNodes(defaultNodes);
+    setEdges(defaultEdges);
     setNodeLog({});
   };
 
