@@ -26,10 +26,89 @@ import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   collection, getDocs, doc, getDoc, updateDoc,
-  query, orderBy, where, Timestamp, addDoc, serverTimestamp,
+  query, orderBy, where, Timestamp, addDoc, serverTimestamp, onSnapshot,
 } from 'firebase/firestore';
 
 function cn(...inputs: ClassValue[]) { return twMerge(clsx(inputs)); }
+
+// ── Public Guest Count Page (no login required) ───────────────────────────────
+function GuestCountPublicPage() {
+  const [counts, setCounts] = useState<{ ohana: number | null; aloha: number | null; gateway: number | null; savedAt?: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const q = query(collection(db, 'food-prep_pdf_history'), orderBy('discoveredAt', 'desc'));
+    const unsub = onSnapshot(q, snap => {
+      const latest = snap.docs.map(d => d.data()).find(d => d.guestCounts);
+      setCounts(latest ? { ...latest.guestCounts, savedAt: latest.savedAt || latest.discoveredAt } : null);
+      setLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  const total = (counts?.aloha ?? 0) + (counts?.ohana ?? 0) + (counts?.gateway ?? 0);
+  const updatedAt = counts?.savedAt ? new Date(counts.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  const venues = [
+    { key: 'aloha'   as const, label: 'Aloha Luau',      color: '#f59e0b' },
+    { key: 'ohana'   as const, label: 'Hale Ohana Luau', color: '#10b981' },
+    { key: 'gateway' as const, label: 'Gateway Buffet',  color: '#6366f1' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#0a0510] flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-lg">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <p className="text-[10px] font-black uppercase tracking-widest text-[#a78bfa] mb-1">Live · Auto-updates</p>
+          <h1 className="text-3xl font-black text-white">Guest Count</h1>
+          <p className="text-xs text-slate-500 mt-1">
+            {loading ? 'Loading…' : updatedAt ? `Last updated ${updatedAt}` : 'Waiting for data…'}
+          </p>
+        </div>
+
+        {loading ? (
+          <div className="flex justify-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#a78bfa]" /></div>
+        ) : !counts ? (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-10 text-center">
+            <p className="text-4xl mb-3">📊</p>
+            <p className="text-white font-semibold">No data yet</p>
+            <p className="text-slate-500 text-sm mt-1">Counts will appear automatically once the Food Prep report is processed.</p>
+          </div>
+        ) : (
+          <>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 mb-4 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Total Guests</p>
+              <p className="text-7xl font-black text-white">{total.toLocaleString()}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {venues.map(v => {
+                const val = counts[v.key];
+                return (
+                  <div key={v.key} className="rounded-2xl border bg-white/[0.02] p-5 text-center"
+                    style={{ borderColor: `${v.color}33` }}>
+                    <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: v.color }}>{v.label}</p>
+                    <p className="text-3xl font-black text-white">{val != null ? val.toLocaleString() : '—'}</p>
+                    {total > 0 && val != null && (
+                      <p className="text-[10px] text-slate-500 mt-1">{((val / total) * 100).toFixed(1)}%</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <p className="text-center text-slate-700 text-[10px] mt-8">PCC Systems Hub · Updates every 2 minutes</p>
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_PERMISSIONS: RolePermissions = {
   access_tracker: false, access_it_admin: false, view_all_projects: false,
@@ -357,6 +436,9 @@ export default function App() {
   [visibleProjects]);
 
   // ── Render guards ──────────────────────────────────────────────
+  // Public route — no auth required
+  if (window.location.pathname === '/guest-count') return <GuestCountPublicPage />;
+
   if (authLoading) return (
     <div className="flex items-center justify-center h-screen bg-[#0a0510]">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ff00ff]" />

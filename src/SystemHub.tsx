@@ -2075,15 +2075,31 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
 
   const total = (counts?.aloha ?? 0) + (counts?.ohana ?? 0) + (counts?.gateway ?? 0);
   const updatedAt = counts?.savedAt ? new Date(counts.savedAt).toLocaleTimeString() : null;
+  const [copied, setCopied] = useState(false);
+  const publicUrl = `${window.location.origin}/guest-count`;
+  const handlePublish = () => {
+    navigator.clipboard.writeText(publicUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   return (
     <div className="p-4 sm:p-8 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: roleColor }}>Real-time</p>
-        <h2 className="text-2xl font-bold text-white">Live Guest Count</h2>
-        <p className="text-xs text-slate-500 mt-1">
-          {loading ? 'Loading…' : updatedAt ? `Last updated at ${updatedAt}` : `No data for today (${todayKey})`}
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest mb-1" style={{ color: roleColor }}>Real-time</p>
+          <h2 className="text-2xl font-bold text-white">Live Guest Count</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            {loading ? 'Loading…' : updatedAt ? `Last updated at ${updatedAt}` : 'No data yet'}
+          </p>
+        </div>
+        <button
+          onClick={handlePublish}
+          className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+          style={{ background: copied ? 'rgba(34,197,94,.15)' : 'rgba(167,139,250,.12)', border: `1px solid ${copied ? 'rgba(34,197,94,.4)' : 'rgba(167,139,250,.3)'}`, color: copied ? '#22c55e' : '#a78bfa' }}>
+          {copied ? '✓ Link copied!' : '🌐 Publish to Web'}
+        </button>
       </div>
 
       {loading ? (
