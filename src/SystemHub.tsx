@@ -2053,17 +2053,19 @@ interface DailyGuestCounts {
 }
 
 function LiveGuestCountView({ roleColor }: { roleColor: string }) {
-  const [counts, setCounts] = useState<DailyGuestCounts | null>(null);
+  const [counts, setCounts] = useState<{ ohana: number | null; aloha: number | null; gateway: number | null; savedAt?: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const todayKey = new Date().toISOString().slice(0, 10);
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'daily_guest_counts', todayKey), snap => {
-      setCounts(snap.exists() ? (snap.data() as DailyGuestCounts) : null);
+    // Read the most recent Food Prep PDF history entry that has guestCounts
+    const q = query(collection(db, 'food-prep_pdf_history'), orderBy('discoveredAt', 'desc'));
+    const unsub = onSnapshot(q, snap => {
+      const latest = snap.docs.map(d => d.data()).find(d => d.guestCounts);
+      setCounts(latest ? { ...latest.guestCounts, savedAt: latest.savedAt || latest.discoveredAt } : null);
       setLoading(false);
     });
     return unsub;
-  }, [todayKey]);
+  }, []);
 
   const venues = [
     { key: 'aloha',   label: 'Aloha Luau',      color: '#f59e0b' },
@@ -2089,8 +2091,8 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
       ) : !counts ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-10 text-center">
           <p className="text-4xl mb-3">📊</p>
-          <p className="text-white font-semibold">No guest counts yet for today</p>
-          <p className="text-slate-500 text-sm mt-1">Counts appear here automatically once the Daily Counts PDF is processed.</p>
+          <p className="text-white font-semibold">No guest counts available</p>
+          <p className="text-slate-500 text-sm mt-1">Counts appear here automatically once the Food Prep PDF is processed by the watcher.</p>
         </div>
       ) : (
         <>
