@@ -42,7 +42,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'live-guest-count';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'live-guest-count' | 'office-schedules';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -58,6 +58,7 @@ const NAV_ITEMS: { id: HubSection; label: string; emoji: string }[] = [
   { id: 'directory',         label: 'Directory',         emoji: '👥' },
   { id: 'rules',             label: 'Rules & Policies',  emoji: '📜' },
   { id: 'live-guest-count',  label: 'Live Guest Count',  emoji: '👥' },
+  { id: 'office-schedules', label: 'Office Schedules',  emoji: '🗓️' },
 ];
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -296,7 +297,7 @@ export default function SystemHub({
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className="group flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 text-left w-full"
+                    className="group flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 text-left w-full"
                     style={active
                       ? { backgroundColor: roleColor, color: '#fff', boxShadow: `0 2px 12px ${roleColor}40` }
                       : { color: '#64748b' }
@@ -344,8 +345,8 @@ export default function SystemHub({
                         <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-[#06030b]" style={{ backgroundColor: rc }} />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[11px] font-semibold text-slate-200 truncate leading-tight">{u.name}</p>
-                        <p className="text-[9px] text-slate-500 truncate">{u.role}</p>
+                        <p className="text-[10px] font-semibold text-slate-200 truncate leading-tight">{u.name}</p>
+                        <p className="text-[8px] text-slate-500 truncate">{u.role}</p>
                       </div>
                     </button>
                   );
@@ -469,6 +470,11 @@ export default function SystemHub({
               currentUserName={currentUser.name}
               roleColor={roleColor}
             />
+          )}
+
+          {/* OFFICE SCHEDULES */}
+          {activeSection === 'office-schedules' && (
+            <OfficeSchedulesView roleColor={roleColor} />
           )}
 
         </main>
@@ -2087,6 +2093,7 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
           <p className="text-xs text-slate-500 mt-1">
             {loading ? 'Loading…' : updatedAt ? `Last updated at ${updatedAt}` : 'No data yet'}
           </p>
+          <p className="text-xs text-slate-600 mt-0.5">⏰ Active 6:30 AM – 7:30 PM (Hawaii time)</p>
         </div>
         <button
           onClick={handlePublish}
@@ -2103,6 +2110,7 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
           <p className="text-4xl mb-3">📊</p>
           <p className="text-white font-semibold">No guest counts available</p>
           <p className="text-slate-500 text-sm mt-1">Counts appear here automatically once the Food Prep PDF is processed by the watcher.</p>
+          <p className="text-slate-600 text-xs mt-2">⏰ Active hours: 6:30 AM – 7:30 PM (Hawaii time)</p>
         </div>
       ) : (
         <>
@@ -3637,6 +3645,125 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
         )}
       </div>
     </section>
+  );
+}
+
+// ── Office Schedules ──────────────────────────────────────────────────────────
+
+const OFFICE_SCHEDULE_DAYS = ['Monday', 'Tuesday', 'Thursday', 'Friday', 'Saturday'] as const;
+const DAY_TO_JS: Record<string, number> = { Monday: 1, Tuesday: 2, Thursday: 4, Friday: 5, Saturday: 6 };
+
+const OFFICE_SCHEDULE_ROWS: { name: string; shifts: Record<string, string[]> }[] = [
+  {
+    name: 'Linda',
+    shifts: {
+      Monday:   ['3:30 PM – 7:00 PM'],
+      Tuesday:  ['12:00 PM – 4:00 PM'],
+      Thursday: ['12:00 PM – 4:00 PM'],
+      Friday:   ['12:00 PM – 4:00 PM'],
+      Saturday: ['11:30 AM – 3:30 PM'],
+    },
+  },
+  {
+    name: 'Mayeen',
+    shifts: {
+      Monday:   ['3:30 PM – 7:00 PM'],
+      Tuesday:  ['3:30 PM – 7:00 PM'],
+      Thursday: ['3:30 PM – 7:00 PM'],
+      Friday:   ['3:30 PM – 7:00 PM'],
+      Saturday: ['11:30 AM – 3:30 PM'],
+    },
+  },
+  {
+    name: 'JD',
+    shifts: {
+      Monday:   ['3:30 PM – 7:00 PM'],
+      Tuesday:  ['3:30 PM – 7:00 PM'],
+      Thursday: ['3:30 PM – 7:00 PM'],
+      Friday:   ['1:00 PM – 4:30 PM'],
+      Saturday: ['11:30 AM – 4:00 PM'],
+    },
+  },
+  {
+    name: 'Bella',
+    shifts: {
+      Monday:   ['10:30 AM – 2:00 PM'],
+      Tuesday:  ['11:00 AM – 3:00 PM'],
+      Thursday: ['11:00 AM – 3:00 PM'],
+      Friday:   ['11:00 AM – 3:00 PM'],
+      Saturday: ['11:30 AM – 3:30 PM'],
+    },
+  },
+  {
+    name: 'Taylor',
+    shifts: {
+      Monday:   ['6:30–11:45 AM', '2:00–7:00 PM'],
+      Tuesday:  ['6:30–7:45 AM', '4:30–7:00 PM'],
+      Thursday: ['6:30–7:45 AM', '4:30–7:00 PM'],
+      Friday:   ['6:30–11:45 AM', '2:00–7:00 PM'],
+      Saturday: ['7:00 AM – 7:00 PM'],
+    },
+  },
+];
+
+function OfficeSchedulesView({ roleColor }: { roleColor: string }) {
+  const todayJs = new Date().getDay();
+
+  return (
+    <div className="p-4 sm:p-8 max-w-5xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-white mb-1">Office Schedules</h2>
+        <p className="text-sm text-slate-400">Weekly shift schedule for office staff.</p>
+      </div>
+      <div className="overflow-x-auto rounded-2xl border border-white/10" style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
+              <th className="text-left px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-white/10 w-24">Name</th>
+              {OFFICE_SCHEDULE_DAYS.map(day => {
+                const isToday = DAY_TO_JS[day] === todayJs;
+                return (
+                  <th
+                    key={day}
+                    className="px-3 py-3 text-[10px] font-black uppercase tracking-widest border-b border-white/10 text-center"
+                    style={isToday ? { color: roleColor, background: `${roleColor}12` } : { color: '#475569' }}
+                  >
+                    {day}
+                    {isToday && <span className="block text-[8px] normal-case tracking-normal font-semibold opacity-70">today</span>}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {OFFICE_SCHEDULE_ROWS.map((row, ri) => (
+              <tr key={row.name} style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                <td className="px-4 py-3 font-bold text-slate-200 border-b border-white/5 whitespace-nowrap">{row.name}</td>
+                {OFFICE_SCHEDULE_DAYS.map(day => {
+                  const isToday = DAY_TO_JS[day] === todayJs;
+                  const shifts = row.shifts[day] ?? [];
+                  return (
+                    <td
+                      key={day}
+                      className="px-3 py-3 text-center border-b border-white/5"
+                      style={isToday ? { background: `${roleColor}08` } : {}}
+                    >
+                      {shifts.length === 0 ? (
+                        <span className="text-slate-700">—</span>
+                      ) : (
+                        shifts.map((s, i) => (
+                          <div key={i} className="text-slate-300 leading-tight whitespace-nowrap">{s}</div>
+                        ))
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

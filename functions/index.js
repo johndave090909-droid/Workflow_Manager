@@ -823,6 +823,19 @@ exports.foodPrepWatcherScheduled = onSchedule(
     const STATUS_COL  = "food-prep_watcher_state";
     const LAYOUT_KEY  = "food-prep";
 
+    // Only run between 6:30 AM and 7:30 PM Hawaii time (HST = UTC-10, no DST)
+    const hawaiiParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Honolulu",
+      hour: "numeric", minute: "numeric", hour12: false,
+    }).formatToParts(new Date());
+    const hh = parseInt(hawaiiParts.find(p => p.type === "hour").value);
+    const mm = parseInt(hawaiiParts.find(p => p.type === "minute").value);
+    const minuteOfDay = hh * 60 + mm;
+    if (minuteOfDay < 390 || minuteOfDay > 1170) { // 390 = 6:30, 1170 = 19:30
+      console.log(`Food Prep: outside active hours (${hh}:${String(mm).padStart(2,"0")} HST) — skipping`);
+      return;
+    }
+
     // Extract bare folder ID from either a full Drive URL or a plain ID
     const extractFolderId = (val) => {
       if (!val) return "";
@@ -1115,5 +1128,11 @@ exports.foodPrepHistoryCleanup = onSchedule(
     snap.docs.forEach(d => batch.delete(d.ref));
     await batch.commit();
     console.log(`Food Prep Cleanup: deleted ${snap.docs.length} record(s) at midnight`);
+
+    // Reset lastModifiedTime so the next watcher run treats the current file as new
+    // and creates a fresh history entry (keeps Live Guest Count populated after cleanup)
+    await db.collection("food-prep_watcher_state").doc("status").set(
+      { lastModifiedTime: "" }, { merge: true }
+    );
   }
 );
