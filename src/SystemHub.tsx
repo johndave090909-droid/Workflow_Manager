@@ -474,7 +474,13 @@ export default function SystemHub({
 
           {/* OFFICE SCHEDULES */}
           {activeSection === 'office-schedules' && (
-            <OfficeSchedulesView roleColor={roleColor} />
+            <OfficeSchedulesView
+              roleColor={roleColor}
+              currentUser={currentUser}
+              isDirector={isDirector}
+              directoryUsers={directoryUsers}
+              onViewProfile={u => { setProfileUser(u); setActiveSection('member-profile'); }}
+            />
           )}
 
         </main>
@@ -3706,63 +3712,466 @@ const OFFICE_SCHEDULE_ROWS: { name: string; shifts: Record<string, string[]> }[]
   },
 ];
 
-function OfficeSchedulesView({ roleColor }: { roleColor: string }) {
+function parseShiftToMinutes(shift: string): [number, number] | null {
+  const idx = shift.indexOf('–');
+  if (idx === -1) return null;
+  const left = shift.slice(0, idx).trim();
+  const right = shift.slice(idx + 1).trim();
+  const toMin = (part: string, fallback?: string): number | null => {
+    const m = part.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+    if (!m) return null;
+    let h = parseInt(m[1]); const min = parseInt(m[2]);
+    const p = (m[3] || fallback || '').toUpperCase();
+    if (p === 'PM' && h !== 12) h += 12;
+    if (p === 'AM' && h === 12) h = 0;
+    return h * 60 + min;
+  };
+  const rp = right.match(/(AM|PM)$/i)?.[1];
+  const lp = left.match(/(AM|PM)$/i)?.[1] || rp;
+  const s = toMin(left.replace(/(AM|PM)/i, '').trim(), lp);
+  const e = toMin(right.replace(/(AM|PM)/i, '').trim(), rp);
+  if (s === null || e === null) return null;
+  return [s, e];
+}
+
+type ScheduleRow = { name: string; userId?: string; shifts: Record<string, string[]> };
+
+function OfficeSchedulesView({
+  roleColor, currentUser: _currentUser, isDirector, directoryUsers, onViewProfile,
+}: {
+  roleColor: string;
+  currentUser: User;
+  isDirector: boolean;
+  directoryUsers: User[];
+  onViewProfile: (u: User) => void;
+}) {
+  const [rows, setRows] = useState<ScheduleRow[]>(OFFICE_SCHEDULE_ROWS);
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft] = useState<ScheduleRow[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hawaiiNow, setHawaiiNow] = useState(() =>
+    new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' }))
+  );
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setHawaiiNow(new Date(new Date().toLocaleString('en-US', { timeZone: 'Pacific/Honolulu' })));
+    }, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    getDoc(doc(db, 'officeSchedule', 'main'))
+      .then(snap => { if (snap.exists() && snap.data().rows) setRows(snap.data().rows); })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const hawaiiDay = hawaiiNow.getDay();
+  const hawaiiMinutes = hawaiiNow.getHours() * 60 + hawaiiNow.getMinutes();
   const todayJs = new Date().getDay();
+
+  const startEdit = () => {
+    setDraft(rows.map(r => ({
+      name: r.name,
+      userId: r.userId,
+      shifts: Object.fromEntries(OFFICE_SCHEDULE_DAYS.map(d => [d, [...(r.shifts[d] ?? [])]]))
+    })));
+    setEditMode(true);
+  };
+
+  const [editingShift, setEditingShift] = useState<{ rowIdx: number; day: string; shiftIdx: number | null } | null>(null);
+  const [shiftDraft, setShiftDraft] = useState({ start: '', end: '' });
+
+  const to24h = (time12: string): string => {
+    const m = time12.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (!m) return '';
+    let h = parseInt(m[1]); const min = m[2]; const p = m[3].toUpperCase();
+    if (p === 'PM' && h !== 12) h += 12;
+    if (p === 'AM' && h === 12) h = 0;
+    return `${String(h).padStart(2, '0')}:${min}`;
+  };
+
+  const to12h = (time24: string): string => {
+    const [hStr, min] = time24.split(':');
+    let h = parseInt(hStr); const period = h >= 12 ? 'PM' : 'AM';
+    if (h > 12) h -= 12; if (h === 0) h = 12;
+    return `${h}:${min} ${period}`;
+  };
+
+  const parseShiftTimes = (shift: string): { start: string; end: string } => {
+    const idx = shift.indexOf('–');
+    if (idx === -1) return { start: '', end: '' };
+    const left = shift.slice(0, idx).trim();
+    const right = shift.slice(idx + 1).trim();
+    const rp = right.match(/(AM|PM)$/i)?.[1];
+    const lp = left.match(/(AM|PM)$/i)?.[1] || rp;
+    const leftFull = left.match(/(AM|PM)/i) ? left : `${left} ${lp ?? ''}`;
+    const rightFull = right.match(/(AM|PM)/i) ? right : `${right} ${rp ?? ''}`;
+    return { start: to24h(leftFull.trim()), end: to24h(rightFull.trim()) };
+  };
+
+  const openTimePicker = (rowIdx: number, day: string, shiftIdx: number | null) => {
+    if (shiftIdx !== null) {
+      const shift = draft[rowIdx]?.shifts[day]?.[shiftIdx] ?? '';
+      setShiftDraft(parseShiftTimes(shift));
+    } else {
+      setShiftDraft({ start: '', end: '' });
+    }
+    setEditingShift({ rowIdx, day, shiftIdx });
+  };
+
+  const confirmShift = () => {
+    if (!editingShift || !shiftDraft.start || !shiftDraft.end) return;
+    const { rowIdx, day, shiftIdx } = editingShift;
+    const formatted = `${to12h(shiftDraft.start)} – ${to12h(shiftDraft.end)}`;
+    setDraft(prev => prev.map((r, i) => {
+      if (i !== rowIdx) return r;
+      const shifts = [...(r.shifts[day] ?? [])];
+      if (shiftIdx !== null) shifts[shiftIdx] = formatted; else shifts.push(formatted);
+      return { ...r, shifts: { ...r.shifts, [day]: shifts } };
+    }));
+    setEditingShift(null);
+  };
+
+  const removeShift = (rowIdx: number, day: string, shiftIdx: number) => {
+    setDraft(prev => prev.map((r, i) => {
+      if (i !== rowIdx) return r;
+      const shifts = (r.shifts[day] ?? []).filter((_, si) => si !== shiftIdx);
+      return { ...r, shifts: { ...r.shifts, [day]: shifts } };
+    }));
+  };
+
+  const updateDraftUser = (rowIdx: number, userId: string) => {
+    const linked = directoryUsers.find(u => u.id === userId);
+    setDraft(prev => prev.map((r, i) => i !== rowIdx ? r : {
+      ...r,
+      userId: userId || undefined,
+      name: linked ? linked.name : r.name,
+    }));
+  };
+
+  const updateDraftName = (rowIdx: number, name: string) => {
+    setDraft(prev => prev.map((r, i) => i !== rowIdx ? r : { ...r, name }));
+  };
+
+  const addRow = () => {
+    setDraft(prev => [...prev, {
+      name: '',
+      userId: undefined,
+      shifts: Object.fromEntries(OFFICE_SCHEDULE_DAYS.map(d => [d, []]))
+    }]);
+  };
+
+  const removeRow = (rowIdx: number) => {
+    setDraft(prev => prev.filter((_, i) => i !== rowIdx));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaveError('');
+    try {
+      // Strip undefined fields — Firestore rejects them
+      const cleanRows = draft.map(r => {
+        const row: Record<string, unknown> = { name: r.name, shifts: r.shifts };
+        if (r.userId) row.userId = r.userId;
+        return row;
+      });
+      await setDoc(doc(db, 'officeSchedule', 'main'), { rows: cleanRows });
+      setRows(draft);
+      setEditMode(false);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed. Please try again.');
+    }
+    setSaving(false);
+  };
+
+  const displayRows = editMode ? draft : rows;
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white mb-1">Office Schedules</h2>
-        <p className="text-sm text-slate-400">Weekly shift schedule for office staff.</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-1">Office Schedules</h2>
+          <p className="text-sm text-slate-400">Weekly shift schedule for office staff.</p>
+        </div>
+        {isDirector && !editMode && (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <button
+              onClick={startEdit}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all border"
+              style={{ borderColor: `${roleColor}50`, color: roleColor, background: `${roleColor}12` }}
+            >✏️ Edit Schedule</button>
+            <span className="text-[9px] text-slate-600 font-semibold tracking-wide">🔒 Only you can edit this</span>
+          </div>
+        )}
+        {isDirector && editMode && (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {saveError && <p className="text-[10px] text-red-400 max-w-[200px] text-right">{saveError}</p>}
+            <div className="flex items-center gap-2">
+            <button onClick={() => { setEditMode(false); setSaveError(''); }} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-400 hover:text-white border border-white/10 transition-all">Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all disabled:opacity-50" style={{ background: roleColor }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="overflow-x-auto rounded-2xl border border-white/10" style={{ background: 'rgba(255,255,255,0.03)' }}>
-        <table className="w-full border-collapse text-xs">
-          <thead>
-            <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
-              <th className="text-left px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-white/10 w-24">Name</th>
-              {OFFICE_SCHEDULE_DAYS.map(day => {
-                const isToday = DAY_TO_JS[day] === todayJs;
-                return (
-                  <th
-                    key={day}
-                    className="px-3 py-3 text-[10px] font-black uppercase tracking-widest border-b border-white/10 text-center"
-                    style={isToday ? { color: roleColor, background: `${roleColor}12` } : { color: '#475569' }}
-                  >
-                    {day}
-                    {isToday && <span className="block text-[8px] normal-case tracking-normal font-semibold opacity-70">today</span>}
+
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+        </div>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-2xl border border-white/10" style={{ background: 'rgba(255,255,255,0.03)' }}>
+            <table className="w-full border-collapse text-xs">
+              <thead>
+                <tr style={{ background: 'rgba(255,255,255,0.05)' }}>
+                  <th className="text-left px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-white/10 w-40">
+                    {editMode ? 'Member' : 'Name'}
                   </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {OFFICE_SCHEDULE_ROWS.map((row, ri) => (
-              <tr key={row.name} style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
-                <td className="px-4 py-3 font-bold text-slate-200 border-b border-white/5 whitespace-nowrap">{row.name}</td>
-                {OFFICE_SCHEDULE_DAYS.map(day => {
-                  const isToday = DAY_TO_JS[day] === todayJs;
-                  const shifts = row.shifts[day] ?? [];
+                  {OFFICE_SCHEDULE_DAYS.map(day => {
+                    const isToday = DAY_TO_JS[day] === todayJs;
+                    return (
+                      <th key={day} className="px-3 py-3 text-[10px] font-black uppercase tracking-widest border-b border-white/10 text-center"
+                        style={isToday ? { color: roleColor, background: `${roleColor}12` } : { color: '#475569' }}>
+                        {day}
+                        {isToday && <span className="block text-[8px] normal-case tracking-normal font-semibold opacity-70">today</span>}
+                      </th>
+                    );
+                  })}
+                  {editMode && <th className="px-2 py-3 border-b border-white/10 w-8" />}
+                </tr>
+              </thead>
+              <tbody>
+                {displayRows.map((row, ri) => {
+                  const linkedUser = directoryUsers.find(u => u.id === row.userId);
+                  const todayKey = OFFICE_SCHEDULE_DAYS.find(d => DAY_TO_JS[d] === hawaiiDay);
+                  const todayShifts = todayKey ? (row.shifts[todayKey] ?? []) : [];
+                  const presentNow = todayShifts.some(s => {
+                    const r = parseShiftToMinutes(s);
+                    return r ? hawaiiMinutes >= r[0] && hawaiiMinutes < r[1] : false;
+                  });
+                  const rc = linkedUser ? (ROLE_PALETTE[linkedUser.role] ?? '#64748b') : '#64748b';
+
                   return (
-                    <td
-                      key={day}
-                      className="px-3 py-3 text-center border-b border-white/5"
-                      style={isToday ? { background: `${roleColor}08` } : {}}
-                    >
-                      {shifts.length === 0 ? (
-                        <span className="text-slate-700">—</span>
-                      ) : (
-                        shifts.map((s, i) => (
-                          <div key={i} className="text-slate-300 leading-tight whitespace-nowrap">{s}</div>
-                        ))
+                    <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)' }}>
+                      <td className="px-4 py-3 border-b border-white/5">
+                        {editMode ? (
+                          <div className="flex flex-col gap-1.5 min-w-[160px]">
+                            {/* Custom styled dropdown */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setOpenDropdown(openDropdown === ri ? null : ri)}
+                                className="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded border text-xs text-left transition-colors"
+                                style={{ background: 'rgba(255,255,255,0.06)', borderColor: openDropdown === ri ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.1)', color: row.userId ? '#e2e8f0' : '#64748b' }}
+                              >
+                                <span className="truncate">
+                                  {row.userId
+                                    ? directoryUsers.find(u => u.id === row.userId)?.name ?? '— No account —'
+                                    : '— No account —'}
+                                </span>
+                                <span className="text-slate-500 shrink-0 text-[9px]">{openDropdown === ri ? '▲' : '▼'}</span>
+                              </button>
+                              {openDropdown === ri && (
+                                <>
+                                <div className="fixed inset-0 z-40" onClick={() => setOpenDropdown(null)} />
+                                <div
+                                  className="absolute z-50 left-0 top-full mt-1 w-56 rounded-xl border border-white/10 overflow-y-auto shadow-2xl"
+                                  style={{ background: '#1a1025', maxHeight: '220px' }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => { updateDraftUser(ri, ''); setOpenDropdown(null); }}
+                                    className="w-full text-left px-3 py-2 text-xs text-slate-500 hover:bg-white/8 transition-colors border-b border-white/5"
+                                    style={{ background: !row.userId ? 'rgba(255,255,255,0.05)' : 'transparent' }}
+                                  >— No account —</button>
+                                  {directoryUsers.filter(u =>
+                                    !draft.some((r, i) => i !== ri && r.userId === u.id)
+                                  ).map(u => (
+                                    <button
+                                      key={u.id}
+                                      type="button"
+                                      onClick={() => { updateDraftUser(ri, u.id); setOpenDropdown(null); }}
+                                      className="w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                                      style={row.userId === u.id ? { background: `${roleColor}20`, color: roleColor } : { color: '#cbd5e1' }}
+                                      onMouseEnter={e => { if (row.userId !== u.id) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; }}
+                                      onMouseLeave={e => { if (row.userId !== u.id) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                                    >
+                                      <img src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`} className="w-5 h-5 rounded-full object-cover shrink-0" alt="" />
+                                      <span className="truncate flex-1">{u.name}</span>
+                                      <span className="text-[9px] text-slate-500 shrink-0">{u.role}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                </>
+                              )}
+                            </div>
+                            {!row.userId && (
+                              <input
+                                value={row.name}
+                                onChange={e => updateDraftName(ri, e.target.value)}
+                                placeholder="Name"
+                                className="w-full bg-white/5 border border-white/10 rounded px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-white/30"
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 whitespace-nowrap">
+                            {presentNow ? (
+                              <span className="relative flex h-2 w-2 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                              </span>
+                            ) : (
+                              <span className="w-2 h-2 rounded-full bg-slate-700 shrink-0" />
+                            )}
+                            {linkedUser ? (
+                              <button
+                                onClick={() => onViewProfile(linkedUser)}
+                                className="flex items-center gap-2 group"
+                                title={`View ${linkedUser.name}'s profile`}
+                              >
+                                <img
+                                  src={linkedUser.photo || `https://picsum.photos/seed/${linkedUser.id}/100/100`}
+                                  className="w-6 h-6 rounded-full object-cover shrink-0"
+                                  style={{ border: `1.5px solid ${rc}70` }}
+                                  alt={linkedUser.name}
+                                />
+                                <span className="font-bold text-slate-200 group-hover:underline group-hover:text-white transition-colors">{linkedUser.name}</span>
+                              </button>
+                            ) : (
+                              <span className="font-bold text-slate-200">{row.name || '—'}</span>
+                            )}
+                            {presentNow && (
+                              <span className="text-[8px] font-black uppercase tracking-widest text-green-400 px-1.5 py-0.5 rounded-full border border-green-500/30 bg-green-500/10">In</span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      {OFFICE_SCHEDULE_DAYS.map(day => {
+                        const isToday = DAY_TO_JS[day] === todayJs;
+                        const shifts = row.shifts[day] ?? [];
+                        return (
+                          <td key={day}
+                            className="border-b border-white/5 align-top"
+                            style={{ ...(isToday ? { background: `${roleColor}08` } : {}), padding: editMode ? '10px 8px' : '12px' }}>
+                            {editMode ? (
+                              <div className="flex flex-col gap-1.5 min-w-[140px]">
+                                {shifts.map((s, si) => (
+                                  <div key={si} className="flex items-center gap-1 rounded-lg border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openTimePicker(ri, day, si)}
+                                      className="flex-1 text-left px-2 py-2 text-xs text-slate-200 hover:text-white transition-colors leading-tight"
+                                    >{s}</button>
+                                    <button
+                                      type="button"
+                                      onClick={() => removeShift(ri, day, si)}
+                                      className="px-2 py-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm leading-none"
+                                    >×</button>
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() => openTimePicker(ri, day, null)}
+                                  className="text-[10px] text-slate-600 hover:text-slate-300 border border-dashed border-white/15 rounded-lg px-2 py-1.5 transition-colors text-center"
+                                >+ shift</button>
+                              </div>
+                            ) : shifts.length === 0 ? (
+                              <span className="text-slate-700">—</span>
+                            ) : (
+                              <div className="flex flex-col gap-0.5">
+                                {shifts.map((s, i) => (
+                                  <div key={i} className="text-slate-300 text-xs leading-tight whitespace-nowrap">{s}</div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                      {editMode && (
+                        <td className="px-2 py-3 border-b border-white/5 align-middle text-center">
+                          <button
+                            onClick={() => removeRow(ri)}
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all text-xs font-bold"
+                            title="Remove row"
+                          >×</button>
+                        </td>
                       )}
-                    </td>
+                    </tr>
                   );
                 })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+              </tbody>
+            </table>
+          </div>
+
+          {editMode && (
+            <button
+              onClick={addRow}
+              className="mt-3 flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border border-dashed border-white/20 text-slate-500 hover:text-white hover:border-white/40 transition-all w-full justify-center"
+            >
+              + Add Member
+            </button>
+          )}
+        </>
+      )}
+
+      {/* Time picker modal */}
+      {editingShift && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={() => setEditingShift(null)}>
+          <div className="rounded-2xl border border-white/10 p-5 shadow-2xl w-72" style={{ background: '#1a1025' }} onClick={e => e.stopPropagation()}>
+            <h4 className="text-sm font-bold text-white mb-1">
+              {editingShift.shiftIdx !== null ? 'Edit Shift' : 'Add Shift'}
+            </h4>
+            <p className="text-[10px] text-slate-500 mb-4 uppercase tracking-widest">{editingShift.day}</p>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase tracking-widest mb-1.5 block">Start Time</label>
+                <input
+                  type="time"
+                  value={shiftDraft.start}
+                  onChange={e => setShiftDraft(d => ({ ...d, start: e.target.value }))}
+                  className="w-full rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none border border-white/10 focus:border-white/30"
+                  style={{ background: 'rgba(255,255,255,0.06)', colorScheme: 'dark' }}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-500 uppercase tracking-widest mb-1.5 block">End Time</label>
+                <input
+                  type="time"
+                  value={shiftDraft.end}
+                  onChange={e => setShiftDraft(d => ({ ...d, end: e.target.value }))}
+                  className="w-full rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none border border-white/10 focus:border-white/30"
+                  style={{ background: 'rgba(255,255,255,0.06)', colorScheme: 'dark' }}
+                />
+              </div>
+              {shiftDraft.start && shiftDraft.end && (
+                <p className="text-xs text-slate-400 text-center">
+                  {to12h(shiftDraft.start)} – {to12h(shiftDraft.end)}
+                </p>
+              )}
+              <div className="flex gap-2 mt-1">
+                <button onClick={() => setEditingShift(null)} className="flex-1 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white border border-white/10 transition-all">
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmShift}
+                  disabled={!shiftDraft.start || !shiftDraft.end}
+                  className="flex-1 py-2 rounded-xl text-xs font-bold text-white transition-all disabled:opacity-40"
+                  style={{ background: roleColor }}
+                >
+                  {editingShift.shiftIdx !== null ? 'Update' : 'Add Shift'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
