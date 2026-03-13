@@ -3045,7 +3045,12 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
           {historyOpen && (
             <div className="flex-1 overflow-y-auto">
               {history.length === 0 ? (
-                <p className="text-slate-600 text-[10px] text-center mt-6">No PDFs found yet — the Drive folder is polled automatically every 5 minutes.</p>
+                <div className="text-center mt-6">
+                  <p className="text-slate-600 text-[10px]">No PDFs found yet — the Drive folder is polled automatically every 5 minutes.</p>
+                  {isFoodPrep && (
+                    <p className="text-slate-700 text-[10px] mt-1">⏰ Active hours: 6:30 AM – 7:30 PM (Hawaii time)</p>
+                  )}
+                </div>
               ) : (
                 <div className="divide-y divide-white/5">
                   {(isFoodPrep ? history.slice(0, 1) : history).map(file => {
