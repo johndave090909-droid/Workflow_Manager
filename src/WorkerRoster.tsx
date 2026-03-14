@@ -1,6 +1,6 @@
 import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { Calendar, LogOut, Plus, Save, Trash2, Copy, RefreshCw } from 'lucide-react';
+import { Calendar, LogOut, Plus, Save, Copy, RefreshCw } from 'lucide-react';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import type { User } from './types';
@@ -339,6 +339,7 @@ export default function WorkerRoster({
   const [googleSyncInfo, setGoogleSyncInfo] = useState<{ spreadsheetId: string | null; sheetName: string } | null>(null);
   const [lastGoogleHash, setLastGoogleHash] = useState<string | null>(null);
   const [googleSyncConflict, setGoogleSyncConflict] = useState(false);
+  const [googleRowColors, setGoogleRowColors] = useState<Record<string, string | null>>({});
 
   const resizeStateRef = useRef<
     | { kind: 'col'; colKey: string; startX: number; startWidth: number }
@@ -386,7 +387,13 @@ export default function WorkerRoster({
                 const pulled = await pullResp.json();
                 const pulledRows = normalizeRows(pulled.rows);
                 const pulledCustom = normalizeCustomColumns(pulled.customColumns);
-                setRows(pulledRows.length > 0 ? pulledRows.map((r) => ({ ...r, id: r.id || makeId() })) : []);
+                const rowsWithIds = pulledRows.length > 0 ? pulledRows.map((r) => ({ ...r, id: r.id || makeId() })) : [];
+                setRows(rowsWithIds);
+                if (Array.isArray(pulled.rowColors)) {
+                  const cm: Record<string, string | null> = {};
+                  rowsWithIds.forEach((r, i) => { cm[r.id] = pulled.rowColors[i] ?? null; });
+                  setGoogleRowColors(cm);
+                }
                 setCustomColumns(pulledCustom);
                 setLastGoogleHash(typeof pulled.hash === 'string' ? pulled.hash : null);
                 setLastSavedLabel(`Google Sheets connected (${pulled.sheetName ?? status.sheetName ?? 'Workers'})`);
@@ -581,7 +588,13 @@ export default function WorkerRoster({
     const pulled = await resp.json();
     const pulledRows = normalizeRows(pulled.rows);
     const pulledCustom = normalizeCustomColumns(pulled.customColumns);
-    setRows(pulledRows.map((r) => ({ ...r, id: r.id || makeId() })));
+    const rowsWithIds = pulledRows.map((r) => ({ ...r, id: r.id || makeId() }));
+    setRows(rowsWithIds);
+    if (Array.isArray(pulled.rowColors)) {
+      const cm: Record<string, string | null> = {};
+      rowsWithIds.forEach((r, i) => { cm[r.id] = pulled.rowColors[i] ?? null; });
+      setGoogleRowColors(cm);
+    }
     setCustomColumns(pulledCustom);
     setLastGoogleHash(typeof pulled.hash === 'string' ? pulled.hash : null);
     setGoogleSyncConflict(false);
@@ -664,7 +677,13 @@ export default function WorkerRoster({
         if (typeof pulled.hash === 'string' && pulled.hash === lastGoogleHash) return;
         const pulledRows = normalizeRows(pulled.rows);
         const pulledCustom = normalizeCustomColumns(pulled.customColumns);
-        setRows(pulledRows.map((r) => ({ ...r, id: r.id || makeId() })));
+        const rowsWithIds = pulledRows.map((r) => ({ ...r, id: r.id || makeId() }));
+        setRows(rowsWithIds);
+        if (Array.isArray(pulled.rowColors)) {
+          const cm: Record<string, string | null> = {};
+          rowsWithIds.forEach((r, i) => { cm[r.id] = pulled.rowColors[i] ?? null; });
+          setGoogleRowColors(cm);
+        }
         setCustomColumns(pulledCustom);
         setLastGoogleHash(typeof pulled.hash === 'string' ? pulled.hash : null);
         setGoogleSyncConflict(false);
@@ -945,7 +964,7 @@ export default function WorkerRoster({
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0510] text-white">
+    <div className="h-screen flex flex-col bg-[#0a0510] text-white overflow-hidden">
       <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <button onClick={onBackToHub} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 transition-all text-xs font-bold text-slate-300">
@@ -968,7 +987,7 @@ export default function WorkerRoster({
         </div>
       </header>
 
-      <main className="p-4 sm:p-6 lg:p-8 space-y-4">
+      <main className="flex-1 flex flex-col min-h-0 p-4 sm:p-6 lg:p-8 gap-4 overflow-hidden">
         <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
           <div className="flex flex-col xl:flex-row xl:items-center gap-3 xl:gap-4 justify-between">
             <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2">
@@ -1044,11 +1063,11 @@ export default function WorkerRoster({
           {error && <p className="mt-3 text-xs text-rose-300">{error}</p>}
         </div>
 
-        <div className="rounded-3xl border border-white/10 overflow-hidden">
+        <div className="flex-1 min-h-0 rounded-3xl border border-white/10 overflow-hidden flex flex-col">
           <div
             ref={gridScrollRef}
             onScroll={(e) => setGridScrollTop((e.currentTarget as HTMLDivElement).scrollTop)}
-            className="overflow-auto bg-[#f4f4f5] max-h-[75vh]"
+            className="flex-1 overflow-auto bg-[#f4f4f5]"
           >
             <table className="border-collapse table-fixed text-[#111827]" style={{ width: `${tableWidth}px`, minWidth: `${tableWidth}px` }}>
               <colgroup>
@@ -1173,7 +1192,7 @@ export default function WorkerRoster({
                 )}
 
                 {!loading && virtualRows.visible.map(({ row, index }) => {
-                  const tint = getRowTint(row);
+                  const tint = (row.id in googleRowColors ? googleRowColors[row.id] : null) ?? getRowTint(row);
                   const rowHeight = rowHeights[row.id] ?? DEFAULT_ROW_HEIGHT;
                   return (
                     <tr key={row.id} style={{ backgroundColor: tint, height: `${rowHeight}px` }}>
@@ -1267,9 +1286,6 @@ export default function WorkerRoster({
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => duplicateRow(row.id)} disabled={viewOnly} title="Duplicate row" className="h-7 w-7 inline-flex items-center justify-center rounded bg-white/70 hover:bg-white text-slate-700 disabled:opacity-40">
                             <Copy size={13} />
-                          </button>
-                          <button onClick={() => deleteRow(row.id)} disabled={viewOnly} title="Delete row" className="h-7 w-7 inline-flex items-center justify-center rounded bg-rose-100 hover:bg-rose-200 text-rose-700 disabled:opacity-40">
-                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>

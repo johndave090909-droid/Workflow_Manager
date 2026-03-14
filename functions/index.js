@@ -92,6 +92,15 @@ async function sheetsApi(pathname, init = {}) {
   return resp;
 }
 
+function gSheetColorToRgba(c) {
+  if (!c || typeof c !== "object") return null;
+  const r = Math.round((c.red ?? 0) * 255);
+  const g = Math.round((c.green ?? 0) * 255);
+  const b = Math.round((c.blue ?? 0) * 255);
+  if (r >= 252 && g >= 252 && b >= 252) return null; // treat white as no color
+  return `rgba(${r},${g},${b},0.55)`;
+}
+
 function normalizeSheetCell(v) {
   return typeof v === "string" ? v : (v == null ? "" : String(v));
 }
@@ -151,14 +160,43 @@ async function readWorkerRosterFromGoogleSheet() {
   const { spreadsheetId, sheetName } = getWorkerSheetConfig();
   if (!spreadsheetId) throw new Error("GOOGLE_WORKER_ROSTER_SPREADSHEET_ID is not set");
   const range = encodeURIComponent(`${sheetName}!A:ZZ`);
-  const resp = await sheetsApi(`spreadsheets/${spreadsheetId}/values/${range}`);
-  const data = await resp.json();
-  const parsed = parseWorkerRosterFromSheet(data.values || []);
+  const colARange = encodeURIComponent(`${sheetName}!A:A`);
+  const fmtFields = encodeURIComponent("sheets(data(rowData(values(userEnteredFormat(backgroundColor,backgroundColorStyle)))))");
+
+  const [valuesResp, fmtResp] = await Promise.all([
+    sheetsApi(`spreadsheets/${spreadsheetId}/values/${range}`),
+    sheetsApi(`spreadsheets/${spreadsheetId}?includeGridData=true&ranges=${colARange}&fields=${fmtFields}`)
+      .catch(() => null),
+  ]);
+
+  const data = await valuesResp.json();
+  const fmtData = fmtResp ? await fmtResp.json().catch(() => ({})) : {};
+  const rawValues = data.values || [];
+
+  // Extract background colors per data row (skip header at index 0), aligned with non-empty rows
+  // newer Sheets uses backgroundColorStyle.rgbColor; fall back to backgroundColor
+  const fmtRowData = fmtData?.sheets?.[0]?.data?.[0]?.rowData || [];
+  const allColors = fmtRowData.slice(1).map((rd) => {
+    const fmt = rd?.values?.[0]?.userEnteredFormat;
+    const c = fmt?.backgroundColorStyle?.rgbColor ?? fmt?.backgroundColor;
+    return gSheetColorToRgba(c);
+  });
+  const dataRows = rawValues.slice(1);
+  const rowColors = [];
+  dataRows.forEach((r, i) => {
+    const normalized = Array.isArray(r) ? r.map(normalizeSheetCell) : [];
+    if (normalized.some((v) => v.trim() !== "")) {
+      rowColors.push(allColors[i] ?? null);
+    }
+  });
+
+  const parsed = parseWorkerRosterFromSheet(rawValues);
   return {
     spreadsheetId,
     sheetName,
     ...parsed,
-    hash: crypto.createHash("sha256").update(JSON.stringify(data.values || [])).digest("hex"),
+    rowColors,
+    hash: crypto.createHash("sha256").update(JSON.stringify(rawValues)).digest("hex"),
   };
 }
 
@@ -639,6 +677,20 @@ exports.workerRosterGoogleApi = onRequest({ region: "us-central1", cors: true },
     if (req.method === "GET" && path.endsWith("/pull")) {
       const data = await readWorkerRosterFromGoogleSheet();
       return sendJson(res, 200, data);
+    }
+
+    if (req.method === "GET" && path.endsWith("/debug-colors")) {
+      const { spreadsheetId, sheetName } = getWorkerSheetConfig();
+      const colARange = encodeURIComponent(`${sheetName}!A:A`);
+      const fmtFields = encodeURIComponent("sheets(data(rowData(values(userEnteredFormat(backgroundColor,backgroundColorStyle)))))");
+      let raw = null, error = null;
+      try {
+        const resp = await sheetsApi(`spreadsheets/${spreadsheetId}?includeGridData=true&ranges=${colARange}&fields=${fmtFields}`);
+        raw = await resp.json();
+      } catch (e) {
+        error = e?.message;
+      }
+      return sendJson(res, 200, { error, raw });
     }
 
     if ((req.method === "PUT" || req.method === "POST") && path.endsWith("/push")) {
