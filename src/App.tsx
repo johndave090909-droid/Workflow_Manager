@@ -21,6 +21,7 @@ import SystemHub from './SystemHub';
 import SystemAdminPanel from './SystemAdminPanel';
 import WorkflowAutomation from './WorkflowAutomation';
 import WorkerRoster from './WorkerRoster';
+import ShiftFlowApp from './ShiftFlow/ShiftFlowApp';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -142,7 +143,7 @@ export default function App() {
   const [currentView,     setCurrentView]     = useState<AppView>(() => {
     try {
       const saved = localStorage.getItem('app_current_view');
-      const validViews: AppView[] = ['hub', 'tracker', 'workflow', 'workers', 'it-admin'];
+      const validViews: AppView[] = ['hub', 'tracker', 'workflow', 'workers', 'it-admin', 'scheduler'];
       if (validViews.includes(saved as AppView)) return saved as AppView;
     } catch {}
     return 'hub';
@@ -491,6 +492,13 @@ export default function App() {
     </>
   );
 
+
+  if (currentView === 'scheduler') return (
+    <>
+      <ShiftFlowApp />
+      <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
+    </>
+  );
 
   if (currentView === 'it-admin') {
     if (!perms.access_it_admin) { setCurrentView('hub'); return null; }

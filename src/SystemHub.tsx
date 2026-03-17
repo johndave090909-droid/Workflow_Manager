@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { format } from 'date-fns';
 import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
@@ -1327,6 +1328,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
         if (profileUser.role === 'Accountant') {
           return (
             <div>
+              <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
               <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
               <WorkDocuments {...docProps} />
             </div>
@@ -1342,6 +1344,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           };
           return (
             <div className="space-y-4">
+              <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Tools</p>
               {wfCard ? (
                 <SystemCardTile card={wfCard} onNavigate={navigateToWorkflow} />
@@ -1365,6 +1368,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
         }
         return (
           <div>
+            <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
             <WorkDocuments {...docProps} />
           </div>
         );
@@ -1528,6 +1532,195 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
         </div>
       </div>
       </div>}
+    </div>
+  );
+}
+
+// ── Per-member custom sections ──────────────────────────────────────────────────
+
+type CustomSection =
+  | { id: string; type: 'chart'; title: string; weekKey?: string }
+  | { id: string; type: 'notes'; title: string; content: string };
+
+function LaborChart({ profileUserId, section, onWeekChange }: {
+  profileUserId: string;
+  section: { id: string; type: 'chart'; title: string; weekKey?: string };
+  onWeekChange: (weekKey: string) => void;
+}) {
+  const [hours, setHours] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const weeks = useMemo(() => {
+    const base = new Date();
+    const day = base.getDay();
+    base.setDate(base.getDate() + (day === 0 ? -6 : 1 - day) - 14);
+    base.setHours(0, 0, 0, 0);
+    return getLaborWeeks(base, 8);
+  }, []);
+  const [selectedWeek, setSelectedWeek] = useState(section.weekKey || '');
+  useEffect(() => {
+    if (!selectedWeek && weeks.length) setSelectedWeek(weeks[weeks.length - 1].key);
+  }, [weeks, selectedWeek]);
+  useEffect(() => {
+    getDoc(doc(db, 'users', profileUserId, 'work_data', 'labor_report'))
+      .then(snap => { if (snap.exists()) setHours(snap.data().stationHours || {}); })
+      .finally(() => setLoading(false));
+  }, [profileUserId]);
+
+  const handleWeekChange = (key: string) => { setSelectedWeek(key); onWeekChange(key); };
+
+  const data = LABOR_STATIONS
+    .map(st => ({ name: st.name.length > 14 ? st.name.slice(0, 14) + '…' : st.name, hours: parseFloat(hours[`${st.name}||${selectedWeek}`] || '0') || 0, highlight: st.highlight }))
+    .filter(d => d.hours > 0);
+
+  if (loading) return <div className="text-xs text-slate-600 p-4 text-center">Loading…</div>;
+
+  return (
+    <div className="space-y-3">
+      <select value={selectedWeek} onChange={e => handleWeekChange(e.target.value)}
+        className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:outline-none">
+        {weeks.map(w => <option key={w.key} value={w.key}>{w.label}</option>)}
+      </select>
+      {data.length === 0
+        ? <p className="text-xs text-slate-600 italic">No hours recorded for this week.</p>
+        : (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 50 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 9 }} angle={-35} textAnchor="end" interval={0} />
+              <YAxis tick={{ fill: '#64748b', fontSize: 9 }} />
+              <Tooltip contentStyle={{ background: '#0d0816', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }} />
+              <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
+                {data.map((entry, i) => <Cell key={i} fill={entry.highlight ? '#d4a0bc' : '#8b5cf6'} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )
+      }
+    </div>
+  );
+}
+
+function NotesSection({ section, isDirector, onSave }: {
+  section: { id: string; type: 'notes'; title: string; content: string };
+  isDirector: boolean;
+  onSave: (content: string) => void;
+}) {
+  const [value, setValue] = useState(section.content || '');
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => { setSaving(true); await onSave(value); setDirty(false); setSaving(false); };
+  return (
+    <div className="space-y-2">
+      <textarea value={value}
+        onChange={e => { setValue(e.target.value); setDirty(true); }}
+        rows={4} readOnly={!isDirector}
+        placeholder={isDirector ? 'Enter notes…' : 'No notes yet.'}
+        className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-300 placeholder-slate-700 resize-none focus:outline-none focus:border-white/20 transition-colors"
+      />
+      {isDirector && dirty && (
+        <button onClick={handleSave} disabled={saving}
+          className="px-4 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CustomSectionsPanel({ profileUser, isDirector }: { profileUser: User; isDirector: boolean }) {
+  const sectionsRef = doc(db, 'users', profileUser.id, 'work_data', 'custom_sections');
+  const [sections, setSections] = useState<CustomSection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [newType, setNewType] = useState<'chart' | 'notes'>('chart');
+  const [newTitle, setNewTitle] = useState('');
+
+  useEffect(() => {
+    getDoc(sectionsRef)
+      .then(snap => { if (snap.exists()) setSections(snap.data().sections || []); })
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileUser.id]);
+
+  const persist = async (updated: CustomSection[]) => {
+    await setDoc(sectionsRef, { sections: updated });
+    setSections(updated);
+  };
+
+  const addSection = async () => {
+    if (!newTitle.trim()) return;
+    const s: CustomSection = newType === 'chart'
+      ? { id: Date.now().toString(), type: 'chart', title: newTitle.trim() }
+      : { id: Date.now().toString(), type: 'notes', title: newTitle.trim(), content: '' };
+    await persist([...sections, s]);
+    setNewTitle(''); setAdding(false);
+  };
+
+  const deleteSection = (id: string) => persist(sections.filter(s => s.id !== id));
+
+  const updateSection = (id: string, patch: Partial<CustomSection>) =>
+    persist(sections.map(s => s.id === id ? { ...s, ...patch } as CustomSection : s));
+
+  if (loading) return null;
+  if (!isDirector && sections.length === 0) return null;
+
+  return (
+    <div className="space-y-4 mb-4">
+      {sections.map(section => (
+        <div key={section.id} className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{section.title}</p>
+            {isDirector && (
+              <button onClick={() => deleteSection(section.id)}
+                className="p-1 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 text-xs transition-colors">✕</button>
+            )}
+          </div>
+          {section.type === 'chart' && (
+            <LaborChart profileUserId={profileUser.id} section={section}
+              onWeekChange={weekKey => updateSection(section.id, { weekKey })} />
+          )}
+          {section.type === 'notes' && (
+            <NotesSection section={section} isDirector={isDirector}
+              onSave={content => updateSection(section.id, { content })} />
+          )}
+        </div>
+      ))}
+
+      {isDirector && (
+        adding ? (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 space-y-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">New Section</p>
+            <div className="flex gap-2">
+              {(['chart', 'notes'] as const).map(t => (
+                <button key={t} onClick={() => setNewType(t)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${newType === t
+                    ? t === 'chart' ? 'bg-violet-500/20 border-violet-400/30 text-violet-300' : 'bg-cyan-500/20 border-cyan-400/30 text-cyan-300'
+                    : 'border-white/10 text-slate-500'}`}>
+                  {t === 'chart' ? 'Chart' : 'Notes'}
+                </button>
+              ))}
+            </div>
+            <input value={newTitle} onChange={e => setNewTitle(e.target.value)}
+              placeholder="Section title…" onKeyDown={e => e.key === 'Enter' && addSection()}
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-white/25" />
+            <div className="flex gap-2">
+              <button onClick={addSection}
+                className="px-4 py-1.5 text-xs font-bold rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/30 transition-colors">
+                Add
+              </button>
+              <button onClick={() => { setAdding(false); setNewTitle(''); }}
+                className="px-4 py-1.5 text-xs font-bold rounded-lg border border-white/10 text-slate-500 hover:text-white hover:bg-white/10 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setAdding(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-dashed border-white/15 text-xs font-bold text-slate-600 hover:text-slate-300 hover:border-white/25 transition-all w-full justify-center">
+            + Add Section
+          </button>
+        )
+      )}
     </div>
   );
 }
