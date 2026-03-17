@@ -22,6 +22,7 @@ import SystemAdminPanel from './SystemAdminPanel';
 import WorkflowAutomation from './WorkflowAutomation';
 import WorkerRoster from './WorkerRoster';
 import ShiftFlowApp from './ShiftFlow/ShiftFlowApp';
+import WorkerPortal from './ShiftFlow/WorkerPortal';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -437,8 +438,9 @@ export default function App() {
   [visibleProjects]);
 
   // ── Render guards ──────────────────────────────────────────────
-  // Public route — no auth required
+  // Public routes — no auth required
   if (window.location.pathname === '/guest-count') return <GuestCountPublicPage />;
+  if (window.location.pathname === '/worker-portal') return <WorkerPortal />;
 
   if (authLoading) return (
     <div className="flex items-center justify-center h-screen bg-[#0a0510]">
@@ -495,7 +497,7 @@ export default function App() {
 
   if (currentView === 'scheduler') return (
     <>
-      <ShiftFlowApp />
+      <ShiftFlowApp onBackToHub={() => setCurrentView('hub')} />
       <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
     </>
   );

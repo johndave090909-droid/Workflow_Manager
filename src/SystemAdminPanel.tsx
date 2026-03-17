@@ -624,6 +624,13 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                             </div>
                             {/* Show role inline on mobile since role column is hidden */}
                             <span className="sm:hidden text-[9px] font-black uppercase tracking-widest" style={{ color: getRoleColor(user.role) }}>{user.role}</span>
+                            <span
+                              className="text-[9px] font-mono text-slate-600 hover:text-slate-400 cursor-pointer transition-colors select-all"
+                              title={`UID: ${user.id}`}
+                              onClick={() => navigator.clipboard?.writeText(user.id)}
+                            >
+                              {user.id.length > 20 ? user.id.slice(0, 20) + '…' : user.id}
+                            </span>
                           </div>
                         </td>
                         <td className="hidden sm:table-cell px-3 sm:px-6 py-3 sm:py-4"><span className="text-xs text-slate-400">{user.email}</span></td>
@@ -710,11 +717,31 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                       return (
                       <tr key={w.id} className={`transition-colors ${isDupe ? 'bg-yellow-500/5 hover:bg-yellow-500/10' : 'hover:bg-white/[0.02]'}`}>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`text-sm font-bold ${hasDupeName ? 'text-yellow-300' : 'text-white'}`}>{w.name}</span>
-                            {hasDupeName && <span title="Duplicate name" className="text-yellow-400 text-xs">⚠</span>}
-                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded-full">No account</span>
-                            {isDupe && <span className="text-[9px] font-black uppercase tracking-widest text-yellow-500 bg-yellow-500/10 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Dupe {dupeLabels}</span>}
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-sm font-bold ${hasDupeName ? 'text-yellow-300' : 'text-white'}`}>{w.name}</span>
+                              {hasDupeName && <span title="Duplicate name" className="text-yellow-400 text-xs">⚠</span>}
+                              <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded-full">No account</span>
+                              {isDupe && <span className="text-[9px] font-black uppercase tracking-widest text-yellow-500 bg-yellow-500/10 border border-yellow-500/20 px-1.5 py-0.5 rounded-full">Dupe {dupeLabels}</span>}
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {w.workerId && (
+                                <span
+                                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded border cursor-pointer select-all transition-colors ${hasDupeId ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30 hover:text-yellow-200' : 'text-slate-500 bg-white/5 border-white/10 hover:text-slate-300'}`}
+                                  title={`Worker ID: ${w.workerId}`}
+                                  onClick={() => navigator.clipboard?.writeText(w.workerId)}
+                                >
+                                  ID {w.workerId}
+                                </span>
+                              )}
+                              <span
+                                className="text-[9px] font-mono text-slate-700 hover:text-slate-500 cursor-pointer transition-colors select-all"
+                                title={`Doc ID: ${w.id}`}
+                                onClick={() => navigator.clipboard?.writeText(w.id)}
+                              >
+                                {w.id.length > 16 ? w.id.slice(0, 16) + '…' : w.id}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="px-3 sm:px-6 py-3 sm:py-4">
