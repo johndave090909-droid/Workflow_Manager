@@ -394,7 +394,7 @@ Return ONLY a raw JSON array, no markdown, no explanation:
               <div>
                 <h2 className="text-sm font-black text-white uppercase tracking-wide">Extracted Schedule</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Review your extracted class times. These will be saved as your unavailability so shifts are only assigned when you're free.
+                  Review your extracted class times. Remove any incorrect entries, then confirm to save.
                 </p>
               </div>
               <button
@@ -425,13 +425,19 @@ Return ONLY a raw JSON array, no markdown, no explanation:
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-1.5">{day}</p>
                       <div className="space-y-1.5">
                         {entries.map(e => (
-                          <div key={e.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                          <div key={e.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] group">
                             <div className="flex items-center gap-1.5 tabular-nums shrink-0">
                               <span className="text-sm font-bold text-white">{fmt12(e.startTime)}</span>
                               <span className="text-slate-600 text-xs">–</span>
                               <span className="text-sm font-bold text-white">{fmt12(e.endTime)}</span>
                             </div>
-                            <span className="text-xs text-slate-400 truncate">{e.label}</span>
+                            <span className="text-xs text-slate-400 truncate flex-1">{e.label}</span>
+                            <button
+                              onClick={() => setExtracted(prev => prev.filter(x => x.id !== e.id))}
+                              className="p-1 text-slate-700 hover:text-rose-400 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         ))}
                       </div>
