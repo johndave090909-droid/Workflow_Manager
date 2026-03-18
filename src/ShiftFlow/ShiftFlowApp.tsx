@@ -260,6 +260,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
   const [staff, setStaff] = useState<Staff[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
+  const [weekSchedule, setWeekSchedule] = useState<Record<string, string> | null>(null);
 
   const STAFF_COLORS = [
     '#6366f1','#ec4899','#14b8a6','#f97316','#84cc16','#06b6d4','#10b981',
@@ -291,6 +292,10 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
         setDepartments(savedConfig.departments);
       }
 
+      if (savedConfig.weekSchedule) {
+        setWeekSchedule(savedConfig.weekSchedule);
+      }
+
       const rows = rowsRef.current;
       if (rows.length === 0) {
         // Roster not loaded yet — retry after a short delay
@@ -319,7 +324,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist assignments + departments to Firestore whenever they change (after initial load)
+  // Persist assignments + departments + weekSchedule to Firestore whenever they change (after initial load)
   const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!rosterLoaded) return;
@@ -329,10 +334,10 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       staff.forEach(s => {
         assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, scheduleImageUrl: s.scheduleImageUrl };
       });
-      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments }, { merge: true }).catch(console.error);
+      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, weekSchedule: weekSchedule ?? {} }, { merge: true }).catch(console.error);
     }, 1500);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [staff, departments, rosterLoaded]);
+  }, [staff, departments, weekSchedule, rosterLoaded]);
 
   const [activeTab, setActiveTab] = useState<'schedule' | 'staff' | 'settings'>('schedule');
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
@@ -358,7 +363,6 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     });
 
   // Auto-schedule state: positionId → staffId override (null = use static assignments)
-  const [weekSchedule, setWeekSchedule] = useState<Record<string, string> | null>(null);
   const [aiScheduling, setAiScheduling] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
