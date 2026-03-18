@@ -122,25 +122,28 @@ export default function WorkerPortal() {
               { type: 'image_url', image_url: { url: imagePreview } },
               {
                 type: 'text',
-                text: `You are a precise class schedule extractor. Carefully analyze every part of this schedule image.
+                text: `You are a precise class schedule extractor. Read this schedule VERTICALLY — one day column at a time, top to bottom.
 
-INSTRUCTIONS:
-1. Identify every day column in the schedule grid (Monday through Sunday).
-2. For EACH day column, scan top to bottom and find ALL class/course blocks — colored cells, highlighted rows, or any marked time slot.
-3. For each block found, extract: course code + name, exact start time, exact end time, and which day it is on.
-4. If the same course appears on multiple days, output ONE entry per day — they must be separate entries.
+PROCESS EACH DAY IN ORDER:
+1. MONDAY column — scan top to bottom, list every colored/highlighted class block with start time, end time, course name.
+2. TUESDAY column — scan top to bottom independently. Do NOT copy Monday's classes unless you visually confirm they appear in Tuesday's column.
+3. WEDNESDAY column — scan top to bottom independently.
+4. THURSDAY column — scan top to bottom independently. THIS DAY IS OFTEN MISSED. Look carefully.
+5. FRIDAY column — scan top to bottom independently. THIS DAY IS OFTEN MISSED. Look carefully.
+6. SATURDAY column — scan top to bottom. Usually empty.
+7. SUNDAY column — scan top to bottom. Usually empty.
 
-CRITICAL — DO NOT MISS THESE:
-- Thursday (day=3) and Friday (day=4) are commonly missed. Check them explicitly.
-- Saturday (day=5) and Sunday (day=6) may be empty — that is fine, just don't include them.
-- Verify every day column before returning your answer.
+STRICT RULES:
+- Each day column must be read INDEPENDENTLY. Never assume a class exists on a day — only include it if you see its block in that specific column.
+- A class appearing on Mon, Wed, Fri must generate 3 separate entries (day=0, day=2, day=4).
+- A class appearing on Tue, Thu must generate 2 separate entries (day=1, day=3).
+- Times in 24-hour HH:MM format only (13:30 not 1:30 PM).
+- After processing all 7 days, count your entries — if Thursday and Friday have zero entries but other days do, re-examine those columns before finalizing.
 
-OUTPUT FORMAT:
-Return ONLY a valid raw JSON array. No markdown fences, no explanation, no extra text.
 Day mapping: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
-Times must be 24-hour HH:MM format (e.g. 13:30, not 1:30 PM).
 
-Example: [{"day":0,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
+Return ONLY a raw JSON array. No markdown, no explanation, nothing else.
+Example: [{"day":0,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":2,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
               },
             ],
           }],
