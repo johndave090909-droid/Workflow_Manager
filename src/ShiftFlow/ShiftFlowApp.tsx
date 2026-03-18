@@ -179,7 +179,7 @@ function UnavailCalendar({ unavailability, onRemove }: {
                             <p className="text-[6px] tabular-nums leading-tight" style={{ color: `${color}80` }}>{timeRange}</p>
                           )}
                           <button
-                            onClick={() => onRemove(un.id)}
+                            onClick={() => { if (!window.confirm(`Remove this unavailability block?`)) return; onRemove(un.id); }}
                             className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <Trash2 size={8} className="text-slate-500 hover:text-rose-400" />
@@ -205,7 +205,7 @@ function UnavailCalendar({ unavailability, onRemove }: {
                 <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
                 {un.label && <span className="text-slate-500">{un.label}</span>}
               </div>
-              <button onClick={() => onRemove(un.id)} className="text-slate-600 hover:text-rose-400 transition-colors">
+              <button onClick={() => { if (!window.confirm('Remove this unavailability block?')) return; onRemove(un.id); }} className="text-slate-600 hover:text-rose-400 transition-colors">
                 <Trash2 size={13} />
               </button>
             </div>
@@ -1001,7 +1001,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
 
                             {/* Delete */}
                             <button
-                              onClick={() => { setStaff(staff.filter(s => s.id !== member.id)); if (isExpanded) setExpandedStaffId(null); }}
+                              onClick={() => { if (!window.confirm(`Remove ${member.name} from the roster?`)) return; setStaff(staff.filter(s => s.id !== member.id)); if (isExpanded) setExpandedStaffId(null); }}
                               className="p-1.5 text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 shrink-0"
                             >
                               <Trash2 size={14} />
@@ -1152,7 +1152,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
 
                               {/* Delete */}
                               <button
-                                onClick={() => { setStaff(staff.filter(s => s.id !== member.id)); if (isExpanded) setExpandedStaffId(null); }}
+                                onClick={() => { if (!window.confirm(`Remove ${member.name} from the roster?`)) return; setStaff(staff.filter(s => s.id !== member.id)); if (isExpanded) setExpandedStaffId(null); }}
                                 className="p-1.5 text-slate-700 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 shrink-0"
                               >
                                 <Trash2 size={14} />
@@ -1263,7 +1263,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                           />
                         </div>
                         <button
-                          onClick={() => setDepartments(departments.filter(d => d.id !== dept.id))}
+                          onClick={() => { if (!window.confirm(`Delete department "${dept.name}"? This will also remove all its positions.`)) return; setDepartments(departments.filter(d => d.id !== dept.id)); }}
                           className="text-slate-600 hover:text-rose-400 transition-colors"
                         >
                           <Trash2 size={18} />
@@ -1303,6 +1303,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                               </select>
                               <button
                                 onClick={() => {
+                                  if (!window.confirm(`Delete position "${pos.name}"?`)) return;
                                   const newDepts = [...departments];
                                   newDepts[deptIdx].positions = dept.positions.filter(p => p.id !== pos.id);
                                   setDepartments(newDepts);

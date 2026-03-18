@@ -93,7 +93,7 @@ function ScheduleCalendar({ entries, onRemove }: {
                         <p className="text-[6px] tabular-nums leading-tight" style={{ color: `${color}80` }}>{timeRange}</p>
                       )}
                       <button
-                        onClick={() => onRemove(e.id)}
+                        onClick={() => { if (!window.confirm('Remove this class entry?')) return; onRemove(e.id); }}
                         className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 size={8} className="text-slate-500 hover:text-rose-400" />
