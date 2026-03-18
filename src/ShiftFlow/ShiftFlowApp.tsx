@@ -339,20 +339,58 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
     return staff.find(s => s.positionId === posId);
   };
 
-  const conflicts = useMemo(() => {
-    const alerts: string[] = [];
+  const alertData = useMemo(() => {
+    const totalPositions = departments.reduce((s, d) => s + d.positions.length, 0);
+    let filledPositions = 0;
+
+    const deptAlerts: Array<{
+      deptName: string;
+      unassignedCount: number;
+      unavailable: Array<{ posName: string; staffName: string; reason: string }>;
+    }> = [];
+
     departments.forEach(dept => {
+      let unassignedCount = 0;
+      const unavailable: Array<{ posName: string; staffName: string; reason: string }> = [];
+
       dept.positions.forEach(pos => {
         const assigned = getAssignedStaff(pos.id);
         if (!assigned) {
-          alerts.push(`${dept.name} – ${pos.name}: No staff assigned`);
+          unassignedCount++;
         } else if (isStaffUnavailable(assigned, pos)) {
-          alerts.push(`${dept.name} – ${pos.name}: ${assigned.name} is unavailable`);
+          const conflict = assigned.unavailability.find(un => {
+            if (!(!un.date || un.date === '')) return false;
+            if (un.dayOfWeek !== undefined) {
+              return pos.days.includes(un.dayOfWeek) && timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+            }
+            return timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+          });
+          const reason = conflict?.label
+            ? conflict.label
+            : conflict?.dayOfWeek !== undefined
+              ? `class on ${WEEK_DAYS[conflict.dayOfWeek]}`
+              : 'schedule conflict';
+          unavailable.push({ posName: pos.name, staffName: assigned.name, reason });
+        } else {
+          filledPositions++;
         }
       });
+
+      if (unassignedCount > 0 || unavailable.length > 0) {
+        deptAlerts.push({ deptName: dept.name, unassignedCount, unavailable });
+      }
     });
-    return alerts;
-  }, [departments, staff]);
+
+    const needsReviewWorkers = staff.filter(s => s.needsReview);
+    const unassignedWorkerCount = staff.filter(s => !s.departmentId).length;
+    const coveragePct = totalPositions > 0 ? Math.round((filledPositions / totalPositions) * 100) : 100;
+    const totalAlerts = deptAlerts.reduce((sum, d) => sum + d.unassignedCount + d.unavailable.length, 0)
+      + (needsReviewWorkers.length > 0 ? 1 : 0)
+      + (unassignedWorkerCount > 0 ? 1 : 0);
+
+    return { totalPositions, filledPositions, coveragePct, needsReviewWorkers, unassignedWorkerCount, deptAlerts, totalAlerts };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departments, staff, weekSchedule]);
 
   const removeUnavailability = (staffId: string, unId: string) => {
     setStaff(prev => prev.map(s =>
@@ -470,33 +508,89 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                 </div>
 
                 {/* Alerts */}
-                <div className="bg-white/[0.03] p-6 rounded-3xl border border-white/10">
-                  <div className="flex items-center gap-2 mb-4">
-                    <AlertCircle className="text-amber-400" size={20} />
+                <div className="bg-white/[0.03] p-5 rounded-3xl border border-white/10 space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="text-amber-400" size={18} />
                     <h3 className="font-bold text-white">Alerts</h3>
-                    {conflicts.length > 0 && (
-                      <span className="ml-auto text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300">{conflicts.length}</span>
+                    {alertData.totalAlerts > 0 && (
+                      <span className="ml-auto text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300">{alertData.totalAlerts}</span>
                     )}
                   </div>
-                  <div className="space-y-2">
-                    {aiError && (
-                      <div className="p-3 bg-rose-500/10 border border-rose-400/30 rounded-xl text-xs text-rose-300 font-medium">
-                        {aiError}
-                      </div>
-                    )}
-                    {conflicts.length > 0 ? (
-                      conflicts.slice(0, 5).map((alert, i) => (
-                        <div key={i} className="p-3 bg-amber-500/10 border border-amber-400/30 rounded-xl text-xs text-amber-300 font-medium">
-                          {alert}
+
+                  {/* Coverage bar */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Coverage</span>
+                      <span className="text-xs font-black text-white">
+                        {alertData.filledPositions}<span className="text-slate-500 font-medium">/{alertData.totalPositions}</span>
+                        <span className="text-slate-500 font-medium ml-1">positions</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${alertData.coveragePct === 100 ? 'bg-emerald-400' : alertData.coveragePct >= 60 ? 'bg-amber-400' : 'bg-rose-400'}`}
+                        style={{ width: `${alertData.coveragePct}%` }}
+                      />
+                    </div>
+                    <p className="text-right text-[9px] text-slate-600 mt-1">{alertData.coveragePct}% filled</p>
+                  </div>
+
+                  {/* AI fallback error */}
+                  {aiError && (
+                    <div className="p-2.5 bg-rose-500/10 border border-rose-400/30 rounded-xl text-[11px] text-rose-300 font-medium">
+                      {aiError}
+                    </div>
+                  )}
+
+                  {alertData.totalAlerts === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-4 text-slate-600">
+                      <CheckCircle2 size={28} className="mb-2 opacity-20" />
+                      <p className="text-xs font-medium">All shifts covered</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {/* Needs Review */}
+                      {alertData.needsReviewWorkers.length > 0 && (
+                        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-400/30 space-y-1">
+                          <p className="text-[11px] font-black text-amber-300 uppercase tracking-wide">
+                            {alertData.needsReviewWorkers.length} worker{alertData.needsReviewWorkers.length > 1 ? 's' : ''} need review
+                          </p>
+                          <p className="text-[10px] text-amber-200/60 leading-relaxed">
+                            {alertData.needsReviewWorkers.slice(0, 3).map(w => w.name).join(', ')}
+                            {alertData.needsReviewWorkers.length > 3 ? ` +${alertData.needsReviewWorkers.length - 3} more` : ''}
+                          </p>
                         </div>
-                      ))
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-4 text-slate-600">
-                        <CheckCircle2 size={32} className="mb-2 opacity-20" />
-                        <p className="text-xs font-medium">All shifts covered</p>
-                      </div>
-                    )}
-                  </div>
+                      )}
+
+                      {/* Unassigned workers */}
+                      {alertData.unassignedWorkerCount > 0 && (
+                        <div className="p-3 rounded-xl bg-slate-500/10 border border-slate-500/20">
+                          <p className="text-[11px] font-black text-slate-400 uppercase tracking-wide">
+                            {alertData.unassignedWorkerCount} worker{alertData.unassignedWorkerCount > 1 ? 's' : ''} not assigned to a department
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Per-department alerts */}
+                      {alertData.deptAlerts.map((d, i) => (
+                        <div key={i} className="p-3 rounded-xl bg-white/[0.03] border border-white/10 space-y-1.5">
+                          <p className="text-[11px] font-black text-white uppercase tracking-wide">{d.deptName}</p>
+                          {d.unassignedCount > 0 && (
+                            <p className="text-[11px] text-slate-400">
+                              <span className="text-rose-400 font-bold">{d.unassignedCount}</span> position{d.unassignedCount > 1 ? 's' : ''} unassigned
+                            </p>
+                          )}
+                          {d.unavailable.map((u, j) => (
+                            <p key={j} className="text-[11px] text-amber-300/80">
+                              <span className="font-bold">{u.staffName}</span> unavailable for {u.posName}
+                              <span className="text-slate-500"> — {u.reason}</span>
+                            </p>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Legend */}
