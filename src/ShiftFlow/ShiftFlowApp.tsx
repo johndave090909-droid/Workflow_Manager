@@ -292,7 +292,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
         setDepartments(savedConfig.departments);
       }
 
-      if (savedConfig.weekSchedule) {
+      if (savedConfig.weekSchedule && Object.keys(savedConfig.weekSchedule).length > 0) {
         setWeekSchedule(savedConfig.weekSchedule);
       }
 
@@ -334,7 +334,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       staff.forEach(s => {
         assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, scheduleImageUrl: s.scheduleImageUrl };
       });
-      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, weekSchedule: weekSchedule ?? {} }, { merge: true }).catch(console.error);
+      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, ...(weekSchedule && Object.keys(weekSchedule).length > 0 ? { weekSchedule } : { weekSchedule: null }) }, { merge: true }).catch(console.error);
     }, 1500);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
   }, [staff, departments, weekSchedule, rosterLoaded]);
@@ -465,7 +465,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
   }, [departments, staff]);
 
   const getAssignedStaff = (posId: string): Staff | undefined => {
-    if (weekSchedule) return staff.find(s => s.id === weekSchedule[posId]);
+    if (weekSchedule && Object.keys(weekSchedule).length > 0) return staff.find(s => s.id === weekSchedule[posId]);
     return staff.find(s => s.positionId === posId);
   };
 
