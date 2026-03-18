@@ -221,11 +221,17 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   const semesterDates = useMemo(() => getSemesterDates(semester), [semester]);
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
-  // Check if a member is unavailable for a position (semester-wide blocks only)
+  // Check if a member is unavailable for a position
+  // — AI-extracted entries (dayOfWeek set) block only that specific day of the week
+  // — Manual entries (no dayOfWeek) block all days semester-wide
   const isStaffUnavailable = (member: Staff, pos: Position): boolean =>
-    member.unavailability.some(un =>
-      (!un.date || un.date === '') && timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime)
-    );
+    member.unavailability.some(un => {
+      if (!(!un.date || un.date === '')) return false;
+      if (un.dayOfWeek !== undefined) {
+        return pos.days.includes(un.dayOfWeek) && timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+      }
+      return timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+    });
 
   // Auto-schedule state: positionId → staffId override (null = use static assignments)
   const [weekSchedule, setWeekSchedule] = useState<Record<string, string> | null>(null);
@@ -732,10 +738,10 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                     <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
                                       <div className="flex items-center gap-3 text-xs">
                                         <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
-                                        {(un as { label?: string }).label && (
-                                          <span className="text-slate-500">{(un as { label?: string }).label}</span>
-                                        )}
-                                        <span className="text-slate-600 text-[10px]">all semester</span>
+                                        {un.label && <span className="text-slate-500">{un.label}</span>}
+                                        <span className="text-slate-600 text-[10px]">
+                                          {un.dayOfWeek !== undefined ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][un.dayOfWeek] : 'all semester'}
+                                        </span>
                                       </div>
                                       <button onClick={() => removeUnavailability(member.id, un.id)}
                                         className="text-slate-600 hover:text-rose-400 transition-colors">
@@ -869,7 +875,10 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                       <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
                                         <div className="flex items-center gap-3 text-xs">
                                           <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
-                                          <span className="text-slate-600 text-[10px]">all semester</span>
+                                          {un.label && <span className="text-slate-500">{un.label}</span>}
+                                          <span className="text-slate-600 text-[10px]">
+                                            {un.dayOfWeek !== undefined ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][un.dayOfWeek] : 'all semester'}
+                                          </span>
                                         </div>
                                         <button onClick={() => removeUnavailability(member.id, un.id)}
                                           className="text-slate-600 hover:text-rose-400 transition-colors">

@@ -21,8 +21,10 @@ export interface Department {
 export interface Unavailability {
   id: string;
   date: string;
+  dayOfWeek?: number; // 0=Mon,1=Tue,2=Wed,3=Thu,4=Fri,5=Sat,6=Sun — set by AI extraction; if absent, blocks all days
   startTime: string;
   endTime: string;
+  label?: string;
 }
 
 export interface Staff {
