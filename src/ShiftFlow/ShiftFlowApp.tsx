@@ -23,6 +23,7 @@ import {
   Briefcase,
   ShieldCheck,
   Building2,
+  Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Staff, Semester, ShiftType, Department, Position } from './types';
@@ -235,29 +236,101 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
   // Auto-schedule state: positionId → staffId override (null = use static assignments)
   const [weekSchedule, setWeekSchedule] = useState<Record<string, string> | null>(null);
+  const [aiScheduling, setAiScheduling] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
-  const runAutoSchedule = useCallback(() => {
-    const map: Record<string, string> = {};
-    for (const dept of departments) {
-      const deptStaff = staff.filter(s => s.departmentId === dept.id);
-      const usedIds = new Set<string>();
-      for (const pos of dept.positions) {
-        // Try the normally-assigned person first
-        const primary = deptStaff.find(s => s.positionId === pos.id);
-        if (primary && !isStaffUnavailable(primary, pos)) {
-          map[pos.id] = primary.id;
-          usedIds.add(primary.id);
-          continue;
-        }
-        // Find a sub: any dept member not yet used and available
-        const sub = deptStaff.find(s => !usedIds.has(s.id) && !isStaffUnavailable(s, pos));
-        if (sub) {
-          map[pos.id] = sub.id;
-          usedIds.add(sub.id);
+  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  const runAutoSchedule = useCallback(async () => {
+    setAiScheduling(true);
+    setAiError(null);
+
+    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+
+    // ── Build prompt ─────────────────────────────────────────────────────────
+    const deptLines = departments.map(dept => {
+      const posLines = dept.positions.map(pos =>
+        `  - Position ID: "${pos.id}" | Name: ${pos.name} | Days: ${pos.days.map(d => DAY_LABELS[d]).join(', ')} | Time: ${fmt12(pos.startTime)} – ${fmt12(pos.endTime)}`
+      ).join('\n');
+      return `Department: ${dept.name}\n${posLines}`;
+    }).join('\n\n');
+
+    const staffLines = staff.map(s => {
+      const dept = departments.find(d => d.id === s.departmentId);
+      const pos = dept?.positions.find(p => p.id === s.positionId);
+      const unavail = s.unavailability.length === 0
+        ? 'None'
+        : s.unavailability.map(un => {
+            const timeStr = `${fmt12(un.startTime)} – ${fmt12(un.endTime)}`;
+            const label = un.label ? ` (${un.label})` : '';
+            if (un.dayOfWeek !== undefined) return `${DAY_LABELS[un.dayOfWeek]} ${timeStr}${label}`;
+            return `All days ${timeStr}${label}`;
+          }).join('; ');
+      return `- Staff ID: "${s.id}" | Name: ${s.name} | Dept: ${dept?.name ?? 'Unassigned'} | Assigned position: ${pos?.name ?? 'None'}\n  Unavailability: ${unavail}`;
+    }).join('\n');
+
+    const prompt = `You are a shift scheduler. Assign staff to positions for the coming week.
+
+DEPARTMENTS AND SHIFTS:
+${deptLines}
+
+STAFF (with unavailability):
+${staffLines}
+
+RULES:
+1. Only assign staff to positions within their own department.
+2. Prefer assigning each person to their designated position first.
+3. If the designated person is unavailable (their unavailability overlaps the shift time on that day), find a substitute from the same department.
+4. Each staff member can only be assigned to ONE position.
+5. Do not assign anyone whose unavailability overlaps the shift time on ANY of the shift's days.
+6. Leave a position unassigned rather than assign someone who is unavailable.
+
+Return ONLY a valid JSON object mapping positionId to staffId. No markdown, no explanation.
+Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-nano',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 1000,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`OpenAI error: ${response.status}`);
+
+      const data = await response.json();
+      const text: string = data.choices?.[0]?.message?.content ?? '';
+      const clean = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
+      const map: Record<string, string> = JSON.parse(clean);
+      setWeekSchedule(map);
+    } catch (err) {
+      console.error('AI scheduling failed, falling back to rule-based:', err);
+      setAiError('AI scheduling failed. Used rule-based fallback.');
+
+      // ── Rule-based fallback ───────────────────────────────────────────────
+      const map: Record<string, string> = {};
+      for (const dept of departments) {
+        const deptStaff = staff.filter(s => s.departmentId === dept.id);
+        const usedIds = new Set<string>();
+        for (const pos of dept.positions) {
+          const primary = deptStaff.find(s => s.positionId === pos.id);
+          if (primary && !isStaffUnavailable(primary, pos)) {
+            map[pos.id] = primary.id; usedIds.add(primary.id); continue;
+          }
+          const sub = deptStaff.find(s => !usedIds.has(s.id) && !isStaffUnavailable(s, pos));
+          if (sub) { map[pos.id] = sub.id; usedIds.add(sub.id); }
         }
       }
+      setWeekSchedule(map);
+    } finally {
+      setAiScheduling(false);
     }
-    setWeekSchedule(map);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments, staff]);
 
@@ -406,6 +479,11 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                     )}
                   </div>
                   <div className="space-y-2">
+                    {aiError && (
+                      <div className="p-3 bg-rose-500/10 border border-rose-400/30 rounded-xl text-xs text-rose-300 font-medium">
+                        {aiError}
+                      </div>
+                    )}
                     {conflicts.length > 0 ? (
                       conflicts.slice(0, 5).map((alert, i) => (
                         <div key={i} className="p-3 bg-amber-500/10 border border-amber-400/30 rounded-xl text-xs text-amber-300 font-medium">
@@ -452,10 +530,20 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                       )}
                       <button
                         onClick={runAutoSchedule}
-                        className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-[#ff00ff]/30 bg-[#ff00ff]/10 text-[#ff00ff] hover:bg-[#ff00ff]/20 transition-all"
+                        disabled={aiScheduling}
+                        className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-[#ff00ff]/30 bg-[#ff00ff]/10 text-[#ff00ff] hover:bg-[#ff00ff]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <CheckCircle2 size={13} />
-                        Auto Schedule
+                        {aiScheduling ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-[#ff00ff]/30 border-t-[#ff00ff] rounded-full animate-spin" />
+                            Scheduling…
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles size={13} />
+                            Auto Schedule
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
