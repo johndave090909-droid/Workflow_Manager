@@ -368,7 +368,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     setAiScheduling(true);
     setAiError(null);
 
-    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
     // ── Build prompt ─────────────────────────────────────────────────────────
     const deptLines = departments.map(dept => {
@@ -412,29 +412,32 @@ Return ONLY a valid JSON object mapping positionId to staffId. No markdown, no e
 Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'gpt-4.1-nano',
-          messages: [{ role: 'user', content: prompt }],
+          model: 'claude-sonnet-4-6',
           max_tokens: 1000,
+          system: 'You are a precise shift scheduler. You return only valid JSON with no explanation or markdown.',
+          messages: [{ role: 'user', content: prompt }],
         }),
       });
 
-      if (!response.ok) throw new Error(`OpenAI error: ${response.status}`);
+      if (!response.ok) throw new Error(`Claude error: ${response.status}`);
 
       const data = await response.json();
-      const text: string = data.choices?.[0]?.message?.content ?? '';
+      const text: string = data.content?.[0]?.text ?? '';
       const clean = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
       const map: Record<string, string> = JSON.parse(clean);
       setWeekSchedule(map);
     } catch (err) {
       console.error('AI scheduling failed, falling back to rule-based:', err);
-      setAiError('AI scheduling failed. Used rule-based fallback.');
+      setAiError('Claude scheduling failed. Used rule-based fallback.');
 
       // ── Rule-based fallback ───────────────────────────────────────────────
       const map: Record<string, string> = {};
