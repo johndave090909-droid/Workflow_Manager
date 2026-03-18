@@ -5,12 +5,109 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Upload, CheckCircle2, AlertCircle, ImageIcon, LogIn, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function fmt12(time: string): string {
   const [h, m] = time.split(':').map(Number);
   const period = h < 12 ? 'AM' : 'PM';
   const hour = h % 12 === 0 ? 12 : h % 12;
   return `${hour}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+const BLOCK_COLORS = ['#6366f1','#ec4899','#14b8a6','#f97316','#84cc16','#8b5cf6','#ef4444','#3b82f6','#a855f7','#06b6d4'];
+const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+function ScheduleCalendar({ entries, onRemove }: {
+  entries: ExtractedEntry[];
+  onRemove: (id: string) => void;
+}) {
+  if (entries.length === 0) return <p className="text-xs text-slate-600 italic">No classes found.</p>;
+
+  const activeDays = [...new Set(entries.map(e => e.day))].sort((a, b) => a - b);
+
+  const allMins = entries.flatMap(e => [toMin(e.startTime), toMin(e.endTime)]);
+  const minTime = Math.floor(Math.min(...allMins) / 60) * 60;
+  const maxTime = Math.ceil(Math.max(...allMins) / 60) * 60;
+  const range = Math.max(maxTime - minTime, 120);
+  const PX = 1.5;
+  const totalH = range * PX;
+  const startHour = minTime / 60;
+  const endHour = maxTime / 60;
+  const hourTicks = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
+
+  const colorMap: Record<string, string> = {};
+  let ci = 0;
+  entries.forEach(e => {
+    const key = e.label || '__block__';
+    if (!colorMap[key]) colorMap[key] = BLOCK_COLORS[ci++ % BLOCK_COLORS.length];
+  });
+
+  const fmtHour = (h: number) => h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`;
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.015]">
+      <div className="flex min-w-max p-2 gap-0">
+        {/* Time axis */}
+        <div className="relative w-10 shrink-0 mr-0.5" style={{ height: totalH, marginTop: 20 }}>
+          {hourTicks.map(h => (
+            <div key={h} className="absolute right-1" style={{ top: (h * 60 - minTime) * PX - 5 }}>
+              <span className="text-[7px] text-slate-700 whitespace-nowrap tabular-nums">{fmtHour(h)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Day columns */}
+        {activeDays.map(dayIdx => {
+          const dayEntries = entries.filter(e => e.day === dayIdx);
+          return (
+            <div key={dayIdx} className="w-[112px] shrink-0">
+              <div className="text-center h-5 flex items-center justify-center">
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                  {DAY_SHORT[dayIdx]}
+                </span>
+              </div>
+              <div className="relative border-l border-white/[0.06]" style={{ height: totalH }}>
+                {hourTicks.map(h => (
+                  <div key={h} className="absolute w-full border-t border-white/[0.04]" style={{ top: (h * 60 - minTime) * PX }} />
+                ))}
+                {dayEntries.map(e => {
+                  const top = (toMin(e.startTime) - minTime) * PX;
+                  const height = Math.max((toMin(e.endTime) - toMin(e.startTime)) * PX, 22);
+                  const color = colorMap[e.label || '__block__'];
+                  const timeRange = `${fmt12(e.startTime)} – ${fmt12(e.endTime)}`;
+                  return (
+                    <div
+                      key={e.id}
+                      className="absolute inset-x-0.5 rounded overflow-hidden px-1.5 py-1 group cursor-default"
+                      style={{ top, height, backgroundColor: `${color}22`, borderLeft: `2px solid ${color}70` }}
+                    >
+                      {height >= 14 && (
+                        <p className="text-[8px] font-bold leading-tight line-clamp-2 pr-3" style={{ color: `${color}cc` }}>
+                          {e.label || 'Class'}
+                        </p>
+                      )}
+                      {height >= 32 && (
+                        <p className="text-[7px] tabular-nums mt-0.5" style={{ color: `${color}99` }}>{timeRange}</p>
+                      )}
+                      {height >= 14 && height < 32 && (
+                        <p className="text-[6px] tabular-nums leading-tight" style={{ color: `${color}80` }}>{timeRange}</p>
+                      )}
+                      <button
+                        onClick={() => onRemove(e.id)}
+                        className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 size={8} className="text-slate-500 hover:text-rose-400" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 interface ExtractedEntry {
@@ -214,12 +311,6 @@ Return ONLY a raw JSON array, no markdown, no explanation:
     }
   }
 
-  // Group entries by day for display
-  const byDay = DAY_NAMES.reduce<Record<number, ExtractedEntry[]>>((acc, _, i) => {
-    acc[i] = extracted.filter(e => e.day === i);
-    return acc;
-  }, {});
-
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#0a0510] text-white font-sans flex flex-col items-center justify-center p-4">
@@ -422,35 +513,10 @@ Return ONLY a raw JSON array, no markdown, no explanation:
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">
-                {DAY_NAMES.map((day, i) => {
-                  const entries = byDay[i];
-                  if (!entries.length) return null;
-                  return (
-                    <div key={i}>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-1.5">{day}</p>
-                      <div className="space-y-1.5">
-                        {entries.map(e => (
-                          <div key={e.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] group">
-                            <div className="flex items-center gap-1.5 tabular-nums shrink-0">
-                              <span className="text-sm font-bold text-white">{fmt12(e.startTime)}</span>
-                              <span className="text-slate-600 text-xs">–</span>
-                              <span className="text-sm font-bold text-white">{fmt12(e.endTime)}</span>
-                            </div>
-                            <span className="text-xs text-slate-400 truncate flex-1">{e.label}</span>
-                            <button
-                              onClick={() => setExtracted(prev => prev.filter(x => x.id !== e.id))}
-                              className="p-1 text-slate-700 hover:text-rose-400 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <ScheduleCalendar
+                entries={extracted}
+                onRemove={id => setExtracted(prev => prev.filter(x => x.id !== id))}
+              />
             )}
           </div>
 
