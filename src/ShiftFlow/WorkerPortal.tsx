@@ -60,7 +60,7 @@ function ScheduleCalendar({ entries, onRemove }: {
         {activeDays.map(dayIdx => {
           const dayEntries = entries.filter(e => e.day === dayIdx);
           return (
-            <div key={dayIdx} className="w-[112px] shrink-0">
+            <div key={dayIdx} className="w-[90px] shrink-0">
               <div className="text-center h-5 flex items-center justify-center">
                 <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
                   {DAY_SHORT[dayIdx]}
@@ -480,7 +480,7 @@ Return ONLY a raw JSON array, no markdown, no explanation:
 
       {/* ── STEP: Preview / Saving ── */}
       {(step === 'preview' || step === 'saving') && worker && (
-        <div className="w-full max-w-lg space-y-5">
+        <div className="w-full max-w-3xl space-y-5">
           {/* Worker header */}
           <div className="flex items-center gap-4 bg-white/[0.03] border border-white/10 rounded-2xl px-5 py-4">
             <div
