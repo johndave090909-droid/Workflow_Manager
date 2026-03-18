@@ -112,7 +112,7 @@ function UnavailCalendar({ unavailability, onRemove }: {
   const minTime = Math.floor(Math.min(...allMins) / 60) * 60;
   const maxTime = Math.ceil(Math.max(...allMins) / 60) * 60;
   const range = Math.max(maxTime - minTime, 120);
-  const PX = 1.0; // px per minute
+  const PX = 1.5; // px per minute — 1.5 gives enough height to show full time range
   const totalH = range * PX;
   const startHour = minTime / 60;
   const endHour = maxTime / 60;
@@ -146,7 +146,7 @@ function UnavailCalendar({ unavailability, onRemove }: {
             {activeDays.map(dayIdx => {
               const entries = daySpecific.filter(un => un.dayOfWeek === dayIdx);
               return (
-                <div key={dayIdx} className="w-[88px] shrink-0">
+                <div key={dayIdx} className="w-[112px] shrink-0">
                   <div className="text-center h-5 flex items-center justify-center">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
                       {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][dayIdx]}
@@ -158,21 +158,25 @@ function UnavailCalendar({ unavailability, onRemove }: {
                     ))}
                     {entries.map(un => {
                       const top = (toMin(un.startTime) - minTime) * PX;
-                      const height = Math.max((toMin(un.endTime) - toMin(un.startTime)) * PX, 18);
+                      const height = Math.max((toMin(un.endTime) - toMin(un.startTime)) * PX, 22);
                       const color = colorMap[un.label || '__block__'];
+                      const timeRange = `${fmt12(un.startTime)} – ${fmt12(un.endTime)}`;
                       return (
                         <div
                           key={un.id}
-                          className="absolute inset-x-0.5 rounded overflow-hidden px-1.5 py-0.5 group cursor-default"
+                          className="absolute inset-x-0.5 rounded overflow-hidden px-1.5 py-1 group cursor-default"
                           style={{ top, height, backgroundColor: `${color}22`, borderLeft: `2px solid ${color}70` }}
                         >
-                          {height >= 16 && (
+                          {height >= 14 && (
                             <p className="text-[8px] font-bold leading-tight line-clamp-2 pr-3" style={{ color: `${color}cc` }}>
                               {un.label || 'Blocked'}
                             </p>
                           )}
-                          {height >= 28 && (
-                            <p className="text-[7px] text-slate-600 tabular-nums">{fmt12(un.startTime)}</p>
+                          {height >= 32 && (
+                            <p className="text-[7px] tabular-nums mt-0.5" style={{ color: `${color}99` }}>{timeRange}</p>
+                          )}
+                          {height >= 14 && height < 32 && (
+                            <p className="text-[6px] tabular-nums leading-tight" style={{ color: `${color}80` }}>{timeRange}</p>
                           )}
                           <button
                             onClick={() => onRemove(un.id)}

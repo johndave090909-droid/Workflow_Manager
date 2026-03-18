@@ -122,11 +122,29 @@ export default function WorkerPortal() {
               { type: 'image_url', image_url: { url: imagePreview } },
               {
                 type: 'text',
-                text: `Extract all class/course schedule entries from this image. Return ONLY a raw JSON array — no markdown fences, no explanation, no surrounding text. Each object must have: "day" (integer: 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday), "startTime" (string in "HH:MM" 24-hour format), "endTime" (string in "HH:MM" 24-hour format), "label" (string: course name or subject). If a class repeats on multiple days, create one entry per day. Example: [{"day":0,"startTime":"09:00","endTime":"10:30","label":"Math 101"}]`,
+                text: `You are a precise class schedule extractor. Carefully analyze every part of this schedule image.
+
+INSTRUCTIONS:
+1. Identify every day column in the schedule grid (Monday through Sunday).
+2. For EACH day column, scan top to bottom and find ALL class/course blocks — colored cells, highlighted rows, or any marked time slot.
+3. For each block found, extract: course code + name, exact start time, exact end time, and which day it is on.
+4. If the same course appears on multiple days, output ONE entry per day — they must be separate entries.
+
+CRITICAL — DO NOT MISS THESE:
+- Thursday (day=3) and Friday (day=4) are commonly missed. Check them explicitly.
+- Saturday (day=5) and Sunday (day=6) may be empty — that is fine, just don't include them.
+- Verify every day column before returning your answer.
+
+OUTPUT FORMAT:
+Return ONLY a valid raw JSON array. No markdown fences, no explanation, no extra text.
+Day mapping: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
+Times must be 24-hour HH:MM format (e.g. 13:30, not 1:30 PM).
+
+Example: [{"day":0,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
               },
             ],
           }],
-          max_tokens: 1500,
+          max_tokens: 2000,
         }),
       });
 
