@@ -208,7 +208,12 @@ export default function WorkerPortal() {
       // Extract base64 data and media type from the data URL
       const match = imagePreview.match(/^data:(.+);base64,(.+)$/);
       if (!match) throw new Error('Invalid image format.');
-      const mediaType = match[1] as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const rawType = match[1];
+      const supportedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+      if (!supportedTypes.includes(rawType)) {
+        throw new Error(`Unsupported image format: ${rawType}. Please use JPG, PNG, or WebP.`);
+      }
+      const mediaType = rawType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
       const base64Data = match[2];
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -245,7 +250,11 @@ Return ONLY a raw JSON array, no markdown, no explanation:
         }),
       });
 
-      if (!response.ok) throw new Error(`Anthropic error: ${response.status}`);
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        const msg = errBody?.error?.message ?? `HTTP ${response.status}`;
+        throw new Error(msg);
+      }
 
       const data = await response.json();
       const text: string = data.content?.[0]?.text ?? '';
@@ -257,8 +266,9 @@ Return ONLY a raw JSON array, no markdown, no explanation:
       setExtracted(parsed.map((e, i) => ({ ...e, id: `ai-${i}-${Date.now()}` })));
       setStep('preview');
     } catch (err) {
-      console.error(err);
-      setExtractError('Could not read your schedule. Make sure the image is clear and try again.');
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Schedule extraction failed:', msg);
+      setExtractError(msg.startsWith('Unsupported') ? msg : `Could not read your schedule: ${msg}`);
       setStep('upload');
     }
   }
