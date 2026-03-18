@@ -23,7 +23,7 @@ function ScheduleCalendar({ entries, onRemove }: {
 }) {
   if (entries.length === 0) return <p className="text-xs text-slate-600 italic">No classes found.</p>;
 
-  const activeDays = [...new Set(entries.map(e => e.day))].sort((a, b) => a - b);
+  const activeDays = [0, 1, 2, 3, 4, 5, 6];
 
   const allMins = entries.flatMap(e => [toMin(e.startTime), toMin(e.endTime)]);
   const minTime = Math.floor(Math.min(...allMins) / 60) * 60;
