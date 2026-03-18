@@ -115,38 +115,36 @@ export default function WorkerPortal() {
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image_url', image_url: { url: imagePreview } },
-              {
-                type: 'text',
-                text: `You are a precise class schedule extractor. Read this schedule VERTICALLY — one day column at a time, top to bottom.
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a schedule grid reader. You read class schedule images column by column (one day at a time). You ONLY include a class on a day if you can see its colored block physically present in that day\'s column. You never guess, assume, or copy entries across days.',
+            },
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: imagePreview } },
+                {
+                  type: 'text',
+                  text: `Read this class schedule image column by column, left to right.
 
-PROCESS EACH DAY IN ORDER:
-1. MONDAY column — scan top to bottom, list every colored/highlighted class block with start time, end time, course name.
-2. TUESDAY column — scan top to bottom independently. Do NOT copy Monday's classes unless you visually confirm they appear in Tuesday's column.
-3. WEDNESDAY column — scan top to bottom independently.
-4. THURSDAY column — scan top to bottom independently. THIS DAY IS OFTEN MISSED. Look carefully.
-5. FRIDAY column — scan top to bottom independently. THIS DAY IS OFTEN MISSED. Look carefully.
-6. SATURDAY column — scan top to bottom. Usually empty.
-7. SUNDAY column — scan top to bottom. Usually empty.
+For each day column (Monday through Sunday), look at ONLY that column and list the colored class blocks visible in it — their course name, start time, and end time.
 
-STRICT RULES:
-- Each day column must be read INDEPENDENTLY. Never assume a class exists on a day — only include it if you see its block in that specific column.
-- A class appearing on Mon, Wed, Fri must generate 3 separate entries (day=0, day=2, day=4).
-- A class appearing on Tue, Thu must generate 2 separate entries (day=1, day=3).
-- Times in 24-hour HH:MM format only (13:30 not 1:30 PM).
-- After processing all 7 days, count your entries — if Thursday and Friday have zero entries but other days do, re-examine those columns before finalizing.
+RULES:
+- Only include a class on a day if its block is PHYSICALLY VISIBLE in that day's column.
+- When in doubt about a day, leave it out — it is better to miss one than to add a wrong one.
+- Same course on different days = separate entries.
+- Times in 24-hour HH:MM format (e.g. 13:30).
 
-Day mapping: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
+Day numbers: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
 
-Return ONLY a raw JSON array. No markdown, no explanation, nothing else.
-Example: [{"day":0,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":2,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
-              },
-            ],
-          }],
+Return ONLY a raw JSON array, no markdown, no explanation:
+[{"day":0,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
+                },
+              ],
+            },
+          ],
           max_tokens: 2000,
         }),
       });
