@@ -37,6 +37,13 @@ const SHIFT_COLORS: Record<ShiftType, string> = {
 const WEEK_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const SEMESTERS: Semester[] = ['Winter', 'Spring', 'Summer', 'Fall'];
 
+function fmt12(time: string): string {
+  const [h, m] = time.split(':').map(Number);
+  const period = h < 12 ? 'AM' : 'PM';
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return `${hour}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay();
@@ -503,7 +510,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                                 </div>
                                                 <span className="truncate">{assigned.name.split(' ')[0]}</span>
                                               </div>
-                                              <div className="text-[9px] opacity-60 mt-1 truncate">{pos.startTime}–{pos.endTime}</div>
+                                              <div className="text-[9px] opacity-60 mt-1 truncate">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
                                               {unavail && <div className="text-[9px] opacity-70 mt-0.5 text-rose-300">Unavailable</div>}
                                             </motion.div>
                                           ) : (
