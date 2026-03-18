@@ -93,6 +93,125 @@ function PortalLinkButton() {
   );
 }
 
+const BLOCK_COLORS = ['#6366f1','#ec4899','#14b8a6','#f97316','#84cc16','#8b5cf6','#ef4444','#3b82f6','#a855f7','#06b6d4'];
+const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+
+function UnavailCalendar({ unavailability, onRemove }: {
+  unavailability: Array<{ id: string; date: string; dayOfWeek?: number; startTime: string; endTime: string; label?: string }>;
+  onRemove: (id: string) => void;
+}) {
+  if (unavailability.length === 0) return <p className="text-xs text-slate-600 italic">No unavailability set.</p>;
+
+  const daySpecific = unavailability.filter(un => un.dayOfWeek !== undefined);
+  const allSemester = unavailability.filter(un => un.dayOfWeek === undefined);
+
+  const activeDays = [...new Set(daySpecific.map(un => un.dayOfWeek!))].sort((a, b) => a - b);
+
+  // Time range
+  const allMins = unavailability.flatMap(un => [toMin(un.startTime), toMin(un.endTime)]);
+  const minTime = Math.floor(Math.min(...allMins) / 60) * 60;
+  const maxTime = Math.ceil(Math.max(...allMins) / 60) * 60;
+  const range = Math.max(maxTime - minTime, 120);
+  const PX = 1.0; // px per minute
+  const totalH = range * PX;
+  const startHour = minTime / 60;
+  const endHour = maxTime / 60;
+  const hourTicks = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
+
+  // Consistent color per label
+  const colorMap: Record<string, string> = {};
+  let ci = 0;
+  unavailability.forEach(un => {
+    const key = un.label || '__block__';
+    if (!colorMap[key]) colorMap[key] = BLOCK_COLORS[ci++ % BLOCK_COLORS.length];
+  });
+
+  const fmtHour = (h: number) => h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`;
+
+  return (
+    <div className="space-y-3">
+      {activeDays.length > 0 && (
+        <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.015]">
+          <div className="flex min-w-max p-2 gap-0">
+            {/* Time axis */}
+            <div className="relative w-10 shrink-0 mr-0.5" style={{ height: totalH, marginTop: 20 }}>
+              {hourTicks.map(h => (
+                <div key={h} className="absolute right-1" style={{ top: (h * 60 - minTime) * PX - 5 }}>
+                  <span className="text-[7px] text-slate-700 whitespace-nowrap tabular-nums">{fmtHour(h)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Day columns */}
+            {activeDays.map(dayIdx => {
+              const entries = daySpecific.filter(un => un.dayOfWeek === dayIdx);
+              return (
+                <div key={dayIdx} className="w-[88px] shrink-0">
+                  <div className="text-center h-5 flex items-center justify-center">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                      {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][dayIdx]}
+                    </span>
+                  </div>
+                  <div className="relative border-l border-white/[0.06]" style={{ height: totalH }}>
+                    {hourTicks.map(h => (
+                      <div key={h} className="absolute w-full border-t border-white/[0.04]" style={{ top: (h * 60 - minTime) * PX }} />
+                    ))}
+                    {entries.map(un => {
+                      const top = (toMin(un.startTime) - minTime) * PX;
+                      const height = Math.max((toMin(un.endTime) - toMin(un.startTime)) * PX, 18);
+                      const color = colorMap[un.label || '__block__'];
+                      return (
+                        <div
+                          key={un.id}
+                          className="absolute inset-x-0.5 rounded overflow-hidden px-1.5 py-0.5 group cursor-default"
+                          style={{ top, height, backgroundColor: `${color}22`, borderLeft: `2px solid ${color}70` }}
+                        >
+                          {height >= 16 && (
+                            <p className="text-[8px] font-bold leading-tight line-clamp-2 pr-3" style={{ color: `${color}cc` }}>
+                              {un.label || 'Blocked'}
+                            </p>
+                          )}
+                          {height >= 28 && (
+                            <p className="text-[7px] text-slate-600 tabular-nums">{fmt12(un.startTime)}</p>
+                          )}
+                          <button
+                            onClick={() => onRemove(un.id)}
+                            className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 size={8} className="text-slate-500 hover:text-rose-400" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* All-semester manual blocks */}
+      {allSemester.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">All Semester</p>
+          {allSemester.map(un => (
+            <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
+                {un.label && <span className="text-slate-500">{un.label}</span>}
+              </div>
+              <button onClick={() => onRemove(un.id)} className="text-slate-600 hover:text-rose-400 transition-colors">
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void }) {
   const [semester, setSemester] = useState<Semester>('Spring');
 
@@ -913,28 +1032,10 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                               )}
 
                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unavailability for {member.name}</p>
-
-                              {member.unavailability.length > 0 ? (
-                                <div className="space-y-1.5">
-                                  {member.unavailability.map(un => (
-                                    <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
-                                      <div className="flex items-center gap-3 text-xs">
-                                        <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
-                                        {un.label && <span className="text-slate-500">{un.label}</span>}
-                                        <span className="text-slate-600 text-[10px]">
-                                          {un.dayOfWeek !== undefined ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][un.dayOfWeek] : 'all semester'}
-                                        </span>
-                                      </div>
-                                      <button onClick={() => removeUnavailability(member.id, un.id)}
-                                        className="text-slate-600 hover:text-rose-400 transition-colors">
-                                        <Trash2 size={13} />
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-slate-600 italic">No unavailability set.</p>
-                              )}
+                              <UnavailCalendar
+                                unavailability={member.unavailability}
+                                onRemove={id => removeUnavailability(member.id, id)}
+                              />
 
                               <div className="flex flex-wrap items-end gap-2 pt-1">
                                 <div className="space-y-1">
@@ -1051,27 +1152,10 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                             {isExpanded && (
                               <div className="px-4 pb-4 pt-2 bg-white/[0.02] border-t border-white/[0.06] space-y-3">
                                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unavailability for {member.name}</p>
-                                {member.unavailability.length > 0 ? (
-                                  <div className="space-y-1.5">
-                                    {member.unavailability.map(un => (
-                                      <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
-                                        <div className="flex items-center gap-3 text-xs">
-                                          <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
-                                          {un.label && <span className="text-slate-500">{un.label}</span>}
-                                          <span className="text-slate-600 text-[10px]">
-                                            {un.dayOfWeek !== undefined ? ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][un.dayOfWeek] : 'all semester'}
-                                          </span>
-                                        </div>
-                                        <button onClick={() => removeUnavailability(member.id, un.id)}
-                                          className="text-slate-600 hover:text-rose-400 transition-colors">
-                                          <Trash2 size={13} />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-slate-600 italic">No unavailability set.</p>
-                                )}
+                                <UnavailCalendar
+                                  unavailability={member.unavailability}
+                                  onRemove={id => removeUnavailability(member.id, id)}
+                                />
                                 <div className="flex flex-wrap items-end gap-2 pt-1">
                                   <div className="space-y-1">
                                     <label className="text-[9px] font-black uppercase tracking-widest text-slate-600">Start</label>
