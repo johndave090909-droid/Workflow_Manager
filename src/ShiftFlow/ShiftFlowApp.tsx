@@ -437,7 +437,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
       setWeekSchedule(map);
     } catch (err) {
       console.error('AI scheduling failed, falling back to rule-based:', err);
-      setAiError('Claude scheduling failed. Used rule-based fallback.');
+      setAiError('Auto-scheduling failed. Used rule-based fallback.');
 
       // ── Rule-based fallback ───────────────────────────────────────────────
       const map: Record<string, string> = {};

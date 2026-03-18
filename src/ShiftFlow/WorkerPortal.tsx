@@ -385,7 +385,7 @@ Return ONLY a raw JSON array, no markdown, no explanation:
             <div>
               <h2 className="text-sm font-black text-white uppercase tracking-wide">Upload Class Schedule</h2>
               <p className="text-xs text-slate-500 mt-1">
-                Take a photo or screenshot of your class schedule. Our AI will read it and automatically extract your class times so the scheduler knows when you're unavailable.
+                Take a photo or screenshot of your class schedule. The system will automatically extract your class times so the scheduler knows when you're unavailable.
               </p>
             </div>
 
@@ -437,7 +437,7 @@ Return ONLY a raw JSON array, no markdown, no explanation:
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#ff00ff]/20 border border-[#ff00ff]/30 text-[#ff00ff] font-bold hover:bg-[#ff00ff]/30 transition-all"
               >
                 <Sparkles size={16} />
-                Process Schedule with AI
+                Process Schedule
               </button>
             )}
           </div>
@@ -453,7 +453,7 @@ Return ONLY a raw JSON array, no markdown, no explanation:
             </div>
             <div>
               <h2 className="text-lg font-black text-white mb-2">Reading your schedule…</h2>
-              <p className="text-xs text-slate-500">Our AI is extracting your class times. This takes a few seconds.</p>
+              <p className="text-xs text-slate-500">The system is extracting your class times. This takes a few seconds.</p>
             </div>
             <div className="flex justify-center gap-1.5">
               {[0, 1, 2].map(i => (
