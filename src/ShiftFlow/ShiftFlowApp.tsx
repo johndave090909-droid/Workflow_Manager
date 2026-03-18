@@ -486,7 +486,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                     <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${SHIFT_COLORS[pos.shiftType]}`}>
                                       {pos.name}
                                     </div>
-                                    <div className="text-[10px] text-slate-600 mt-1 ml-1">{pos.startTime}–{pos.endTime}</div>
+                                    <div className="text-[10px] text-slate-600 mt-1 ml-1">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
                                   </td>
                                   {weekDates.map((_, dayIdx) => {
                                     const runs = pos.days.includes(dayIdx);
@@ -606,7 +606,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <Briefcase size={10} className="text-slate-600" />
                                 <span className="text-[10px] text-slate-500 uppercase tracking-wide">
-                                  {memberPos ? `${memberPos.name} · ${memberPos.startTime}–${memberPos.endTime}` : 'Unassigned'}
+                                  {memberPos ? `${memberPos.name} · ${fmt12(memberPos.startTime)}–${fmt12(memberPos.endTime)}` : 'Unassigned'}
                                 </span>
                               </div>
                             </div>
@@ -651,7 +651,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                               className="hidden sm:block bg-white/5 border border-white/10 text-slate-400 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-white/25 shrink-0"
                             >
                               {departments.find(d => d.id === member.departmentId)?.positions.map(p => (
-                                <option key={p.id} value={p.id}>{p.name} ({p.startTime}–{p.endTime})</option>
+                                <option key={p.id} value={p.id}>{p.name} ({fmt12(p.startTime)}–{fmt12(p.endTime)})</option>
                               ))}
                             </select>
 
@@ -731,7 +731,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                   {member.unavailability.map(un => (
                                     <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
                                       <div className="flex items-center gap-3 text-xs">
-                                        <span className="text-slate-300 font-semibold">{un.startTime} – {un.endTime}</span>
+                                        <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
                                         {(un as { label?: string }).label && (
                                           <span className="text-slate-500">{(un as { label?: string }).label}</span>
                                         )}
@@ -868,7 +868,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                     {member.unavailability.map(un => (
                                       <div key={un.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/10">
                                         <div className="flex items-center gap-3 text-xs">
-                                          <span className="text-slate-300 font-semibold">{un.startTime} – {un.endTime}</span>
+                                          <span className="text-slate-300 font-semibold">{fmt12(un.startTime)} – {fmt12(un.endTime)}</span>
                                           <span className="text-slate-600 text-[10px]">all semester</span>
                                         </div>
                                         <button onClick={() => removeUnavailability(member.id, un.id)}
