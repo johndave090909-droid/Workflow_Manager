@@ -24,6 +24,8 @@ import {
   ShieldCheck,
   Building2,
   Sparkles,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Staff, Semester, ShiftType, Department, Position } from './types';
@@ -261,6 +263,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   const [staff, setStaff] = useState<Staff[]>([]);
   const [rosterLoaded, setRosterLoaded] = useState(false);
   const [weekSchedule, setWeekSchedule] = useState<Record<string, string> | null>(null);
+  const [pinnedAssignments, setPinnedAssignments] = useState<Record<string, string>>({});
 
   const STAFF_COLORS = [
     '#6366f1','#ec4899','#14b8a6','#f97316','#84cc16','#06b6d4','#10b981',
@@ -294,6 +297,9 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
       if (savedConfig.weekSchedule && Object.keys(savedConfig.weekSchedule).length > 0) {
         setWeekSchedule(savedConfig.weekSchedule);
+      }
+      if (savedConfig.pinnedAssignments) {
+        setPinnedAssignments(savedConfig.pinnedAssignments);
       }
 
       const rows = rowsRef.current;
@@ -334,10 +340,10 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       staff.forEach(s => {
         assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, scheduleImageUrl: s.scheduleImageUrl };
       });
-      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, ...(weekSchedule && Object.keys(weekSchedule).length > 0 ? { weekSchedule } : { weekSchedule: null }) }, { merge: true }).catch(console.error);
+      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, pinnedAssignments, ...(weekSchedule && Object.keys(weekSchedule).length > 0 ? { weekSchedule } : { weekSchedule: null }) }, { merge: true }).catch(console.error);
     }, 1500);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [staff, departments, weekSchedule, rosterLoaded]);
+  }, [staff, departments, weekSchedule, pinnedAssignments, rosterLoaded]);
 
   const [activeTab, setActiveTab] = useState<'schedule' | 'staff' | 'settings'>('schedule');
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
@@ -374,35 +380,53 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
     const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
-    // ── Build prompt ─────────────────────────────────────────────────────────
+    // ── Separate pinned vs free positions/staff ───────────────────────────────
+    const pinnedPosIds = new Set(Object.keys(pinnedAssignments));
+    const pinnedStaffIds = new Set(Object.values(pinnedAssignments));
+
+    // ── Build prompt (exclude pinned positions and pinned staff) ──────────────
     const deptLines = departments.map(dept => {
-      const posLines = dept.positions.map(pos =>
-        `  - Position ID: "${pos.id}" | Name: ${pos.name} | Days: ${pos.days.map(d => DAY_LABELS[d]).join(', ')} | Time: ${fmt12(pos.startTime)} – ${fmt12(pos.endTime)}`
-      ).join('\n');
-      return `Department: ${dept.name}\n${posLines}`;
-    }).join('\n\n');
+      const posLines = dept.positions
+        .filter(pos => !pinnedPosIds.has(pos.id))
+        .map(pos =>
+          `  - Position ID: "${pos.id}" | Name: ${pos.name} | Days: ${pos.days.map(d => DAY_LABELS[d]).join(', ')} | Time: ${fmt12(pos.startTime)} – ${fmt12(pos.endTime)}`
+        ).join('\n');
+      return posLines ? `Department: ${dept.name}\n${posLines}` : null;
+    }).filter(Boolean).join('\n\n');
 
-    const staffLines = staff.map(s => {
-      const dept = departments.find(d => d.id === s.departmentId);
-      const pos = dept?.positions.find(p => p.id === s.positionId);
-      const unavail = s.unavailability.length === 0
-        ? 'None'
-        : s.unavailability.map(un => {
-            const timeStr = `${fmt12(un.startTime)} – ${fmt12(un.endTime)}`;
-            const label = un.label ? ` (${un.label})` : '';
-            if (un.dayOfWeek !== undefined) return `${DAY_LABELS[un.dayOfWeek]} ${timeStr}${label}`;
-            return `All days ${timeStr}${label}`;
-          }).join('; ');
-      return `- Staff ID: "${s.id}" | Name: ${s.name} | Dept: ${dept?.name ?? 'Unassigned'} | Assigned position: ${pos?.name ?? 'None'}\n  Unavailability: ${unavail}`;
-    }).join('\n');
+    const staffLines = staff
+      .filter(s => !pinnedStaffIds.has(s.id))
+      .map(s => {
+        const dept = departments.find(d => d.id === s.departmentId);
+        const pos = dept?.positions.find(p => p.id === s.positionId);
+        const unavail = s.unavailability.length === 0
+          ? 'None'
+          : s.unavailability.map(un => {
+              const timeStr = `${fmt12(un.startTime)} – ${fmt12(un.endTime)}`;
+              const label = un.label ? ` (${un.label})` : '';
+              if (un.dayOfWeek !== undefined) return `${DAY_LABELS[un.dayOfWeek]} ${timeStr}${label}`;
+              return `All days ${timeStr}${label}`;
+            }).join('; ');
+        return `- Staff ID: "${s.id}" | Name: ${s.name} | Dept: ${dept?.name ?? 'Unassigned'} | Assigned position: ${pos?.name ?? 'None'}\n  Unavailability: ${unavail}`;
+      }).join('\n');
 
-    const prompt = `You are a shift scheduler. Assign staff to positions for the coming week.
+    const pinnedNote = pinnedPosIds.size > 0
+      ? `\nNOTE: The following position→staff assignments are LOCKED and must NOT be changed:\n${
+          Object.entries(pinnedAssignments).map(([pId, sId]) => {
+            const pos = departments.flatMap(d => d.positions).find(p => p.id === pId);
+            const s = staff.find(x => x.id === sId);
+            return `  - "${pos?.name ?? pId}" is locked to "${s?.name ?? sId}"`;
+          }).join('\n')
+        }\nDo not include these positions in your output — they are already assigned.`
+      : '';
 
-DEPARTMENTS AND SHIFTS:
-${deptLines}
+    const prompt = `You are a shift scheduler. Assign staff to positions for the coming week.${pinnedNote}
 
-STAFF (with unavailability):
-${staffLines}
+DEPARTMENTS AND SHIFTS (excluding locked positions):
+${deptLines || '(all positions are locked)'}
+
+STAFF AVAILABLE FOR ASSIGNMENT (excluding locked staff):
+${staffLines || '(all staff are locked)'}
 
 RULES:
 1. Only assign staff to positions within their own department.
@@ -412,7 +436,7 @@ RULES:
 5. Do not assign anyone whose unavailability overlaps the shift time on ANY of the shift's days.
 6. Leave a position unassigned rather than assign someone who is unavailable.
 
-Return ONLY a valid JSON object mapping positionId to staffId. No markdown, no explanation.
+Return ONLY a valid JSON object mapping positionId to staffId for the NON-LOCKED positions only. No markdown, no explanation.
 Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
 
     try {
@@ -437,24 +461,25 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
       const data = await response.json();
       const text: string = data.content?.[0]?.text ?? '';
       const clean = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-      const map: Record<string, string> = JSON.parse(clean);
-      setWeekSchedule(map);
+      const aiMap: Record<string, string> = JSON.parse(clean);
+      setWeekSchedule({ ...pinnedAssignments, ...aiMap });
     } catch (err) {
       console.error('AI scheduling failed, falling back to rule-based:', err);
       setAiError('Auto-scheduling failed. Used rule-based fallback.');
 
-      // ── Rule-based fallback ───────────────────────────────────────────────
-      const map: Record<string, string> = {};
+      // ── Rule-based fallback (respects pins) ──────────────────────────────
+      const map: Record<string, string> = { ...pinnedAssignments };
+      const usedGlobal = new Set<string>(Object.values(pinnedAssignments));
       for (const dept of departments) {
         const deptStaff = staff.filter(s => s.departmentId === dept.id);
-        const usedIds = new Set<string>();
         for (const pos of dept.positions) {
+          if (pinnedPosIds.has(pos.id)) continue;
           const primary = deptStaff.find(s => s.positionId === pos.id);
-          if (primary && !isStaffUnavailable(primary, pos)) {
-            map[pos.id] = primary.id; usedIds.add(primary.id); continue;
+          if (primary && !usedGlobal.has(primary.id) && !isStaffUnavailable(primary, pos)) {
+            map[pos.id] = primary.id; usedGlobal.add(primary.id); continue;
           }
-          const sub = deptStaff.find(s => !usedIds.has(s.id) && !isStaffUnavailable(s, pos));
-          if (sub) { map[pos.id] = sub.id; usedIds.add(sub.id); }
+          const sub = deptStaff.find(s => !usedGlobal.has(s.id) && !isStaffUnavailable(s, pos));
+          if (sub) { map[pos.id] = sub.id; usedGlobal.add(sub.id); }
         }
       }
       setWeekSchedule(map);
@@ -462,11 +487,22 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
       setAiScheduling(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departments, staff]);
+  }, [departments, staff, pinnedAssignments]);
 
   const getAssignedStaff = (posId: string): Staff | undefined => {
     if (weekSchedule && Object.keys(weekSchedule).length > 0) return staff.find(s => s.id === weekSchedule[posId]);
     return staff.find(s => s.positionId === posId);
+  };
+
+  const togglePin = (posId: string) => {
+    const assigned = getAssignedStaff(posId);
+    if (!assigned) return;
+    setPinnedAssignments(prev => {
+      const next = { ...prev };
+      if (next[posId]) delete next[posId];
+      else next[posId] = assigned.id;
+      return next;
+    });
   };
 
   const alertData = useMemo(() => {
@@ -798,11 +834,23 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                             {dept.positions.map(pos => {
                               const assigned = getAssignedStaff(pos.id);
                               const unavail = assigned ? isStaffUnavailable(assigned, pos) : false;
+                              const isPinned = !!pinnedAssignments[pos.id];
                               return (
                                 <tr key={pos.id} className="group hover:bg-white/[0.02] transition-colors">
                                   <td className="p-3 border-b border-white/[0.06]">
-                                    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${SHIFT_COLORS[pos.shiftType]}`}>
-                                      {pos.name}
+                                    <div className="flex items-center gap-1.5">
+                                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-bold ${SHIFT_COLORS[pos.shiftType]}`}>
+                                        {pos.name}
+                                      </div>
+                                      {assigned && (
+                                        <button
+                                          onClick={() => togglePin(pos.id)}
+                                          title={isPinned ? 'Unpin — allow auto-schedule to reassign' : 'Pin — lock this person to this position'}
+                                          className={`p-1 rounded transition-all ${isPinned ? 'text-amber-400 opacity-100' : 'text-slate-600 opacity-0 group-hover:opacity-100 hover:text-amber-400'}`}
+                                        >
+                                          {isPinned ? <Pin size={11} /> : <PinOff size={11} />}
+                                        </button>
+                                      )}
                                     </div>
                                     <div className="text-[10px] text-slate-600 mt-1 ml-1">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
                                   </td>
@@ -818,7 +866,9 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                                               className={`h-full p-2 rounded-xl border text-[10px] font-bold flex flex-col justify-between ${
                                                 unavail
                                                   ? 'bg-rose-500/10 border-rose-400/30 text-rose-300'
-                                                  : SHIFT_COLORS[pos.shiftType]
+                                                  : isPinned
+                                                    ? 'bg-amber-500/10 border-amber-400/40 text-amber-200'
+                                                    : SHIFT_COLORS[pos.shiftType]
                                               }`}
                                             >
                                               <div className="flex items-center gap-1.5">
@@ -827,6 +877,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                                                   {assigned.name.charAt(0)}
                                                 </div>
                                                 <span className="truncate">{assigned.name.split(' ')[0]}</span>
+                                                {isPinned && <Pin size={8} className="text-amber-400 shrink-0 ml-auto" />}
                                               </div>
                                               <div className="text-[9px] opacity-60 mt-1 truncate">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
                                               {unavail && <div className="text-[9px] opacity-70 mt-0.5 text-rose-300">Unavailable</div>}
