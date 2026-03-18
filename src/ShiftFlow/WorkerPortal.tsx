@@ -127,17 +127,10 @@ export default function WorkerPortal() {
                 { type: 'image_url', image_url: { url: imagePreview } },
                 {
                   type: 'text',
-                  text: `Read this class schedule image column by column, left to right.
-
-For each day column (Monday through Sunday), look at ONLY that column and list the colored class blocks visible in it — their course name, start time, and end time.
-
-RULES:
-- Only include a class on a day if its block is PHYSICALLY VISIBLE in that day's column.
-- When in doubt about a day, leave it out — it is better to miss one than to add a wrong one.
-- Same course on different days = separate entries.
-- Times in 24-hour HH:MM format (e.g. 13:30).
+                  text: `Extract all class schedule entries from this image. For each class block, output one entry per day it appears on.
 
 Day numbers: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
+Times in 24-hour HH:MM format.
 
 Return ONLY a raw JSON array, no markdown, no explanation:
 [{"day":0,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
