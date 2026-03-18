@@ -105,47 +105,53 @@ export default function WorkerPortal() {
     setStep('processing');
     setExtractError('');
     try {
-      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-      if (!apiKey) throw new Error('OpenAI API key not configured.');
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error('Anthropic API key not configured.');
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      // Extract base64 data and media type from the data URL
+      const match = imagePreview.match(/^data:(.+);base64,(.+)$/);
+      if (!match) throw new Error('Invalid image format.');
+      const mediaType = match[1] as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const base64Data = match[2];
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a schedule grid reader. You read class schedule images column by column (one day at a time). You ONLY include a class on a day if you can see its colored block physically present in that day\'s column. You never guess, assume, or copy entries across days.',
-            },
-            {
-              role: 'user',
-              content: [
-                { type: 'image_url', image_url: { url: imagePreview } },
-                {
-                  type: 'text',
-                  text: `Extract all class schedule entries from this image. For each class block, output one entry per day it appears on.
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2000,
+          system: 'You are a precise class schedule extractor. You read schedule grid images accurately, identify every colored class block per day column, and never add entries that are not visibly present in the image.',
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: { type: 'base64', media_type: mediaType, data: base64Data },
+              },
+              {
+                type: 'text',
+                text: `Extract all class schedule entries from this image. For each colored class block, output one entry per day it appears on.
 
 Day numbers: Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6
 Times in 24-hour HH:MM format.
 
 Return ONLY a raw JSON array, no markdown, no explanation:
-[{"day":0,"startTime":"11:00","endTime":"11:50","label":"COMM 251-01 Lecture"},{"day":3,"startTime":"09:30","endTime":"10:45","label":"ECON 201-02 Lecture"}]`,
-                },
-              ],
-            },
-          ],
-          max_tokens: 2000,
+[{"day":0,"startTime":"08:00","endTime":"08:50","label":"CS 101-01 Lecture"},{"day":3,"startTime":"08:00","endTime":"09:15","label":"BUSM 361-01 Lecture"}]`,
+              },
+            ],
+          }],
         }),
       });
 
-      if (!response.ok) throw new Error(`OpenAI error: ${response.status}`);
+      if (!response.ok) throw new Error(`Anthropic error: ${response.status}`);
 
       const data = await response.json();
-      const text: string = data.choices?.[0]?.message?.content ?? '';
+      const text: string = data.content?.[0]?.text ?? '';
 
       // Strip markdown fences if model wraps anyway
       const clean = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
