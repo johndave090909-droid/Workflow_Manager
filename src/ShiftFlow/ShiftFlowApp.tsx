@@ -503,7 +503,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                                 </div>
                                                 <span className="truncate">{assigned.name.split(' ')[0]}</span>
                                               </div>
-                                              <div className="text-[9px] opacity-60 mt-1 truncate">{pos.name}</div>
+                                              <div className="text-[9px] opacity-60 mt-1 truncate">{pos.startTime}–{pos.endTime}</div>
                                               {unavail && <div className="text-[9px] opacity-70 mt-0.5 text-rose-300">Unavailable</div>}
                                             </motion.div>
                                           ) : (
