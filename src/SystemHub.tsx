@@ -2334,11 +2334,11 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                     </div>
                   )}
                   {/* Active days */}
-                  {activeDays.length > 0 && activeDays.length < 6 && (
+                  {activeDays.length > 0 && activeDays.length < 5 && (
                     <div className="flex gap-2 text-xs">
                       <span style={{ color: yellow }}>!</span>
                       <span className="text-slate-400">
-                        {activeDays.length} of 6 days have guest data — remaining days may not be complete yet.
+                        {activeDays.length} of 5 days have guest data — remaining days may not be complete yet.
                       </span>
                     </div>
                   )}
