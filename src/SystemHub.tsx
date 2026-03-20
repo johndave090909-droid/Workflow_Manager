@@ -1904,8 +1904,8 @@ function TrendSection() {
         )}
         {!loading && chartData.length > 0 && (
           <>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis
                   dataKey="label"
@@ -2155,24 +2155,33 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
       {!loading && !error && (
         <div className="flex gap-6 items-start flex-wrap xl:flex-nowrap">
 
-          {/* ── Left: Tables ── */}
-          <div className="flex flex-col gap-4 flex-shrink-0">
-            {/* Table O85:P88 */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden">
-              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
+          {/* ── Left: Tables + Trend ── */}
+          <div className="flex flex-col gap-4 flex-1 min-w-0">
+
+            {/* Top row: Budget Summary + Trend graph side by side */}
+            <div className="flex gap-4 items-start flex-wrap sm:flex-nowrap">
+              {/* Table O85:P88 */}
+              <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+                <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
+                </div>
+                <table className="border-collapse">
+                  <tbody>
+                    {tableA.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <table className="border-collapse">
-                <tbody>
-                  {tableA.map((row, ri) => (
-                    <tr key={ri}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+
+              {/* Trend graph — enlarged, takes remaining width */}
+              <div className="flex-1 min-w-[320px]">
+                <TrendSection />
+              </div>
             </div>
 
             {/* Table R85:W94 */}
@@ -2210,8 +2219,6 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </tbody>
               </table>
             </div>
-            {/* Trend graph */}
-            <TrendSection />
           </div>
 
           {/* ── Right: Analysis ── */}
