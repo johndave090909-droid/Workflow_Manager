@@ -1762,9 +1762,31 @@ function locatePlannedBudget(values: string[][]): { table: string[][], endRow: n
   return { table: sliceRange(values, startRow, endRow, 17, 22), endRow };
 }
 
-// Locate Actual: first "Total" in col 17 after Planned ends, extend until block ends, cols 17-23
+// Locate Actual: search for the actual table after the planned section ends.
+// Strategy: look for "Total" in cols 17-19, OR any row with a $ sign in cols 21-23,
+// starting after the planned table. Falls back to searching the full sheet if needed.
 function locateActual(values: string[][], afterRow: number): string[][] {
-  const anchor = findRowByCol(values, 17, 'Total', afterRow + 1);
+  const startSearch = afterRow > 0 ? afterRow + 1 : 0;
+
+  // Try finding "Total" or "Actual" as an anchor in cols 17, 18, or 19
+  let anchor = -1;
+  const keywords = ['total', 'actual'];
+  for (const kw of keywords) {
+    for (const col of [17, 18, 16]) {
+      const r = findRowByCol(values, col, kw, startSearch);
+      if (r >= 0) { anchor = r; break; }
+    }
+    if (anchor >= 0) break;
+  }
+
+  // Fallback: find first row after planned that has a $ in cols 21-23
+  if (anchor < 0) {
+    for (let r = startSearch; r < Math.min(values.length, startSearch + 30); r++) {
+      const hasDollar = values[r]?.slice(21, 24).some(c => (c ?? '').includes('$'));
+      if (hasDollar) { anchor = r; break; }
+    }
+  }
+
   if (anchor < 0) return [];
   let endRow = anchor;
   for (let r = anchor; r < Math.min(values.length, anchor + 15); r++) {
