@@ -2175,17 +2175,17 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
       {error   && <div className="py-6 text-center text-red-400 text-xs">{error}</div>}
 
       {!loading && !error && (
-        <div className="overflow-x-auto">
-        <div className="flex gap-5 items-start" style={{ minWidth: 1380 }}>
+        <div className="grid gap-5 items-start" style={{ gridTemplateColumns: 'minmax(0,1fr) 280px' }}>
 
           {/* ── LEFT column: Trend + tables ── */}
-          <div className="flex-1 min-w-0 space-y-4">
+          <div className="min-w-0 space-y-4">
 
             {/* Trend graph — fills left column width */}
             <TrendSection />
 
-            {/* All three tables in one row */}
-            <div className="flex gap-4 items-start">
+            {/* All three tables — scroll horizontally if wider than left column */}
+            <div className="overflow-x-auto">
+            <div className="flex gap-4 items-start w-max">
               {/* Budget Summary */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
@@ -2243,10 +2243,11 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </table>
               </div>
             </div>
+            </div>
           </div>
 
           {/* ── RIGHT column: Analysis ── */}
-          <div className="flex-shrink-0 w-72 rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+          <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
@@ -2450,7 +2451,6 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
             </div>
           </div>
 
-        </div>
         </div>
       )}
     </div>
