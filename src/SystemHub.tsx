@@ -1293,7 +1293,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
   );
 
   return (
-    <div className={`${profileUser.name.toLowerCase() === 'linda daeli' && profileTab === 'work' ? 'max-w-7xl' : 'max-w-2xl'} mx-auto px-4 sm:px-6 py-8 pb-32`}>
+    <div className={`${profileUser.name.toLowerCase() === 'linda daeli' && profileTab === 'work' ? 'w-full' : 'max-w-2xl'} mx-auto px-4 sm:px-6 py-8 pb-32`}>
       {/* Back */}
       <button
         onClick={onBack}
@@ -1329,8 +1329,9 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           return (
             <div>
               <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
-              <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} />
-              <WorkDocuments {...docProps} />
+              <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser}>
+                <WorkDocuments {...docProps} />
+              </WorkInformationTab>
             </div>
           );
         }
@@ -1816,11 +1817,14 @@ function parseWeekStart(tabName: string): Date | null {
   if (month === undefined) return null;
   const day = parseInt(m[2], 10);
   const now = new Date();
-  let year = now.getFullYear();
-  const candidate = new Date(year, month, day);
-  // If the tab date is more than 6 months in the future, it's from the previous year
-  if (candidate.getTime() - now.getTime() > 180 * 24 * 60 * 60 * 1000) year--;
-  return new Date(year, month, day);
+  now.setHours(0, 0, 0, 0);
+  const year = now.getFullYear();
+  const thisYear = new Date(year, month, day);
+  const lastYear = new Date(year - 1, month, day);
+  // Prefer the most recent date that is not in the future
+  if (thisYear.getTime() <= now.getTime()) return thisYear;
+  if (lastYear.getTime() <= now.getTime()) return lastYear;
+  return thisYear;
 }
 
 function aggregateCpg(weeks: WeekSummary[]) {
@@ -1834,9 +1838,11 @@ function aggregateCpg(weeks: WeekSummary[]) {
 }
 
 function groupByPeriod(summaries: WeekSummary[], period: TrendPeriod) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const parsed = summaries
     .map(w => ({ ...w, date: parseWeekStart(w.tab) }))
-    .filter(w => w.date !== null && (w.cpgBudget > 0 || w.cpgActual > 0))
+    .filter(w => w.date !== null && w.date.getTime() <= today.getTime() && (w.cpgBudget > 0 || w.cpgActual > 0))
     .sort((a, b) => a.date!.getTime() - b.date!.getTime());
 
   if (period === 'weekly') {
@@ -1926,7 +1932,7 @@ function TrendSection() {
         )}
         {!loading && chartData.length > 0 && (
           <>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={340}>
               <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis
@@ -1980,6 +1986,30 @@ function TrendSection() {
                 Actual CPG
               </span>
             </div>
+
+            {(() => {
+              const zeroActual  = chartData.filter(d => d.cpgActual  === 0).map(d => d.label);
+              const zeroBudget  = chartData.filter(d => d.cpgBudget  === 0).map(d => d.label);
+              const allZero     = Array.from(new Set([...zeroActual, ...zeroBudget]));
+              if (allZero.length === 0) return null;
+              return (
+                <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2.5 flex gap-2.5 items-start">
+                  <span className="text-amber-400 text-sm leading-none mt-0.5">⚠</span>
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-bold text-amber-300">Zero values detected on graph</p>
+                    <p className="text-[10px] text-amber-200/60 leading-relaxed">
+                      {zeroActual.length > 0 && (
+                        <span><span className="font-semibold text-amber-200/80">Actual CPG = $0.00</span> — {zeroActual.join(', ')}. </span>
+                      )}
+                      {zeroBudget.length > 0 && (
+                        <span><span className="font-semibold text-amber-200/80">Budget CPG = $0.00</span> — {zeroBudget.join(', ')}. </span>
+                      )}
+                      These appear as sharp dips and may indicate missing or incomplete data for those periods.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
       </div>
@@ -1987,7 +2017,7 @@ function TrendSection() {
   );
 }
 
-function LaborSheetView({ profileUser }: { profileUser: User }) {
+function LaborSheetView({ profileUser, children }: { profileUser: User; children?: React.ReactNode }) {
   const [tabs, setTabs]           = React.useState<string[]>([]);
   const [currentIdx, setCurrentIdx] = React.useState<number>(-1);
   const [activeTab, setActiveTab] = React.useState<string>('');
@@ -2134,7 +2164,8 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="overflow-x-auto">
+    <div style={{ width: 'fit-content', margin: '0 auto' }} className="space-y-5">
       {/* Week navigation */}
       <div className="flex items-center gap-2 flex-wrap">
         <button
@@ -2175,17 +2206,18 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
       {error   && <div className="py-6 text-center text-red-400 text-xs">{error}</div>}
 
       {!loading && !error && (
-        <div className="grid gap-5 items-start" style={{ gridTemplateColumns: 'minmax(0,1fr) 280px' }}>
+        <div className="flex gap-5 items-start">
 
-          {/* ── LEFT column: Trend + tables ── */}
-          <div className="min-w-0 space-y-4">
+          {/* ── LEFT column: fit-content so graph matches tables width exactly ── */}
+          <div className="space-y-4" style={{ width: 'fit-content' }}>
 
-            {/* Trend graph — fills left column width */}
+            {/* Trend graph — stretches to match tables width below */}
+            <div style={{ width: '100%' }}>
             <TrendSection />
+            </div>
 
-            {/* All three tables — scroll horizontally if wider than left column */}
-            <div className="overflow-x-auto">
-            <div className="flex gap-4 items-start w-max">
+            {/* All three tables side by side — their combined width drives graph width */}
+            <div className="flex gap-4 items-start">
               {/* Budget Summary */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
@@ -2243,11 +2275,10 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </table>
               </div>
             </div>
-            </div>
           </div>
 
           {/* ── RIGHT column: Analysis ── */}
-          <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+          <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)', width: '280px', flexShrink: 0 }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
@@ -2453,13 +2484,16 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
 
         </div>
       )}
+
+      {children && <div>{children}</div>}
+    </div>
     </div>
   );
 }
 
-function WorkInformationTab({ profileUser }: { workerDocId: string; profileUser: User }) {
+function WorkInformationTab({ profileUser, children }: { workerDocId: string; profileUser: User; children?: React.ReactNode }) {
   const isLindaDaeli = profileUser.name.toLowerCase() === 'linda daeli';
-  if (isLindaDaeli) return <LaborSheetView profileUser={profileUser} />;
+  if (isLindaDaeli) return <LaborSheetView profileUser={profileUser}>{children}</LaborSheetView>;
   return null;
 }
 

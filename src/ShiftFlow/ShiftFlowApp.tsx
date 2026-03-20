@@ -273,7 +273,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   ];
 
   // Rows ref so the config listener can always see the latest roster rows
-  const rowsRef = React.useRef<Array<{ id: string; firstName?: string; lastName?: string; name?: string }>>([]);
+  const rowsRef = React.useRef<Array<{ id: string; firstName?: string; lastName?: string; name?: string; idNumber?: string }>>([]);
 
   useEffect(() => {
     let active = true;
@@ -311,7 +311,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
           setStaff(latestRows.map((row, idx) => {
             const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || (row as { name?: string }).name || 'Unknown';
             const saved = savedAssignments[row.id] ?? { departmentId: '', positionId: '', unavailability: [] };
-            return { id: row.id, name: fullName, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
+            return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
           }));
           setRosterLoaded(true);
         }, 1000);
@@ -321,7 +321,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       setStaff(rows.map((row, idx) => {
         const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || (row as { name?: string }).name || 'Unknown';
         const saved = savedAssignments[row.id] ?? { departmentId: '', positionId: '', unavailability: [] };
-        return { id: row.id, name: fullName, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
+        return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
       }));
       setRosterLoaded(true);
     }, e => { console.error('ShiftFlow: config listener error', e); setRosterLoaded(true); });
@@ -968,6 +968,9 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sm font-semibold text-white truncate">{member.name}</span>
+                                {member.idNumber && (
+                                  <span className="text-[10px] font-mono text-slate-500">#{member.idNumber}</span>
+                                )}
                                 {dept.teamLeaderId === member.id && (
                                   <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300">Lead</span>
                                 )}
@@ -1158,7 +1161,12 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
 
                               {/* Name */}
                               <div className="flex-1 min-w-0">
-                                <span className="text-sm font-semibold text-white truncate block">{member.name}</span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm font-semibold text-white truncate">{member.name}</span>
+                                  {member.idNumber && (
+                                    <span className="text-[10px] font-mono text-slate-500">#{member.idNumber}</span>
+                                  )}
+                                </div>
                                 <span className="text-[10px] text-slate-600 uppercase tracking-wide">Not assigned</span>
                               </div>
 

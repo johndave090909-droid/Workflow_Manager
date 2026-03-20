@@ -30,6 +30,7 @@ export interface Unavailability {
 export interface Staff {
   id: string;
   name: string;
+  idNumber?: string;
   departmentId: string;
   positionId: string;
   color: string;
