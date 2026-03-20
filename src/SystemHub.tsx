@@ -2161,27 +2161,27 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
             {/* Trend graph */}
             <TrendSection />
 
-            {/* Budget Summary */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden w-fit">
-              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
-              </div>
-              <table className="border-collapse">
-                <tbody>
-                  {tableA.map((row, ri) => (
-                    <tr key={ri}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Tables row */}
+            {/* All three tables in one row */}
             <div className="flex gap-4 items-start flex-wrap">
-              {/* Table R85:W94 */}
+              {/* Budget Summary */}
+              <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+                <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
+                </div>
+                <table className="border-collapse">
+                  <tbody>
+                    {tableA.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Planned Budget */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Budget</span>
@@ -2199,20 +2199,23 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </table>
               </div>
 
-              {/* Table R97:X102 */}
+              {/* Actual */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
                   <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</span>
                 </div>
                 <table className="border-collapse">
                   <tbody>
-                    {tableC.map((row, ri) => (
-                      <tr key={ri}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
+                    {tableC.length > 0
+                      ? tableC.map((row, ri) => (
+                          <tr key={ri}>
+                            {row.map((cell, ci) => (
+                              <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                            ))}
+                          </tr>
+                        ))
+                      : <tr><td className={cellCls} colSpan={7}>No actual data yet</td></tr>
+                    }
                   </tbody>
                 </table>
               </div>
