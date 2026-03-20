@@ -1293,7 +1293,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
   );
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 pb-32">
+    <div className={`${profileUser.name.toLowerCase() === 'linda daeli' && profileTab === 'work' ? 'max-w-7xl' : 'max-w-2xl'} mx-auto px-4 sm:px-6 py-8 pb-32`}>
       {/* Back */}
       <button
         onClick={onBack}
@@ -2153,15 +2153,16 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
       {error   && <div className="py-6 text-center text-red-400 text-xs">{error}</div>}
 
       {!loading && !error && (
-        <div className="space-y-4">
+        <div className="flex gap-5 items-start">
 
-          {/* ── Row 1: Trend graph (full width) ── */}
-          <TrendSection />
+          {/* ── LEFT column: Trend + tables ── */}
+          <div className="flex-1 min-w-0 space-y-4">
 
-          {/* ── Row 2: Budget Summary + Analysis side by side ── */}
-          <div className="flex gap-4 items-start flex-wrap">
-            {/* Table O85:P88 */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+            {/* Trend graph */}
+            <TrendSection />
+
+            {/* Budget Summary */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden w-fit">
               <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
               </div>
@@ -2178,8 +2179,48 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
               </table>
             </div>
 
-            {/* ── Analysis ── */}
-            <div className="flex-1 min-w-[260px] rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+            {/* Tables row */}
+            <div className="flex gap-4 items-start flex-wrap">
+              {/* Table R85:W94 */}
+              <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+                <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Budget</span>
+                </div>
+                <table className="border-collapse">
+                  <tbody>
+                    {tableB.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Table R97:X102 */}
+              <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+                <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</span>
+                </div>
+                <table className="border-collapse">
+                  <tbody>
+                    {tableC.map((row, ri) => (
+                      <tr key={ri}>
+                        {row.map((cell, ci) => (
+                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* ── RIGHT column: Analysis ── */}
+          <div className="flex-shrink-0 w-80 rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
@@ -2380,46 +2421,6 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </div>
               )}
 
-            </div>
-          </div>
-          </div>
-
-          {/* ── Row 3: Planned Budget + Actual tables ── */}
-          <div className="flex gap-4 items-start flex-wrap">
-            {/* Table R85:W94 */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Budget</span>
-              </div>
-              <table className="border-collapse">
-                <tbody>
-                  {tableB.map((row, ri) => (
-                    <tr key={ri}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Table R97:X102 */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</span>
-              </div>
-              <table className="border-collapse">
-                <tbody>
-                  {tableC.map((row, ri) => (
-                    <tr key={ri}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
             </div>
           </div>
 
