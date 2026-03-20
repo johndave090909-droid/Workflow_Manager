@@ -2175,15 +2175,13 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
       {error   && <div className="py-6 text-center text-red-400 text-xs">{error}</div>}
 
       {!loading && !error && (
-        <div className="flex gap-5 items-start">
+        <div className="overflow-x-auto">
+        <div className="flex gap-5 items-start" style={{ minWidth: 1100 }}>
 
           {/* ── LEFT column: Trend + tables ── */}
-          <div className="flex-1 overflow-x-auto space-y-4">
+          <div className="flex-1 min-w-0 space-y-4">
 
-            {/* Inner wrapper: min-w-max so trend stretches to match table row width */}
-            <div className="min-w-max space-y-4">
-
-            {/* Trend graph — stretches to full inner width */}
+            {/* Trend graph — fills left column width */}
             <TrendSection />
 
             {/* All three tables in one row */}
@@ -2245,7 +2243,6 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </table>
               </div>
             </div>
-            </div>{/* end min-w-max inner wrapper */}
           </div>
 
           {/* ── RIGHT column: Analysis ── */}
@@ -2453,6 +2450,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
             </div>
           </div>
 
+        </div>
         </div>
       )}
     </div>
