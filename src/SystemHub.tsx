@@ -1776,6 +1776,9 @@ function locateActual(values: string[][], afterRow: number): string[][] {
 }
 
 const SYNC_INTERVAL_MS = 30_000; // 30 seconds
+const LABOR_API = import.meta.env.PROD
+  ? 'https://us-central1-systems-hub.cloudfunctions.net/laborSheetApi'
+  : '/api/labor-sheet';
 
 function LaborSheetView({ profileUser }: { profileUser: User }) {
   const [tabs, setTabs]           = React.useState<string[]>([]);
@@ -1792,7 +1795,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
   // Load tabs from API + restore last active tab from Firestore
   React.useEffect(() => {
     Promise.all([
-      fetch('/api/labor-sheet/tabs').then(r => r.json()),
+      fetch(`${LABOR_API}/tabs`).then(r => r.json()),
       getDoc(sheetDocRef),
     ]).then(([tabData, snap]) => {
       const isDateTab = (name: string) => /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(name);
@@ -1829,7 +1832,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
     if (!tab || !/jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(tab)) return;
     if (isBackground) setSyncing(true); else setLoading(true);
     setError('');
-    fetch(`/api/labor-sheet/data?tab=${encodeURIComponent(tab)}`)
+    fetch(`${LABOR_API}/data?tab=${encodeURIComponent(tab)}`)
       .then(r => r.json())
       .then((data: { values?: string[][]; error?: string }) => {
         if (data.error) { setError(data.error); return; }
