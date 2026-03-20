@@ -1727,213 +1727,517 @@ function CustomSectionsPanel({ profileUser, isDirector }: { profileUser: User; i
 
 // ── WorkInformationTab ─────────────────────────────────────────────────────────
 
-const LABOR_STATIONS = [
-  { name: 'Office',                highlight: false },
-  { name: 'Bakery Apprentice',     highlight: true  },
-  { name: 'Culinary Intern 1',     highlight: true  },
-  { name: 'Culinary Intern 2',     highlight: true  },
-  { name: 'Pantry Team',           highlight: false },
-  { name: 'Early Morning Lead',    highlight: false },
-  { name: 'Afternoon Lead Bakery', highlight: false },
-  { name: 'Night Lead',            highlight: false },
-  { name: 'Morning Student Lead',  highlight: false },
-  { name: 'Afternoon Team',        highlight: false },
-  { name: 'Kitchen Pass',          highlight: false },
-  { name: 'FOH Lead',              highlight: false },
-  { name: 'Prep Lead',             highlight: false },
-];
-
-const LABOR_SECTIONS = [
-  { key: 'Bakery',        label: 'Bakery'                          },
-  { key: 'Pantry',        label: 'Pantry (9)'                      },
-  { key: 'MorningPrep',   label: 'Morning Prep (8)'                },
-  { key: 'AfternoonPrep', label: 'Afternoon Prep (8)'              },
-  { key: 'KP',            label: 'KP/hot food (9)'                 },
-  { key: 'FOH',           label: 'FOH (20/ missing 2 poisson cru)' },
-  { key: 'EveningPrep',   label: 'Evening Prep (9)'                },
-];
-
-function getThisMonday(): Date {
-  const today = new Date();
-  const day = today.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  const m = new Date(today);
-  m.setDate(today.getDate() + diff);
-  m.setHours(0, 0, 0, 0);
-  return m;
+function sliceRange(values: string[][], rowStart: number, rowEnd: number, colStart: number, colEnd: number): string[][] {
+  if (rowStart < 0 || rowEnd < 0) return [];
+  return values.slice(rowStart, rowEnd + 1).map(row =>
+    Array.from({ length: colEnd - colStart + 1 }, (_, i) => row[colStart + i] ?? '')
+  );
 }
 
-function getLaborWeeks(startMonday: Date, count: number) {
-  const weeks: { key: string; label: string; month: string }[] = [];
-  const d = new Date(startMonday);
-  for (let i = 0; i < count; i++) {
-    const s = new Date(d);
-    const e = new Date(d);
-    e.setDate(e.getDate() + 5);
-    const fmt = (dt: Date) => `${dt.getMonth() + 1}/${dt.getDate()}`;
-    weeks.push({ key: s.toISOString().split('T')[0], label: `${fmt(s)} - ${fmt(e)}`, month: s.toLocaleString('default', { month: 'long' }) });
-    d.setDate(d.getDate() + 7);
+// Scan a specific column for a keyword (case-insensitive, trim), return row index or -1
+function findRowByCol(values: string[][], col: number, keyword: string, startRow = 0): number {
+  for (let r = startRow; r < values.length; r++) {
+    if ((values[r]?.[col] ?? '').trim().toLowerCase() === keyword.toLowerCase()) return r;
   }
-  return weeks;
+  return -1;
 }
 
-function WorkInformationTab({ profileUser }: { workerDocId: string; profileUser: User }) {
-  // Stored at users/{docId}/work_data/labor_report — tied directly to the user's own document
-  const laborDocRef = doc(db, 'users', profileUser.id, 'work_data', 'labor_report');
+// Locate Budget Summary: col 14 = "Budget", col 15 = "Total" → 4 rows, cols 14-15
+function locateBudgetSummary(values: string[][]): string[][] {
+  const r = findRowByCol(values, 14, 'Budget');
+  if (r < 0) return [];
+  return sliceRange(values, r, r + 3, 14, 15);
+}
 
-  const [pageOffset, setPageOffset] = React.useState(0);
-  const weeks = React.useMemo(() => {
-    const base = getThisMonday();
-    base.setDate(base.getDate() - 14 + pageOffset * 8 * 7);
-    return getLaborWeeks(base, 8);
-  }, [pageOffset]);
+// Locate Planned Budget: col 18 = "Aloha" → include 1 row above (spacer), extend until "Average" row, cols 17-22
+function locatePlannedBudget(values: string[][]): { table: string[][], endRow: number } {
+  const anchor = findRowByCol(values, 18, 'Aloha');
+  if (anchor < 0) return { table: [], endRow: -1 };
+  const startRow = Math.max(0, anchor - 1);
+  let endRow = anchor;
+  for (let r = anchor; r < Math.min(values.length, anchor + 20); r++) {
+    endRow = r;
+    if ((values[r]?.[17] ?? '').trim().toLowerCase() === 'average') break;
+  }
+  return { table: sliceRange(values, startRow, endRow, 17, 22), endRow };
+}
 
-  const [hours, setHours]   = React.useState<Record<string, string>>({});
-  const [secs,  setSecs]    = React.useState<Record<string, { current: string; need: string }>>({});
-  const [loading, setLoading] = React.useState(true);
-  const [saving,  setSaving]  = React.useState(false);
-  const [dirty,   setDirty]   = React.useState(false);
+// Locate Actual: first "Total" in col 17 after Planned ends, extend until block ends, cols 17-23
+function locateActual(values: string[][], afterRow: number): string[][] {
+  const anchor = findRowByCol(values, 17, 'Total', afterRow + 1);
+  if (anchor < 0) return [];
+  let endRow = anchor;
+  for (let r = anchor; r < Math.min(values.length, anchor + 15); r++) {
+    const rowHasData = values[r]?.slice(17, 24).some(c => c.trim() !== '');
+    if (!rowHasData && r > anchor) break;
+    endRow = r;
+  }
+  return sliceRange(values, anchor, endRow, 17, 23);
+}
 
+const SYNC_INTERVAL_MS = 30_000; // 30 seconds
+
+function LaborSheetView({ profileUser }: { profileUser: User }) {
+  const [tabs, setTabs]           = React.useState<string[]>([]);
+  const [currentIdx, setCurrentIdx] = React.useState<number>(-1);
+  const [activeTab, setActiveTab] = React.useState<string>('');
+  const [values, setValues]       = React.useState<string[][]>([]);
+  const [loading, setLoading]     = React.useState(true);
+  const [syncing, setSyncing]     = React.useState(false);
+  const [error, setError]         = React.useState('');
+  const [lastSynced, setLastSynced] = React.useState<Date | null>(null);
+
+  const sheetDocRef = doc(db, 'users', profileUser.id, 'work_data', 'labor_sheet');
+
+  // Load tabs from API + restore last active tab from Firestore
   React.useEffect(() => {
-    setLoading(true);
-    setHours({});
-    setSecs({});
-    getDoc(laborDocRef).then(snap => {
-      const d = snap.data();
-      if (d) {
-        setHours(d.stationHours || {});
-        setSecs(d.sections || {});
+    Promise.all([
+      fetch('/api/labor-sheet/tabs').then(r => r.json()),
+      getDoc(sheetDocRef),
+    ]).then(([tabData, snap]) => {
+      const isDateTab = (name: string) => /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(name);
+      const list: string[] = (tabData.tabs ?? []).filter(isDateTab);
+      setTabs(list);
+      const saved = snap.data()?.activeTab as string | undefined;
+      const idx = saved ? list.findIndex(t => t === saved) : list.length - 1;
+      const safeIdx = idx !== -1 ? idx : list.length - 1;
+      if (list.length) {
+        setCurrentIdx(safeIdx);
+        setActiveTab(list[safeIdx]);
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(e => { setError(String(e)); setLoading(false); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileUser.id]);
+  }, []);
 
-  const setHour = (station: string, weekKey: string, val: string) => {
-    setHours(prev => ({ ...prev, [`${station}||${weekKey}`]: val }));
-    setDirty(true);
-  };
-  const setSec = (secKey: string, field: 'current' | 'need', val: string) => {
-    setSecs(prev => ({ ...prev, [secKey]: { ...(prev[secKey] || { current: '', need: '' }), [field]: val } }));
-    setDirty(true);
-  };
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await setDoc(laborDocRef, { stationHours: hours, sections: secs });
-      setDirty(false);
-    } catch { /* ignore */ }
-    setSaving(false);
+  const isDateTab = (name: string) => /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(name);
+
+  const goTo = (idx: number) => {
+    if (idx < 0 || idx >= tabs.length) return;
+    const name = tabs[idx];
+    if (!isDateTab(name)) return;
+    setCurrentIdx(idx);
+    setActiveTab(name);
+    setDoc(sheetDocRef, { activeTab: name }, { merge: true }).catch(() => {});
   };
 
-  // Group weeks by month for header spanning
-  const monthGroups: { month: string; count: number }[] = [];
-  weeks.forEach(w => {
-    const last = monthGroups[monthGroups.length - 1];
-    if (last && last.month === w.month) last.count++;
-    else monthGroups.push({ month: w.month, count: 1 });
+  const canPrev = currentIdx > 0;
+  const canNext = currentIdx < tabs.length - 1;
+
+  const fetchData = React.useCallback((tab: string, isBackground = false) => {
+    if (!tab || !/jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(tab)) return;
+    if (isBackground) setSyncing(true); else setLoading(true);
+    setError('');
+    fetch(`/api/labor-sheet/data?tab=${encodeURIComponent(tab)}`)
+      .then(r => r.json())
+      .then((data: { values?: string[][]; error?: string }) => {
+        if (data.error) { setError(data.error); return; }
+        setValues(data.values ?? []);
+        setLastSynced(new Date());
+      })
+      .catch(e => setError(String(e)))
+      .finally(() => { setLoading(false); setSyncing(false); });
+  }, []);
+
+  // Fetch on tab change
+  React.useEffect(() => {
+    if (!activeTab) return;
+    fetchData(activeTab);
+  }, [activeTab, fetchData]);
+
+  // Live sync: poll every 30s in the background
+  React.useEffect(() => {
+    if (!activeTab) return;
+    const id = setInterval(() => fetchData(activeTab, true), SYNC_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [activeTab, fetchData]);
+
+  const tableA = React.useMemo(() => locateBudgetSummary(values), [values]);
+  const { table: tableB, endRow: plannedEndRow } = React.useMemo(() => locatePlannedBudget(values), [values]);
+  const tableC = React.useMemo(() => locateActual(values, plannedEndRow), [values, plannedEndRow]);
+
+  // ── Analysis computations ──────────────────────────────────────────────────
+  const parseMoney = (s: string) => parseFloat(s.replace(/[$,]/g, '')) || 0;
+  const parseNum   = (s: string) => parseFloat(s.replace(/,/g, ''))    || 0;
+
+  // From O85:P88
+  const budgetTotal  = parseMoney(tableA[1]?.[0] ?? '');
+  const actualTotal  = parseMoney(tableA[1]?.[1] ?? '');
+  const totalGuests  = parseNum(tableA[2]?.[0] ?? '');
+  const cpgBudget    = parseMoney(tableA[3]?.[0] ?? '');
+  const cpgActual    = parseMoney(tableA[3]?.[1] ?? '');
+  const variance     = budgetTotal - actualTotal;
+  const variancePct  = budgetTotal > 0 ? (variance / budgetTotal) * 100 : 0;
+  const cpgVariance  = cpgBudget - cpgActual;
+
+  // From R85:W94 (planned) — header row is index 1, data starts index 2
+  const plannedHeaders = tableB[1] ?? [];                 // ['', 'Aloha', 'Ohana', 'Gateway', 'Total', 'Budget']
+  const locations      = plannedHeaders.slice(1, 4);      // ['Aloha', 'Ohana', 'Gateway']
+  const plannedRows    = tableB.slice(2).filter(r => r[0] && r[0] !== 'Total' && r[0] !== 'Average');
+  const activeDays     = plannedRows.filter(r => parseNum(r[4]) > 0);
+
+  // Location totals from planned Total row
+  const plannedTotalRow = tableB.find(r => r[0] === 'Total') ?? [];
+  const locTotals = locations.map((loc, i) => ({
+    name: loc.trim(),
+    guests: parseNum(plannedTotalRow[i + 1] ?? ''),
+  }));
+  const totalGuestsFromB = parseNum(plannedTotalRow[4] ?? '') || totalGuests;
+  const busiestLoc = [...locTotals].sort((a, b) => b.guests - a.guests)[0];
+
+  // From R97:X102 (actual) — compare to planned by day
+  const actualHeaders  = tableC[0] ?? [];
+  const actualDataRows = tableC.slice(1).filter(r => r[0] && r[0] !== 'Total' && r[0] !== 'Average');
+  const actualTotalRow = tableC.find(r => r[0] === 'Total') ?? [];
+
+  // Day-level variance (planned budget col vs actual budget col)
+  type DayVar = { day: string; planned: number; actual: number; diff: number };
+  const dayVariances: DayVar[] = [];
+  plannedRows.forEach(pr => {
+    const day = pr[0];
+    const ar  = actualDataRows.find(r => r[0] === day);
+    if (!ar) return;
+    const pl = parseMoney(pr[5] ?? pr[pr.length - 1]);  // planned budget col
+    const ac = parseMoney(ar[ar.length - 1]);            // actual budget col
+    if (pl || ac) dayVariances.push({ day, planned: pl, actual: ac, diff: pl - ac });
   });
 
-  const cellCls = 'border border-white/[0.06] text-center';
-  const inputCls = 'w-full bg-transparent text-center text-xs text-slate-300 focus:outline-none focus:bg-white/5 rounded py-0.5';
+  const overBudgetDays  = dayVariances.filter(d => d.diff < 0);
+  const underBudgetDays = dayVariances.filter(d => d.diff >= 0);
 
-  if (loading) return <div className="p-8 text-center text-slate-600 text-sm">Loading…</div>;
+  const isUnderBudget = variance >= 0;
+  const green  = '#22c55e';
+  const red    = '#ef4444';
+  const yellow = '#eab308';
+  const accent = '#a855f7';
+
+  const cellCls = 'border border-white/[0.08] px-3 py-2 text-xs text-slate-300';
+  const headCls = 'border border-white/[0.08] px-3 py-2 text-xs font-bold text-slate-400 bg-white/[0.04]';
+
+  const Metric = ({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) => (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</span>
+      <span className="text-sm font-black" style={{ color: color ?? '#e2e8f0' }}>{value}</span>
+      {sub && <span className="text-[10px] text-slate-600">{sub}</span>}
+    </div>
+  );
 
   return (
     <div className="space-y-5">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex gap-1">
-          <button onClick={() => setPageOffset(v => v - 1)}
-            className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all">
-            ← Prev
-          </button>
-          <button onClick={() => setPageOffset(v => v + 1)}
-            className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 rounded-lg transition-all">
-            Next →
-          </button>
-        </div>
+      {/* Week navigation */}
+      <div className="flex items-center gap-2 flex-wrap">
         <button
-          onClick={handleSave}
-          disabled={!dirty || saving}
-          className="px-4 py-1.5 text-xs font-bold rounded-lg transition-all disabled:opacity-40"
-          style={{ background: '#22c55e20', color: '#22c55e', border: '1px solid #22c55e30' }}
-        >{saving ? 'Saving…' : 'Save Changes'}</button>
-      </div>
+          onClick={() => goTo(currentIdx - 1)}
+          disabled={!canPrev}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+        >← Prev</button>
 
-      {/* Station Hours Table */}
-      <div className="rounded-2xl border border-white/10 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="text-xs border-collapse" style={{ minWidth: 700 }}>
-            <thead>
-              <tr className="bg-white/[0.04]">
-                <th className={`${cellCls} text-left px-3 py-2 text-slate-500 font-black uppercase tracking-wider`} style={{ minWidth: 160 }}>Stations</th>
-                {monthGroups.map(g => (
-                  <th key={g.month} colSpan={g.count} className={`${cellCls} py-2 text-slate-400 font-black uppercase tracking-wider`}>{g.month}</th>
-                ))}
-              </tr>
-              <tr className="bg-white/[0.02]">
-                <th className={cellCls}></th>
-                {weeks.map(w => (
-                  <th key={w.key} className={`${cellCls} py-1.5 text-slate-600 font-bold`} style={{ minWidth: 88 }}>{w.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {LABOR_STATIONS.map((st, i) => (
-                <tr key={st.name} className={i % 2 === 0 ? 'bg-white/[0.01]' : ''}>
-                  <td
-                    className={`${cellCls} px-3 py-1.5 text-left font-semibold`}
-                    style={st.highlight ? { background: 'rgba(176,100,140,0.15)', color: '#d4a0bc' } : { color: '#94a3b8' }}
-                  >{st.name}</td>
-                  {weeks.map(w => (
-                    <td key={w.key} className={`${cellCls} p-0.5`}>
-                      <input
-                        type="number"
-                        className={inputCls}
-                        value={hours[`${st.name}||${w.key}`] || ''}
-                        onChange={e => setHour(st.name, w.key, e.target.value)}
-                        placeholder="—"
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <span className="flex-1 min-w-[180px] max-w-xs rounded-lg px-3 py-1.5 text-xs font-bold text-slate-300 text-center bg-white/[0.04] border border-white/10">
+          {activeTab || '—'}
+        </span>
+
+        <button
+          onClick={() => goTo(currentIdx + 1)}
+          disabled={!canNext}
+          className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+        >Next →</button>
+
+        <div className="flex items-center gap-2 ml-auto">
+          {syncing && (
+            <span className="text-[10px] text-slate-500 flex items-center gap-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              Syncing…
+            </span>
+          )}
+          {!syncing && lastSynced && (
+            <span className="text-[10px] text-slate-600">Updated {lastSynced.toLocaleTimeString()}</span>
+          )}
+          <button
+            onClick={() => fetchData(activeTab, true)}
+            disabled={syncing || loading}
+            className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-slate-500 hover:text-white border border-white/10 hover:border-white/20 transition-all disabled:opacity-40"
+          >Refresh</button>
         </div>
       </div>
 
-      {/* Labor by Section */}
-      <div className="rounded-2xl border border-white/10 overflow-hidden">
-        <table className="w-full text-xs border-collapse">
-          <tbody>
-            {LABOR_SECTIONS.map(sec => (
-              <React.Fragment key={sec.key}>
-                <tr className="border-b border-white/[0.06]">
-                  <td colSpan={2} className="px-4 pt-4 pb-1.5 font-black text-white text-[11px]">{sec.label}</td>
-                </tr>
-                {(['current', 'need'] as const).map(field => (
-                  <tr key={field} className="border-b border-white/[0.04]">
-                    <td className="px-4 pl-8 py-1.5 text-slate-500 capitalize">{field === 'current' ? 'Current' : 'Need'}</td>
-                    <td className="px-4 py-1 text-right" style={{ width: 100 }}>
-                      <input
-                        type="number"
-                        className="w-20 bg-white/5 border border-white/10 rounded px-2 py-0.5 text-sm text-slate-300 text-right focus:outline-none focus:border-white/25"
-                        value={secs[sec.key]?.[field] || ''}
-                        onChange={e => setSec(sec.key, field, e.target.value)}
-                        placeholder="—"
+      {loading && <div className="py-10 text-center text-slate-600 text-sm">Loading…</div>}
+      {error   && <div className="py-6 text-center text-red-400 text-xs">{error}</div>}
+
+      {!loading && !error && (
+        <div className="flex gap-6 items-start flex-wrap xl:flex-nowrap">
+
+          {/* ── Left: Tables ── */}
+          <div className="flex flex-col gap-4 flex-shrink-0">
+            {/* Table O85:P88 */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
+              </div>
+              <table className="border-collapse">
+                <tbody>
+                  {tableA.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table R85:W94 */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Budget</span>
+              </div>
+              <table className="border-collapse">
+                <tbody>
+                  {tableB.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table R97:X102 */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</span>
+              </div>
+              <table className="border-collapse">
+                <tbody>
+                  {tableC.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* ── Right: Analysis ── */}
+          <div className="flex-1 min-w-[260px] rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+            <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
+              {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
+            </div>
+
+            <div className="p-5 space-y-5">
+
+              {/* Budget performance */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Budget Performance</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Metric label="Planned" value={`$${budgetTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                  <Metric label="Actual" value={`$${actualTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} />
+                  <Metric
+                    label="Variance"
+                    value={`${isUnderBudget ? '-' : '+'}$${Math.abs(variance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                    sub={`${Math.abs(variancePct).toFixed(1)}% ${isUnderBudget ? 'under' : 'over'} budget`}
+                    color={isUnderBudget ? green : red}
+                  />
+                  <Metric
+                    label="Cost / Guest"
+                    value={`$${cpgActual.toFixed(2)}`}
+                    sub={`budget $${cpgBudget.toFixed(2)} · saved $${cpgVariance.toFixed(2)}/guest`}
+                    color={cpgVariance >= 0 ? green : red}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-white/[0.06]" />
+
+              {/* Guest volume */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Guest Volume</p>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500">Total guests</span>
+                    <span className="font-bold text-slate-200">{totalGuestsFromB.toLocaleString()}</span>
+                  </div>
+                  {locTotals.map(loc => {
+                    const pct = totalGuestsFromB > 0 ? (loc.guests / totalGuestsFromB) * 100 : 0;
+                    return (
+                      <div key={loc.name}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-500">{loc.name}</span>
+                          <span className="text-slate-400">{loc.guests.toLocaleString()} <span className="text-slate-600">({pct.toFixed(0)}%)</span></span>
+                        </div>
+                        <div className="w-full h-1 rounded-full bg-white/[0.06]">
+                          <div className="h-1 rounded-full transition-all" style={{ width: `${pct}%`, background: accent }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="border-t border-white/[0.06]" />
+
+              {/* Day breakdown */}
+              {dayVariances.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Daily Labor Cost</p>
+                  <div className="space-y-1.5">
+                    {dayVariances.map(d => {
+                      const diff = d.diff;
+                      const isUnder = diff >= 0;
+                      return (
+                        <div key={d.day} className="flex items-center justify-between text-xs">
+                          <span className="text-slate-500 w-20">{d.day}</span>
+                          <div className="flex-1 mx-3 h-1 rounded-full bg-white/[0.06]">
+                            <div className="h-1 rounded-full" style={{
+                              width: d.planned > 0 ? `${Math.min((d.actual / d.planned) * 100, 100)}%` : '0%',
+                              background: isUnder ? green : red,
+                            }} />
+                          </div>
+                          <span className="font-bold w-16 text-right" style={{ color: isUnder ? green : red }}>
+                            {isUnder ? '-' : '+'}${Math.abs(diff).toFixed(0)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="border-t border-white/[0.06]" />
+
+              {/* Insights */}
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Insights</p>
+                <div className="space-y-2">
+                  {/* Overall budget status */}
+                  <div className="flex gap-2 text-xs">
+                    <span style={{ color: isUnderBudget ? green : red }}>{isUnderBudget ? '↓' : '↑'}</span>
+                    <span className="text-slate-400">
+                      {isUnderBudget
+                        ? `Labor came in ${variancePct.toFixed(1)}% under budget — good cost control.`
+                        : `Labor exceeded budget by ${Math.abs(variancePct).toFixed(1)}% — review scheduling.`}
+                    </span>
+                  </div>
+                  {/* Cost per guest */}
+                  <div className="flex gap-2 text-xs">
+                    <span style={{ color: cpgVariance >= 0 ? green : red }}>{cpgVariance >= 0 ? '↓' : '↑'}</span>
+                    <span className="text-slate-400">
+                      {cpgVariance >= 0
+                        ? `Saved $${cpgVariance.toFixed(2)} per guest vs. planned — efficient staffing.`
+                        : `Spent $${Math.abs(cpgVariance).toFixed(2)} more per guest than planned.`}
+                    </span>
+                  </div>
+                  {/* Busiest location */}
+                  {busiestLoc && totalGuestsFromB > 0 && (
+                    <div className="flex gap-2 text-xs">
+                      <span style={{ color: accent }}>→</span>
+                      <span className="text-slate-400">
+                        {busiestLoc.name} drove {((busiestLoc.guests / totalGuestsFromB) * 100).toFixed(0)}% of guest volume ({busiestLoc.guests.toLocaleString()} guests).
+                      </span>
+                    </div>
+                  )}
+                  {/* Active days */}
+                  {activeDays.length > 0 && activeDays.length < 6 && (
+                    <div className="flex gap-2 text-xs">
+                      <span style={{ color: yellow }}>!</span>
+                      <span className="text-slate-400">
+                        {activeDays.length} of 6 days have guest data — remaining days may not be complete yet.
+                      </span>
+                    </div>
+                  )}
+                  {/* Over budget days */}
+                  {overBudgetDays.length > 0 && (
+                    <div className="flex gap-2 text-xs">
+                      <span style={{ color: red }}>↑</span>
+                      <span className="text-slate-400">
+                        {overBudgetDays.map(d => d.day).join(', ')} ran over planned labor budget.
+                      </span>
+                    </div>
+                  )}
+                  {overBudgetDays.length === 0 && dayVariances.length > 0 && (
+                    <div className="flex gap-2 text-xs">
+                      <span style={{ color: green }}>✓</span>
+                      <span className="text-slate-400">All days came in at or under planned labor cost.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-white/[0.06]" />
+
+              {/* Chart: Planned vs Actual labor cost by day */}
+              {dayVariances.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Planned vs Actual Labor Cost</p>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={dayVariances.map(d => ({ day: d.day, Planned: d.planned, Actual: d.actual }))} barCategoryGap="30%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1000).toFixed(1)}k`} width={40} />
+                      <Tooltip
+                        contentStyle={{ background: '#0f0a1a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, fontSize: 11 }}
+                        formatter={(v: number) => [`$${v.toFixed(2)}`, undefined]}
+                        cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                       />
-                    </td>
-                  </tr>
-                ))}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                      <Bar dataKey="Planned" fill="#a855f740" stroke="#a855f7" strokeWidth={1} radius={[3,3,0,0]} />
+                      <Bar dataKey="Actual" radius={[3,3,0,0]}>
+                        {dayVariances.map((d, i) => (
+                          <Cell key={i} fill={d.diff >= 0 ? '#22c55e99' : '#ef444499'} stroke={d.diff >= 0 ? green : red} strokeWidth={1} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="flex gap-4 mt-1 justify-center">
+                    <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: '#a855f740', border: '1px solid #a855f7' }} />Planned</span>
+                    <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: '#22c55e99', border: `1px solid ${green}` }} />Actual (under)</span>
+                    <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="inline-block w-3 h-2 rounded-sm" style={{ background: '#ef444499', border: `1px solid ${red}` }} />Actual (over)</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Chart: Guest volume by location */}
+              {locTotals.some(l => l.guests > 0) && (
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Guest Volume by Location</p>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <BarChart data={locTotals.map(l => ({ name: l.name, Guests: l.guests }))} layout="vertical" barCategoryGap="25%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} width={50} />
+                      <Tooltip
+                        contentStyle={{ background: '#0f0a1a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, fontSize: 11 }}
+                        formatter={(v: number) => [v.toLocaleString(), 'Guests']}
+                        cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                      />
+                      <Bar dataKey="Guests" radius={[0,3,3,0]}>
+                        {locTotals.map((_, i) => (
+                          <Cell key={i} fill={['#a855f7','#7c3aed','#6d28d9'][i] ?? '#a855f7'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function WorkInformationTab({ profileUser }: { workerDocId: string; profileUser: User }) {
+  const isLindaDaeli = profileUser.name.toLowerCase() === 'linda daeli';
+  if (isLindaDaeli) return <LaborSheetView profileUser={profileUser} />;
+  return null;
 }
 
 // ── DirectorySectionProps ───────────────────────────────────────────────────────

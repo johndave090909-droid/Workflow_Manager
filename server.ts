@@ -381,6 +381,38 @@ async function startServer() {
     }
   });
 
+  // ── Labor Sheet API ────────────────────────────────────────────────────────
+  app.get("/api/labor-sheet/tabs", async (_req, res) => {
+    try {
+      const spreadsheetId = process.env.GOOGLE_LABOR_SPREADSHEET_ID;
+      if (!spreadsheetId) { res.status(500).json({ error: "GOOGLE_LABOR_SPREADSHEET_ID not set" }); return; }
+      const resp = await sheetsApi(`spreadsheets/${spreadsheetId}?fields=sheets.properties.title`);
+      const data = await resp.json() as any;
+      const tabs: string[] = (data.sheets ?? []).map((s: any) => s.properties?.title ?? "");
+      res.json({ tabs });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? "Failed to fetch sheet tabs" });
+    }
+  });
+
+  app.get("/api/labor-sheet/data", async (req, res) => {
+    try {
+      const spreadsheetId = process.env.GOOGLE_LABOR_SPREADSHEET_ID;
+      if (!spreadsheetId) { res.status(500).json({ error: "GOOGLE_LABOR_SPREADSHEET_ID not set" }); return; }
+      const tab = typeof req.query.tab === "string" ? req.query.tab : "";
+      if (!tab) { res.status(400).json({ error: "tab query param is required" }); return; }
+      const range = `'${tab}'!A1:ZZ`;
+      const resp = await sheetsApi(`spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+      const data = await resp.json() as any;
+      const values: string[][] = (data.values ?? []).map((r: unknown[]) =>
+        r.map((v) => (v == null ? "" : String(v)))
+      );
+      res.json({ tab, values });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? "Failed to fetch labor sheet data" });
+    }
+  });
+
   app.get("/api/users", (req, res) => {
     const users = db.prepare(`
       SELECT u.*, (SELECT COUNT(*) FROM projects WHERE account_lead_id = u.id AND status != 'Done') as workload_count 
