@@ -659,6 +659,38 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
   }
 });
 
+exports.laborSheetApi = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  try {
+    const spreadsheetId = process.env.GOOGLE_LABOR_SPREADSHEET_ID;
+    if (!spreadsheetId) { res.status(500).json({ error: "GOOGLE_LABOR_SPREADSHEET_ID not set" }); return; }
+
+    const path = req.path || req.url || "";
+
+    if (path.includes("/tabs")) {
+      const resp = await sheetsApi(`spreadsheets/${spreadsheetId}?fields=sheets.properties.title`);
+      const data = await resp.json();
+      const tabs = (data.sheets ?? []).map((s) => s.properties?.title ?? "");
+      res.json({ tabs });
+      return;
+    }
+
+    if (path.includes("/data")) {
+      const tab = req.query.tab;
+      if (!tab) { res.status(400).json({ error: "tab query param is required" }); return; }
+      const range = `'${tab}'!A1:ZZ`;
+      const resp = await sheetsApi(`spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+      const data = await resp.json();
+      const values = (data.values ?? []).map((r) => r.map((v) => (v == null ? "" : String(v))));
+      res.json({ tab, values });
+      return;
+    }
+
+    res.status(404).json({ error: "Unknown path" });
+  } catch (e) {
+    res.status(500).json({ error: e?.message ?? "Labor sheet API error" });
+  }
+});
+
 exports.workerRosterGoogleApi = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
   try {
     const path = req.path || req.url || "";
