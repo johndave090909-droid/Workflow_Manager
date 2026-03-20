@@ -2176,7 +2176,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
 
       {!loading && !error && (
         <div className="overflow-x-auto">
-        <div className="flex gap-5 items-start" style={{ minWidth: 1100 }}>
+        <div className="flex gap-5 items-start" style={{ minWidth: 1380 }}>
 
           {/* ── LEFT column: Trend + tables ── */}
           <div className="flex-1 min-w-0 space-y-4">
@@ -2246,7 +2246,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
           </div>
 
           {/* ── RIGHT column: Analysis ── */}
-          <div className="flex-shrink-0 w-80 rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+          <div className="flex-shrink-0 w-72 rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
