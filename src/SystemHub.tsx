@@ -2159,8 +2159,13 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
           {/* ── Left: Tables + Trend ── */}
           <div className="flex flex-col gap-4 flex-1 min-w-0">
 
-            {/* Top row: Budget Summary + Trend graph side by side */}
+            {/* Top row: Trend graph (left) + Budget Summary (right of it) */}
             <div className="flex gap-4 items-start">
+              {/* Trend graph — leftmost */}
+              <div style={{ width: 480, flexShrink: 0 }}>
+                <TrendSection />
+              </div>
+
               {/* Table O85:P88 */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
@@ -2177,11 +2182,6 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                     ))}
                   </tbody>
                 </table>
-              </div>
-
-              {/* Trend graph — takes all remaining left-column width */}
-              <div style={{ width: 480, flexShrink: 0 }}>
-                <TrendSection />
               </div>
             </div>
 
