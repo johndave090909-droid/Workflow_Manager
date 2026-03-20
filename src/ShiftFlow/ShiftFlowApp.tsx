@@ -274,9 +274,15 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
   // Rows ref so the config listener can always see the latest roster rows
   const rowsRef = React.useRef<Array<{ id: string; firstName?: string; lastName?: string; name?: string; idNumber?: string }>>([]);
+  // Track whether the initial staff load is complete. After that, onSnapshot must NOT
+  // overwrite departmentId/positionId (manager-set fields) — only update portal-driven
+  // fields (needsReview, scheduleImageUrl, unavailability) to avoid clobbering in-flight
+  // manager changes during the 1.5s save debounce.
+  const initialLoadDoneRef = React.useRef(false);
 
   useEffect(() => {
     let active = true;
+    initialLoadDoneRef.current = false;
 
     // 1. Load roster once (rows don't change often)
     getDoc(doc(db, 'worker_roster', 'main')).then(rosterSnap => {
@@ -302,6 +308,22 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
         setPinnedAssignments(savedConfig.pinnedAssignments);
       }
 
+      // After initial load, only sync portal-driven fields so that manager changes
+      // (departmentId, positionId) made within the 1.5s save debounce are not lost.
+      if (initialLoadDoneRef.current) {
+        setStaff(prev => prev.map(s => {
+          const saved = savedAssignments[s.id];
+          if (!saved) return s;
+          return {
+            ...s,
+            needsReview: saved.needsReview ?? s.needsReview,
+            scheduleImageUrl: saved.scheduleImageUrl ?? s.scheduleImageUrl,
+            unavailability: saved.unavailability ?? s.unavailability,
+          };
+        }));
+        return;
+      }
+
       const rows = rowsRef.current;
       if (rows.length === 0) {
         // Roster not loaded yet — retry after a short delay
@@ -314,6 +336,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
             return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
           }));
           setRosterLoaded(true);
+          initialLoadDoneRef.current = true;
         }, 1000);
         return;
       }
@@ -324,6 +347,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
         return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
       }));
       setRosterLoaded(true);
+      initialLoadDoneRef.current = true;
     }, e => { console.error('ShiftFlow: config listener error', e); setRosterLoaded(true); });
 
     return () => { active = false; unsub(); };
