@@ -681,15 +681,17 @@ exports.laborSheetApi = onRequest({ region: "us-central1", cors: true }, async (
       const tabs = (metaData.sheets ?? []).map((s) => s.properties?.title ?? "").filter(isDateTab);
       const parseMoney = (s) => parseFloat((s ?? "").replace(/[$,]/g, "")) || 0;
       const parseNum   = (s) => parseFloat((s ?? "").replace(/,/g, ""))   || 0;
-      const summaries = await Promise.all(tabs.map(async (tab) => {
+      // Use batchGet — one API call for all tabs instead of N parallel calls
+      const rangeParams = tabs.map((tab) => `ranges=${encodeURIComponent(`'${tab}'!A70:P115`)}`).join("&");
+      const batchResp = await sheetsApi(`spreadsheets/${spreadsheetId}/values:batchGet?${rangeParams}`);
+      const batchData = await batchResp.json();
+      const valueRanges = batchData.valueRanges ?? [];
+      const summaries = tabs.map((tab, i) => {
         try {
-          const range = `'${tab}'!A70:P115`;
-          const r = await sheetsApi(`spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
-          const d = await r.json();
-          const rows = (d.values ?? []).map((row) => row.map((v) => (v == null ? "" : String(v))));
+          const rows = (valueRanges[i]?.values ?? []).map((row) => row.map((v) => (v == null ? "" : String(v))));
           let budgetRow = -1;
-          for (let i = 0; i < rows.length; i++) {
-            if ((rows[i]?.[14] ?? "").trim().toLowerCase() === "budget") { budgetRow = i; break; }
+          for (let j = 0; j < rows.length; j++) {
+            if ((rows[j]?.[14] ?? "").trim().toLowerCase() === "budget") { budgetRow = j; break; }
           }
           if (budgetRow < 0) return { tab, cpgBudget: 0, cpgActual: 0, budgetTotal: 0, actualTotal: 0, totalGuests: 0 };
           const r1 = rows[budgetRow + 1] ?? [];
@@ -697,7 +699,7 @@ exports.laborSheetApi = onRequest({ region: "us-central1", cors: true }, async (
           const r3 = rows[budgetRow + 3] ?? [];
           return { tab, budgetTotal: parseMoney(r1[14]), actualTotal: parseMoney(r1[15]), totalGuests: parseNum(r2[14]), cpgBudget: parseMoney(r3[14]), cpgActual: parseMoney(r3[15]) };
         } catch { return { tab, cpgBudget: 0, cpgActual: 0, budgetTotal: 0, actualTotal: 0, totalGuests: 0 }; }
-      }));
+      });
       res.json({ summaries });
       return;
     }
