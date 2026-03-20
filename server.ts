@@ -395,6 +395,40 @@ async function startServer() {
     }
   });
 
+  app.get("/api/labor-sheet/summary-all", async (_req, res) => {
+    try {
+      const spreadsheetId = process.env.GOOGLE_LABOR_SPREADSHEET_ID;
+      if (!spreadsheetId) { res.status(500).json({ error: "GOOGLE_LABOR_SPREADSHEET_ID not set" }); return; }
+      const metaResp = await sheetsApi(`spreadsheets/${spreadsheetId}?fields=sheets.properties.title`);
+      const metaData = await metaResp.json() as any;
+      const isDateTab = (n: string) => /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(n);
+      const tabs: string[] = (metaData.sheets ?? []).map((s: any) => s.properties?.title ?? "").filter(isDateTab);
+      const parseMoney = (s: string) => parseFloat(s?.replace(/[$,]/g, "") ?? "") || 0;
+      const parseNum   = (s: string) => parseFloat(s?.replace(/,/g,   "") ?? "") || 0;
+      const summaries = await Promise.all(tabs.map(async (tab) => {
+        try {
+          const range = `'${tab}'!A70:P115`;
+          const r = await sheetsApi(`spreadsheets/${spreadsheetId}/values/${encodeURIComponent(range)}`);
+          const d = await r.json() as any;
+          const rows: string[][] = (d.values ?? []).map((row: unknown[]) => row.map((v) => (v == null ? "" : String(v))));
+          // Budget anchor is col 14 (O), but rows fetched start at 70, so col offsets same
+          let budgetRow = -1;
+          for (let i = 0; i < rows.length; i++) {
+            if ((rows[i]?.[14] ?? "").trim().toLowerCase() === "budget") { budgetRow = i; break; }
+          }
+          if (budgetRow < 0) return { tab, cpgBudget: 0, cpgActual: 0, budgetTotal: 0, actualTotal: 0, totalGuests: 0 };
+          const r1 = rows[budgetRow + 1] ?? [];
+          const r2 = rows[budgetRow + 2] ?? [];
+          const r3 = rows[budgetRow + 3] ?? [];
+          return { tab, budgetTotal: parseMoney(r1[14]), actualTotal: parseMoney(r1[15]), totalGuests: parseNum(r2[14]), cpgBudget: parseMoney(r3[14]), cpgActual: parseMoney(r3[15]) };
+        } catch { return { tab, cpgBudget: 0, cpgActual: 0, budgetTotal: 0, actualTotal: 0, totalGuests: 0 }; }
+      }));
+      res.json({ summaries });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message ?? "Failed to fetch summaries" });
+    }
+  });
+
   app.get("/api/labor-sheet/data", async (req, res) => {
     try {
       const spreadsheetId = process.env.GOOGLE_LABOR_SPREADSHEET_ID;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { format } from 'date-fns';
 import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
@@ -1780,6 +1780,191 @@ const LABOR_API = import.meta.env.PROD
   ? 'https://us-central1-systems-hub.cloudfunctions.net/laborSheetApi'
   : '/api/labor-sheet';
 
+// ── TrendSection ────────────────────────────────────────────────────────────
+
+type WeekSummary = { tab: string; cpgBudget: number; cpgActual: number; budgetTotal: number; actualTotal: number; totalGuests: number };
+type TrendPeriod = 'weekly' | 'monthly' | 'quarterly' | '6months' | 'yearly';
+
+const MONTH_MAP: Record<string, number> = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11 };
+
+function parseWeekStart(tabName: string): Date | null {
+  const m = tabName.match(/^([A-Za-z]+)\s+(\d+)/);
+  if (!m) return null;
+  const month = MONTH_MAP[m[1].toLowerCase().slice(0, 3)];
+  if (month === undefined) return null;
+  const day = parseInt(m[2], 10);
+  const now = new Date();
+  let year = now.getFullYear();
+  const candidate = new Date(year, month, day);
+  // If the tab date is more than 6 months in the future, it's from the previous year
+  if (candidate.getTime() - now.getTime() > 180 * 24 * 60 * 60 * 1000) year--;
+  return new Date(year, month, day);
+}
+
+function aggregateCpg(weeks: WeekSummary[]) {
+  const sumBudget = weeks.reduce((s, w) => s + w.budgetTotal, 0);
+  const sumActual = weeks.reduce((s, w) => s + w.actualTotal, 0);
+  const sumGuests = weeks.reduce((s, w) => s + w.totalGuests, 0);
+  return {
+    cpgBudget: sumGuests > 0 ? sumBudget / sumGuests : 0,
+    cpgActual: sumGuests > 0 ? sumActual / sumGuests : 0,
+  };
+}
+
+function groupByPeriod(summaries: WeekSummary[], period: TrendPeriod) {
+  const parsed = summaries
+    .map(w => ({ ...w, date: parseWeekStart(w.tab) }))
+    .filter(w => w.date !== null && (w.cpgBudget > 0 || w.cpgActual > 0))
+    .sort((a, b) => a.date!.getTime() - b.date!.getTime());
+
+  if (period === 'weekly') {
+    return parsed.map(w => ({
+      label: w.tab,
+      ...aggregateCpg([w]),
+    }));
+  }
+
+  const groups = new Map<string, WeekSummary[]>();
+  for (const w of parsed) {
+    const d = w.date!;
+    let key = '';
+    if (period === 'monthly') {
+      key = d.toLocaleString('en-US', { month: 'short', year: '2-digit' });
+    } else if (period === 'quarterly') {
+      const q = Math.floor(d.getMonth() / 3) + 1;
+      key = `Q${q} '${String(d.getFullYear()).slice(2)}`;
+    } else if (period === '6months') {
+      const h = d.getMonth() < 6 ? 'H1' : 'H2';
+      key = `${h} '${String(d.getFullYear()).slice(2)}`;
+    } else if (period === 'yearly') {
+      key = String(d.getFullYear());
+    }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(w);
+  }
+
+  return Array.from(groups.entries()).map(([label, weeks]) => ({
+    label,
+    ...aggregateCpg(weeks),
+  }));
+}
+
+function TrendSection() {
+  const [summaries, setSummaries] = React.useState<WeekSummary[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [period, setPeriod] = React.useState<TrendPeriod>('weekly');
+
+  React.useEffect(() => {
+    fetch(`${LABOR_API}/summary-all`)
+      .then(r => r.json())
+      .then((d: { summaries?: WeekSummary[] }) => {
+        setSummaries(d.summaries ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const chartData = React.useMemo(() => groupByPeriod(summaries, period), [summaries, period]);
+
+  const PERIODS: { key: TrendPeriod; label: string }[] = [
+    { key: 'weekly',    label: 'Weekly' },
+    { key: 'monthly',   label: 'Monthly' },
+    { key: 'quarterly', label: 'Quarterly' },
+    { key: '6months',   label: '6 Months' },
+    { key: 'yearly',    label: 'Yearly' },
+  ];
+
+  const green  = '#22c55e';
+  const accent = '#a855f7';
+
+  return (
+    <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+      <div className="px-4 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between flex-wrap gap-2">
+        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cost / Guest Trend</span>
+        <div className="flex gap-1 flex-wrap">
+          {PERIODS.map(p => (
+            <button
+              key={p.key}
+              onClick={() => setPeriod(p.key)}
+              className="px-2.5 py-1 rounded-md text-[10px] font-bold transition-all"
+              style={period === p.key
+                ? { background: `${accent}30`, color: accent, border: `1px solid ${accent}60` }
+                : { background: 'transparent', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="p-4">
+        {loading && <div className="py-8 text-center text-slate-600 text-xs">Loading trend data…</div>}
+        {!loading && chartData.length === 0 && (
+          <div className="py-8 text-center text-slate-600 text-xs">No data available for this period</div>
+        )}
+        {!loading && chartData.length > 0 && (
+          <>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 9, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 9, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={v => `$${v.toFixed(2)}`}
+                  width={44}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#0f0a1a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, fontSize: 11 }}
+                  formatter={(v: number, name: string) => [`$${v.toFixed(2)}`, name]}
+                  cursor={{ stroke: 'rgba(255,255,255,0.06)', strokeWidth: 1 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 10, color: '#64748b', paddingTop: 8 }} />
+                <Line
+                  type="monotone"
+                  dataKey="cpgBudget"
+                  name="Budget CPG"
+                  stroke={accent}
+                  strokeWidth={2}
+                  dot={{ fill: accent, r: 3, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                  strokeDasharray="5 3"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="cpgActual"
+                  name="Actual CPG"
+                  stroke={green}
+                  strokeWidth={2}
+                  dot={{ fill: green, r: 3, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="flex gap-4 justify-center mt-1">
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                <span className="inline-block w-5 h-0.5" style={{ background: accent, borderTop: `2px dashed ${accent}` }} />
+                Budget CPG
+              </span>
+              <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                <span className="inline-block w-5 h-0.5" style={{ background: green }} />
+                Actual CPG
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LaborSheetView({ profileUser }: { profileUser: User }) {
   const [tabs, setTabs]           = React.useState<string[]>([]);
   const [currentIdx, setCurrentIdx] = React.useState<number>(-1);
@@ -2025,6 +2210,8 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
                 </tbody>
               </table>
             </div>
+            {/* Trend graph */}
+            <TrendSection />
           </div>
 
           {/* ── Right: Analysis ── */}
