@@ -2156,10 +2156,10 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
         <div className="flex gap-6 items-start flex-wrap xl:flex-nowrap">
 
           {/* ── Left: Tables + Trend ── */}
-          <div className="flex flex-col gap-4 flex-1 min-w-0">
+          <div className="flex flex-col gap-4 flex-[3] min-w-0">
 
             {/* Top row: Budget Summary + Trend graph side by side */}
-            <div className="flex gap-4 items-start flex-wrap sm:flex-nowrap">
+            <div className="flex gap-4 items-start flex-nowrap">
               {/* Table O85:P88 */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
@@ -2179,7 +2179,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
               </div>
 
               {/* Trend graph — enlarged, takes remaining width */}
-              <div className="flex-1 min-w-[320px]">
+              <div className="flex-1 min-w-0">
                 <TrendSection />
               </div>
             </div>
@@ -2222,7 +2222,7 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
           </div>
 
           {/* ── Right: Analysis ── */}
-          <div className="flex-1 min-w-[260px] rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+          <div className="flex-shrink-0 w-72 rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
