@@ -2153,46 +2153,21 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
       {error   && <div className="py-6 text-center text-red-400 text-xs">{error}</div>}
 
       {!loading && !error && (
-        <div className="overflow-x-auto">
-        <div className="flex gap-6 items-start" style={{ minWidth: 960 }}>
+        <div className="space-y-4">
 
-          {/* ── Left: Tables + Trend ── */}
-          <div className="flex flex-col gap-4 flex-1 min-w-0">
+          {/* ── Row 1: Trend graph (full width) ── */}
+          <TrendSection />
 
-            {/* Top row: Trend graph (left) + Budget Summary (right of it) */}
-            <div className="flex gap-4 items-start">
-              {/* Trend graph — leftmost */}
-              <div style={{ width: 480, flexShrink: 0 }}>
-                <TrendSection />
-              </div>
-
-              {/* Table O85:P88 */}
-              <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-                <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
-                </div>
-                <table className="border-collapse">
-                  <tbody>
-                    {tableA.map((row, ri) => (
-                      <tr key={ri}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Table R85:W94 */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden">
+          {/* ── Row 2: Budget Summary + Analysis side by side ── */}
+          <div className="flex gap-4 items-start flex-wrap">
+            {/* Table O85:P88 */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
               <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Budget</span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
               </div>
               <table className="border-collapse">
                 <tbody>
-                  {tableB.map((row, ri) => (
+                  {tableA.map((row, ri) => (
                     <tr key={ri}>
                       {row.map((cell, ci) => (
                         <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
@@ -2203,27 +2178,8 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
               </table>
             </div>
 
-            {/* Table R97:X102 */}
-            <div className="rounded-2xl border border-white/10 overflow-hidden">
-              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</span>
-              </div>
-              <table className="border-collapse">
-                <tbody>
-                  {tableC.map((row, ri) => (
-                    <tr key={ri}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ── Right: Analysis ── */}
-          <div className="flex-shrink-0 w-72 rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
+            {/* ── Analysis ── */}
+            <div className="flex-1 min-w-[260px] rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
@@ -2426,7 +2382,47 @@ function LaborSheetView({ profileUser }: { profileUser: User }) {
 
             </div>
           </div>
-        </div>
+          </div>
+
+          {/* ── Row 3: Planned Budget + Actual tables ── */}
+          <div className="flex gap-4 items-start flex-wrap">
+            {/* Table R85:W94 */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Planned Budget</span>
+              </div>
+              <table className="border-collapse">
+                <tbody>
+                  {tableB.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Table R97:X102 */}
+            <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
+              <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Actual</span>
+              </div>
+              <table className="border-collapse">
+                <tbody>
+                  {tableC.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
       )}
     </div>
