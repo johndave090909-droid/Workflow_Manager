@@ -344,18 +344,17 @@ export default function App() {
         reads[d.id] = ts ? ts.toDate() : null;
       });
 
-      // For each project count messages the current user hasn't sent after their last read
+      // For each project count messages the current user hasn't sent after their last read.
+      // Only fetch messages newer than lastRead to avoid reading the entire message history.
       const counts: Record<string, number> = {};
       await Promise.all(projectList.map(async project => {
-        const msgsSnap = await getDocs(collection(db, 'projects', project.id, 'messages'));
         const lastRead = reads[project.id];
-        const unread = msgsSnap.docs.filter(d => {
-          const data = d.data();
-          if (data.sender_id === userId) return false;
-          if (!lastRead) return true;
-          const msgTime: Date | undefined = data.timestamp?.toDate();
-          return msgTime && msgTime > lastRead;
-        });
+        const msgsRef = collection(db, 'projects', project.id, 'messages');
+        const msgsQuery = lastRead
+          ? query(msgsRef, where('timestamp', '>', Timestamp.fromDate(lastRead)))
+          : msgsRef;
+        const msgsSnap = await getDocs(msgsQuery);
+        const unread = msgsSnap.docs.filter(d => d.data().sender_id !== userId);
         if (unread.length > 0) counts[project.id] = unread.length;
       }));
 
