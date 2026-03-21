@@ -722,14 +722,14 @@ export default function WorkflowAutomation({ currentUser, onBackToHub, onLogout,
 
   useEffect(() => {
     fetchScreenshots();
-    // Live listener — new GitHub Actions screenshot appears instantly
-    const q = query(collection(firestoreDb, 'screenshots'), orderBy('captured_at', 'desc'));
-    const unsub = onSnapshot(
-      q,
-      () => fetchScreenshots(),
-      (err) => console.error('[Screenshots] Firestore listener error:', err)
-    );
-    return () => unsub();
+    // Live listener disabled to reduce Firestore reads
+    // const q = query(collection(firestoreDb, 'screenshots'), orderBy('captured_at', 'desc'));
+    // const unsub = onSnapshot(
+    //   q,
+    //   () => fetchScreenshots(),
+    //   (err) => console.error('[Screenshots] Firestore listener error:', err)
+    // );
+    // return () => unsub();
   }, []);
 
   // Persist node positions and edges to localStorage
@@ -1920,15 +1920,15 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
     return () => unsub();
   }, [historyCol]);
 
-  // Live guest counts by date
-  useEffect(() => {
-    const unsub = onSnapshot(collection(firestoreDb, 'daily_guest_counts'), snap => {
-      const map: Record<string, any> = {};
-      snap.docs.forEach(d => { map[d.id] = d.data(); });
-      setGuestCountsByDate(map);
-    });
-    return () => unsub();
-  }, []);
+  // Live guest counts by date — disabled to reduce Firestore reads
+  // useEffect(() => {
+  //   const unsub = onSnapshot(collection(firestoreDb, 'daily_guest_counts'), snap => {
+  //     const map: Record<string, any> = {};
+  //     snap.docs.forEach(d => { map[d.id] = d.data(); });
+  //     setGuestCountsByDate(map);
+  //   });
+  //   return () => unsub();
+  // }, []);
 
   // Live watcher status — shows last time the scheduler ran
   useEffect(() => {
