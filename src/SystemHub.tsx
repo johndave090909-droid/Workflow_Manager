@@ -1881,6 +1881,8 @@ function TrendSection() {
   const [summaries, setSummaries] = React.useState<WeekSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [period, setPeriod] = React.useState<TrendPeriod>('weekly');
+  // Map of tab name (column B) → adjusted labor rate (column G)
+  const [adjRateMap, setAdjRateMap] = React.useState<Record<string, number>>({});
 
   React.useEffect(() => {
     fetch(`${LABOR_API}/summary-all`)
@@ -1890,6 +1892,29 @@ function TrendSection() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  // Fetch After Adjustment rates for all weeks
+  React.useEffect(() => {
+    fetch(`${LABOR_API}/tabs`)
+      .then(r => r.json())
+      .then((d: { tabs?: string[] }) => {
+        const adjTab = (d.tabs ?? []).find(t => /adjustment/i.test(t));
+        if (!adjTab) return;
+        return fetch(`${LABOR_API}/data?tab=${encodeURIComponent(adjTab)}`).then(r => r.json());
+      })
+      .then((data?: { values?: string[][]; error?: string }) => {
+        if (!data || data.error || !data.values) return;
+        const map: Record<string, number> = {};
+        for (const row of data.values) {
+          const key = (row[1] ?? '').trim().toLowerCase();
+          if (!key) continue;
+          const parsed = parseFloat((row[6] ?? '').replace(/[$,%]/g, ''));
+          if (!isNaN(parsed) && parsed > 0) map[key] = parsed;
+        }
+        setAdjRateMap(map);
+      })
+      .catch(() => {});
   }, []);
 
   const chartData = React.useMemo(() => {
@@ -1903,9 +1928,12 @@ function TrendSection() {
         const m = d.label.match(/(\d{4})|'(\d{2})/);
         if (m) year = m[1] ? parseInt(m[1]) : 2000 + parseInt(m[2]);
       }
-      return { ...d, cpgBudget: year <= 2025 ? 4.6 : 5.1 };
+      // Use adjusted rate from After Adjustment sheet if available
+      const adjKey = d.label.trim().toLowerCase();
+      const cpgActual = adjRateMap[adjKey] ?? d.cpgActual;
+      return { ...d, cpgBudget: year <= 2025 ? 4.6 : 5.1, cpgActual };
     });
-  }, [summaries, period]);
+  }, [summaries, period, adjRateMap]);
 
   const PERIODS: { key: TrendPeriod; label: string }[] = [
     { key: 'weekly',    label: 'Weekly' },
