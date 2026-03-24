@@ -1911,14 +1911,11 @@ function GDriveWorkflowPage({ viewOnly, layoutKey = 'gdrive' }: { viewOnly: bool
   }, [gdriveLayoutReady, viewOnly, nodes, edges, paBoxPos, notePos]);
 
 
-  // Live Firestore history — updated by the scheduled Cloud Function every 10 min
+  // History — fetched once on mount and whenever the watcher status updates (new files found)
   useEffect(() => {
     const q = query(collection(firestoreDb, historyCol), orderBy('discoveredAt', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      setHistory(snap.docs.map(d => d.data() as DriveFileRecord));
-    });
-    return () => unsub();
-  }, [historyCol]);
+    getDocs(q).then(snap => setHistory(snap.docs.map(d => d.data() as DriveFileRecord)));
+  }, [historyCol, watcherStatus?.lastRun]);
 
   // Live guest counts by date — disabled to reduce Firestore reads
   // useEffect(() => {

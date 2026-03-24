@@ -824,10 +824,9 @@ exports.driveWatcherScheduled = onSchedule(
       const data = await driveResp.json();
       const files = data.files || [];
 
-      // Load existing doc IDs from Firestore to skip already-recorded files
-      const existingSnap = await db.collection("drive_pdf_history").select().get();
-      const existingIds = new Set(existingSnap.docs.map((d) => d.id));
-      const newFiles = files.filter((f) => !existingIds.has(f.id));
+      // Check each Drive file individually instead of reading the entire history collection
+      const existenceChecks = await Promise.all(files.map(f => db.collection("drive_pdf_history").doc(f.id).get()));
+      const newFiles = files.filter((_, i) => !existenceChecks[i].exists);
 
       const savedAt = new Date().toISOString();
       let facebookForward = null;
@@ -906,12 +905,19 @@ exports.driveWatcherScheduled = onSchedule(
       if (facebookForward) statusUpdate.facebookForward = facebookForward;
       await db.collection("drive_watcher_state").doc("status").set(statusUpdate, { merge: true });
 
-      // Backfill pass — process any Daily Counts PDFs that don't have guest counts yet
+      // Backfill pass — skip entirely once all existing PDFs have been processed
+      const backfillStatusSnap = await db.collection("drive_watcher_state").doc("status").get();
+      if (backfillStatusSnap.exists && backfillStatusSnap.data()?.backfillComplete) {
+        console.log("Drive Watcher: backfill already complete — skipping");
+        return;
+      }
       const allSnap = await db.collection("drive_pdf_history").get();
+      let pendingBackfill = 0;
       for (const docSnap of allSnap.docs) {
         const f = docSnap.data();
         if (!/daily\s*counts/i.test(f.name || "")) continue;
         if (f.guestCountSummary) continue; // already done
+        pendingBackfill++;
         try {
           const summary = await extractDailyCounts(f.fileId);
           if (summary) {
@@ -934,6 +940,13 @@ exports.driveWatcherScheduled = onSchedule(
         } catch (bErr) {
           console.error(`Backfill error for ${f.name}:`, bErr?.message);
         }
+      }
+      // If nothing was pending, mark backfill as complete so this pass never runs again
+      if (pendingBackfill === 0) {
+        await db.collection("drive_watcher_state").doc("status").set(
+          { backfillComplete: true }, { merge: true }
+        );
+        console.log("Drive Watcher: backfill complete — flagged to skip on future runs");
       }
     } catch (e) {
       console.error("driveWatcherScheduled error:", e?.message || e);
