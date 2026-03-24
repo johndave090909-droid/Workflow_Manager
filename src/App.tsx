@@ -23,6 +23,7 @@ import WorkflowAutomation from './WorkflowAutomation';
 import WorkerRoster from './WorkerRoster';
 import ShiftFlowApp from './ShiftFlow/ShiftFlowApp';
 import WorkerPortal from './ShiftFlow/WorkerPortal';
+import CCBLLandingPage from './pages/CCBLLandingPage';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -439,6 +440,7 @@ export default function App() {
   // Public routes — no auth required
   if (window.location.pathname === '/guest-count') return <GuestCountPublicPage />;
   if (window.location.pathname === '/worker-portal') return <WorkerPortal />;
+  if (window.location.pathname === '/ccbl') return <CCBLLandingPage />;
 
   if (authLoading) return (
     <div className="flex items-center justify-center h-screen bg-[#0a0510]">
@@ -518,6 +520,7 @@ export default function App() {
       </>
     );
   }
+
 
   if (loading) return (
     <div className="flex items-center justify-center h-screen bg-[#0a0510]">
