@@ -2817,11 +2817,9 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Read the most recent Food Prep PDF history entry that has guestCounts
-    const q = query(collection(db, 'food-prep_pdf_history'), orderBy('discoveredAt', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      const latest = snap.docs.map(d => d.data()).find(d => d.guestCounts);
-      setCounts(latest ? { ...latest.guestCounts, savedAt: latest.savedAt || latest.discoveredAt } : null);
+    const unsub = onSnapshot(doc(db, 'food_prep_state', 'latest'), snap => {
+      const d = snap.data();
+      setCounts(d ? { aloha: d.aloha, ohana: d.ohana, gateway: d.gateway, savedAt: d.savedAt } : null);
       setLoading(false);
     });
     return unsub;

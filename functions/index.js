@@ -788,6 +788,25 @@ exports.driveWatcherScheduled = onSchedule(
       return;
     }
 
+    // Only run between 8:00 PM and 8:30 PM Hawaii time, excluding Wednesday and Sunday
+    const hawaiiParts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Pacific/Honolulu",
+      hour: "numeric", minute: "numeric", hour12: false,
+      weekday: "short",
+    }).formatToParts(new Date());
+    const hh = parseInt(hawaiiParts.find(p => p.type === "hour").value);
+    const mm = parseInt(hawaiiParts.find(p => p.type === "minute").value);
+    const weekday = hawaiiParts.find(p => p.type === "weekday").value; // e.g. "Sun", "Wed"
+    const minuteOfDay = hh * 60 + mm;
+    if (weekday === "Sun" || weekday === "Wed") {
+      console.log(`Drive Watcher: skipping — ${weekday} is excluded`);
+      return;
+    }
+    if (minuteOfDay < 1200 || minuteOfDay > 1230) { // 1200 = 20:00, 1230 = 20:30
+      console.log(`Drive Watcher: outside active hours (${hh}:${String(mm).padStart(2,"0")} HST) — skipping`);
+      return;
+    }
+
     try {
       const token = await getDriveAccessToken(null);
       const q = `'${folderId}' in parents and mimeType='application/pdf' and trashed=false`;
@@ -1048,6 +1067,14 @@ exports.foodPrepWatcherScheduled = onSchedule(
           mimeType: latestFile.mimeType || "application/pdf",
           ...(guestCounts ? { guestCounts } : {}),
         });
+        // Keep a single "latest" doc so the frontend only needs 1 read instead of the full collection
+        if (guestCounts) {
+          await db.collection("food_prep_state").doc("latest").set({
+            ...guestCounts,
+            savedAt,
+            sourceName: latestFile.name,
+          });
+        }
         console.log(`Food Prep: new version detected — ${latestFile.name} (modified ${latestFile.modifiedTime})`);
 
         try {
@@ -1066,6 +1093,21 @@ exports.foodPrepWatcherScheduled = onSchedule(
         }
       } else {
         console.log(`Food Prep: no change since last run (modifiedTime: ${lastModifiedTime})`);
+      }
+
+      // Backfill food_prep_state/latest if it doesn't exist yet
+      const latestStateSnap = await db.collection("food_prep_state").doc("latest").get();
+      if (!latestStateSnap.exists) {
+        const histSnap = await db.collection(HISTORY_COL).orderBy("discoveredAt", "desc").get();
+        const seed = histSnap.docs.map(d => d.data()).find(d => d.guestCounts);
+        if (seed) {
+          await db.collection("food_prep_state").doc("latest").set({
+            ...seed.guestCounts,
+            savedAt: seed.savedAt || seed.discoveredAt,
+            sourceName: seed.name || "",
+          });
+          console.log("Food Prep: seeded food_prep_state/latest from history");
+        }
       }
 
       const statusUpdate = {
