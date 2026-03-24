@@ -2027,6 +2027,7 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
   const [error, setError]         = React.useState('');
   const [lastSynced, setLastSynced] = React.useState<Date | null>(null);
   const [adjLaborRate, setAdjLaborRate] = React.useState<number | null>(null);
+  const [adjTabName, setAdjTabName]     = React.useState<string>('');
 
   const sheetDocRef = doc(db, 'users', profileUser.id, 'work_data', 'labor_sheet');
 
@@ -2037,7 +2038,11 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
       getDoc(sheetDocRef),
     ]).then(([tabData, snap]) => {
       const isDateTab = (name: string) => /jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec/i.test(name);
-      const list: string[] = (tabData.tabs ?? []).filter(isDateTab);
+      const allTabs: string[] = tabData.tabs ?? [];
+      const list: string[] = allTabs.filter(isDateTab);
+      const adjTab = allTabs.find(t => /adjustment/i.test(t)) ?? '';
+      console.log('[AdjRate] all tabs:', allTabs, '| adjTab found:', adjTab);
+      setAdjTabName(adjTab);
       setTabs(list);
       const saved = snap.data()?.activeTab as string | undefined;
       const idx = saved ? list.findIndex(t => t === saved) : list.length - 1;
@@ -2089,29 +2094,31 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
 
   // Fetch Labor Rate from "After Adjustment" sheet — column B matches tab name, column G is the rate
   React.useEffect(() => {
-    if (!activeTab) return;
+    if (!activeTab || !adjTabName) return;
     let cancelled = false;
     setAdjLaborRate(null);
-    fetch(`${LABOR_API}/data?tab=${encodeURIComponent('After Adjustment')}`)
+    fetch(`${LABOR_API}/data?tab=${encodeURIComponent(adjTabName)}`)
       .then(r => r.json())
       .then((data: { values?: string[][]; error?: string }) => {
-        if (cancelled || data.error || !data.values) return;
-        // Extract "mon dd" (e.g. "mar 16") from a date string regardless of format
-        // Handles "Mar 16-21", "Mar 16 - Mar 21", "Mar 16-21 25", etc.
-        const extractMonthDay = (s: string) => {
-          const m = s.match(/([a-z]+)\s+(\d+)/i);
-          return m ? `${m[1].toLowerCase()} ${m[2]}` : s.trim().toLowerCase();
-        };
-        const target = extractMonthDay(activeTab);
-        const row = data.values.find(r => extractMonthDay(r[1] ?? '') === target);
+        if (cancelled) return;
+        console.log('[AdjRate] activeTab:', activeTab);
+        console.log('[AdjRate] fetch error:', data.error);
+        console.log('[AdjRate] rows count:', data.values?.length);
+        console.log('[AdjRate] col B samples:', data.values?.slice(0, 25).map(r => r[1]));
+        if (data.error || !data.values) return;
+        const normalise = (s: string) => s.trim().toLowerCase();
+        const target = normalise(activeTab);
+        const row = data.values.find(r => normalise(r[1] ?? '') === target);
+        console.log('[AdjRate] target:', target, '| matched row:', row);
         if (!row) return;
         const raw = row[6] ?? ''; // column G (0-based index 6)
         const parsed = parseFloat(raw.replace(/[$,%]/g, ''));
+        console.log('[AdjRate] raw G:', raw, '| parsed:', parsed);
         if (!isNaN(parsed) && parsed > 0) setAdjLaborRate(parsed);
       })
-      .catch(() => {});
+      .catch(e => console.error('[AdjRate] fetch failed:', e));
     return () => { cancelled = true; };
-  }, [activeTab]);
+  }, [activeTab, adjTabName]);
 
   // Live sync: poll every 30s in the background
   React.useEffect(() => {
@@ -2246,24 +2253,6 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
 
             {/* All three tables side by side — their combined width drives graph width */}
             <div className="flex gap-4 items-start">
-              {/* Budget Summary */}
-              <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
-                <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Budget Summary</span>
-                </div>
-                <table className="border-collapse">
-                  <tbody>
-                    {tableA.map((row, ri) => (
-                      <tr key={ri}>
-                        {row.map((cell, ci) => (
-                          <td key={ci} className={ri === 0 ? headCls : cellCls}>{cell}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
               {/* Planned Budget */}
               <div className="rounded-2xl border border-white/10 overflow-hidden flex-shrink-0">
                 <div className="px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
