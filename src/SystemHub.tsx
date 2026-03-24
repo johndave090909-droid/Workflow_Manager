@@ -2096,9 +2096,14 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
       .then(r => r.json())
       .then((data: { values?: string[][]; error?: string }) => {
         if (cancelled || data.error || !data.values) return;
-        const normalise = (s: string) => s.trim().toLowerCase();
-        const target = normalise(activeTab);
-        const row = data.values.find(r => normalise(r[1] ?? '') === target);
+        // Extract "mon dd" (e.g. "mar 16") from a date string regardless of format
+        // Handles "Mar 16-21", "Mar 16 - Mar 21", "Mar 16-21 25", etc.
+        const extractMonthDay = (s: string) => {
+          const m = s.match(/([a-z]+)\s+(\d+)/i);
+          return m ? `${m[1].toLowerCase()} ${m[2]}` : s.trim().toLowerCase();
+        };
+        const target = extractMonthDay(activeTab);
+        const row = data.values.find(r => extractMonthDay(r[1] ?? '') === target);
         if (!row) return;
         const raw = row[6] ?? ''; // column G (0-based index 6)
         const parsed = parseFloat(raw.replace(/[$,%]/g, ''));
