@@ -2026,6 +2026,7 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
   const [syncing, setSyncing]     = React.useState(false);
   const [error, setError]         = React.useState('');
   const [lastSynced, setLastSynced] = React.useState<Date | null>(null);
+  const [adjLaborRate, setAdjLaborRate] = React.useState<number | null>(null);
 
   const sheetDocRef = doc(db, 'users', profileUser.id, 'work_data', 'labor_sheet');
 
@@ -2086,6 +2087,27 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
     fetchData(activeTab);
   }, [activeTab, fetchData]);
 
+  // Fetch Labor Rate from "After Adjustment" sheet — column B matches tab name, column G is the rate
+  React.useEffect(() => {
+    if (!activeTab) return;
+    let cancelled = false;
+    setAdjLaborRate(null);
+    fetch(`${LABOR_API}/data?tab=${encodeURIComponent('After Adjustment')}`)
+      .then(r => r.json())
+      .then((data: { values?: string[][]; error?: string }) => {
+        if (cancelled || data.error || !data.values) return;
+        const normalise = (s: string) => s.trim().toLowerCase();
+        const target = normalise(activeTab);
+        const row = data.values.find(r => normalise(r[1] ?? '') === target);
+        if (!row) return;
+        const raw = row[6] ?? ''; // column G (0-based index 6)
+        const parsed = parseFloat(raw.replace(/[$,%]/g, ''));
+        if (!isNaN(parsed) && parsed > 0) setAdjLaborRate(parsed);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
   // Live sync: poll every 30s in the background
   React.useEffect(() => {
     if (!activeTab) return;
@@ -2105,8 +2127,9 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
   const budgetTotal  = parseMoney(tableA[1]?.[0] ?? '');
   const actualTotal  = parseMoney(tableA[1]?.[1] ?? '');
   const totalGuests  = parseNum(tableA[2]?.[0] ?? '');
-  const cpgBudget    = parseMoney(tableA[3]?.[0] ?? '');
-  const cpgActual    = parseMoney(tableA[3]?.[1] ?? '');
+  const cpgBudget         = parseMoney(tableA[3]?.[0] ?? '');
+  const cpgActualFallback = parseMoney(tableA[3]?.[1] ?? '');
+  const cpgActual         = adjLaborRate !== null ? adjLaborRate : cpgActualFallback;
   const variance     = budgetTotal - actualTotal;
   const variancePct  = budgetTotal > 0 ? (variance / budgetTotal) * 100 : 0;
   const cpgVariance  = cpgBudget - cpgActual;
