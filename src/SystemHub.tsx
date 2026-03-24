@@ -1881,6 +1881,7 @@ function TrendSection() {
   const [summaries, setSummaries] = React.useState<WeekSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [period, setPeriod] = React.useState<TrendPeriod>('weekly');
+  const [hideZeros, setHideZeros] = React.useState(true);
   // Map of tab name (column B) → adjusted labor rate (column G)
   const [adjRateMap, setAdjRateMap] = React.useState<Record<string, number>>({});
 
@@ -1935,6 +1936,11 @@ function TrendSection() {
     });
   }, [summaries, period, adjRateMap]);
 
+  const visibleData = React.useMemo(
+    () => hideZeros ? chartData.filter(d => d.cpgActual > 0) : chartData,
+    [chartData, hideZeros]
+  );
+
   const PERIODS: { key: TrendPeriod; label: string }[] = [
     { key: 'weekly',    label: 'Weekly' },
     { key: 'monthly',   label: 'Monthly' },
@@ -1950,7 +1956,17 @@ function TrendSection() {
     <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)' }}>
       <div className="px-4 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center justify-between flex-wrap gap-2">
         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cost / Guest Trend</span>
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          <button
+            onClick={() => setHideZeros(v => !v)}
+            className="px-2.5 py-1 rounded-md text-[10px] font-bold transition-all"
+            style={hideZeros
+              ? { background: `${green}20`, color: green, border: `1px solid ${green}50` }
+              : { background: 'transparent', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}
+          >
+            {hideZeros ? 'Zeros Hidden' : 'Show Zeros'}
+          </button>
+          <div className="w-px h-3 bg-white/10" />
           {PERIODS.map(p => (
             <button
               key={p.key}
@@ -1974,7 +1990,7 @@ function TrendSection() {
         {!loading && chartData.length > 0 && (
           <>
             <ResponsiveContainer width="100%" height={340}>
-              <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+              <LineChart data={visibleData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis
                   dataKey="label"
@@ -2029,6 +2045,7 @@ function TrendSection() {
             </div>
 
             {(() => {
+              if (hideZeros) return null;
               const zeroActual  = chartData.filter(d => d.cpgActual  === 0).map(d => d.label);
               const zeroBudget  = chartData.filter(d => d.cpgBudget  === 0).map(d => d.label);
               const allZero     = Array.from(new Set([...zeroActual, ...zeroBudget]));
