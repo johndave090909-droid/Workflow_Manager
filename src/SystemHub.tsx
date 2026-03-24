@@ -1892,7 +1892,20 @@ function TrendSection() {
       .finally(() => setLoading(false));
   }, []);
 
-  const chartData = React.useMemo(() => groupByPeriod(summaries, period), [summaries, period]);
+  const chartData = React.useMemo(() => {
+    const raw = groupByPeriod(summaries, period);
+    return raw.map(d => {
+      let year = new Date().getFullYear();
+      if (period === 'weekly') {
+        const dt = parseWeekStart(d.label);
+        if (dt) year = dt.getFullYear();
+      } else {
+        const m = d.label.match(/(\d{4})|'(\d{2})/);
+        if (m) year = m[1] ? parseInt(m[1]) : 2000 + parseInt(m[2]);
+      }
+      return { ...d, cpgBudget: year <= 2025 ? 4.6 : 5.1 };
+    });
+  }, [summaries, period]);
 
   const PERIODS: { key: TrendPeriod; label: string }[] = [
     { key: 'weekly',    label: 'Weekly' },
@@ -1958,7 +1971,7 @@ function TrendSection() {
                 <Line
                   type="monotone"
                   dataKey="cpgBudget"
-                  name="Budget CPG"
+                  name="Goal"
                   stroke={accent}
                   strokeWidth={2}
                   dot={{ fill: accent, r: 3, strokeWidth: 0 }}
@@ -1979,7 +1992,7 @@ function TrendSection() {
             <div className="flex gap-4 justify-center mt-1">
               <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
                 <span className="inline-block w-5 h-0.5" style={{ background: accent, borderTop: `2px dashed ${accent}` }} />
-                Budget CPG
+                Goal
               </span>
               <span className="flex items-center gap-1.5 text-[10px] text-slate-500">
                 <span className="inline-block w-5 h-0.5" style={{ background: green }} />
