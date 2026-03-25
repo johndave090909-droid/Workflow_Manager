@@ -554,7 +554,7 @@ export default function App() {
             ← Hub
           </button>
           <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20 shrink-0">W</div>
-          <h1 className="font-display text-lg sm:text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] truncate">Workflow Manager</h1>
+          <h1 className="font-display text-lg sm:text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] truncate">PCC Culinary Command Center</h1>
 
           {/* View scope toggle — shown for non-Directors, text hidden on very small screens */}
           {!perms.view_all_projects && (
@@ -818,7 +818,19 @@ export default function App() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 mb-1.5">{p.assignee_names?.join(', ') ?? p.account_lead_name} · {p.department}</p>
+                    <p className="text-xs text-slate-400 mb-1.5">
+                      {(p.assignee_names ?? [p.account_lead_name]).map((name, i, arr) => {
+                        const assigneeId = (p.assignee_ids ?? [p.account_lead_id])[i];
+                        const isMe = assigneeId === currentUser.id;
+                        return (
+                          <span key={i}>
+                            <span className={isMe ? 'text-[#ffd700] font-bold' : ''}>{name}</span>
+                            {i < arr.length - 1 && <span className="text-slate-600">, </span>}
+                          </span>
+                        );
+                      })}
+                      {' · '}{p.department}
+                    </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={cn('text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border', STATUS_COLORS[p.status])}>
                         {p.status}
@@ -913,7 +925,16 @@ export default function App() {
                       </td>
                       <td className="px-8 py-5">
                         <span className="text-xs font-medium text-slate-400">
-                          {p.assignee_names?.join(', ') ?? p.account_lead_name}
+                          {(p.assignee_names ?? [p.account_lead_name]).map((name, i, arr) => {
+                            const assigneeId = (p.assignee_ids ?? [p.account_lead_id])[i];
+                            const isMe = assigneeId === currentUser.id;
+                            return (
+                              <span key={i}>
+                                <span className={isMe ? 'text-[#ffd700] font-bold' : ''}>{name}</span>
+                                {i < arr.length - 1 && <span className="text-slate-600">, </span>}
+                              </span>
+                            );
+                          })}
                         </span>
                       </td>
                       <td className="px-8 py-5"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{p.department}</span></td>

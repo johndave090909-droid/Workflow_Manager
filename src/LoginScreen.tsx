@@ -42,7 +42,7 @@ export default function LoginScreen() {
           W
         </div>
         <h1 className="text-4xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_12px_rgba(255,0,255,0.6)]">
-          Workflow Manager
+          PCC Culinary Command Center
         </h1>
         <p className="text-slate-400 mt-2 text-sm">Sign in to continue</p>
       </div>

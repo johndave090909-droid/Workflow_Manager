@@ -377,6 +377,12 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   // ── Completion flow ────────────────────────────────────────────
   const isAssigned = project.assignee_ids?.includes(currentUser.id) || project.account_lead_id === currentUser.id;
 
+  const handleToggleProgress = async () => {
+    const next = project.status === 'Not Started' ? 'In Progress' : 'Not Started';
+    await updateDoc(doc(db, 'projects', project.id), { status: next });
+    onUpdated();
+  };
+
   const handleMarkCompleted = async () => {
     if (!await showConfirm(`Mark "${project.name}" as completed?`, 'This will notify the Director for approval.')) return;
     await updateDoc(doc(db, 'projects', project.id), { status: 'Completion Pending' });
@@ -520,6 +526,18 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
               )}
             </div>
             <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              {/* Non-director assignee: toggle Not Started ↔ In Progress */}
+              {!isDirector && isAssigned && (project.status === 'Not Started' || project.status === 'In Progress') && !viewOnly && (
+                <button
+                  onClick={handleToggleProgress}
+                  className={project.status === 'Not Started'
+                    ? 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#ffd700]/10 border border-[#ffd700]/30 text-xs font-bold text-[#ffd700] hover:bg-[#ffd700]/20 hover:border-[#ffd700]/60 transition-all'
+                    : 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-slate-400 hover:text-white hover:border-white/20 transition-all'
+                  }
+                >
+                  {project.status === 'Not Started' ? '▶ Start' : '↩ Not Started'}
+                </button>
+              )}
               {/* Non-director assignee: mark as completed */}
               {!isDirector && isAssigned && project.status !== 'Done' && project.status !== 'Completion Pending' && !viewOnly && (
                 <button
