@@ -1355,7 +1355,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           return (
             <div>
               <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
-              <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser}>
+              <WorkInformationTab workerDocId={worker?.id || ''} profileUser={profileUser} currentUser={currentUser}>
                 <WorkDocuments {...docProps} />
               </WorkInformationTab>
             </div>
@@ -2603,9 +2603,226 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
   );
 }
 
-function WorkInformationTab({ profileUser, children }: { workerDocId: string; profileUser: User; children?: React.ReactNode }) {
-  const isLindaDaeli = profileUser.name.toLowerCase() === 'linda daeli';
+// ── Flavor Council Feedback Form ───────────────────────────────────────────────
+
+const LUAU_DISHES = [
+  'Teriyaki Brisket', 'Pipikaula', 'Garlic Shrimp', 'Huli Huli Chicken',
+  'Chicken and Squash', 'Local Fish', 'Ahi Shoyu Poke', 'Spicy Poke',
+  'Shrimp Poke', 'Tako Poke', 'Vegetarian Fried Rice', 'Kabocha Pumpkin',
+  'Hekka Noodles',
+];
+
+const RATING_CATEGORIES = [
+  { key: 'balance',       label: 'Balance (Taste Harmony)', desc: 'Are flavors evenly balanced?' },
+  { key: 'flavorDepth',   label: 'Flavor Depth',            desc: 'How "interesting" and "developed" is the taste beyond the first bite?' },
+  { key: 'aroma',         label: 'Aroma',                   desc: 'Does it smell fresh and appealing?' },
+  { key: 'texture',       label: 'Texture',                 desc: 'Is the mouthfeel appropriate?' },
+  { key: 'temperature',   label: 'Temperature',             desc: 'Is it served at the correct temperature?' },
+  { key: 'finish',        label: 'Finish',                  desc: 'Is the aftertaste clean and pleasant?' },
+];
+
+function RatingRow({ label, desc, value, onChange }: { label: string; desc: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-4">
+      <p className="text-sm font-bold text-white mb-0.5">{label} <span className="text-[#ff4d4d]">*</span></p>
+      <p className="text-xs text-slate-500 mb-3">{desc}</p>
+      <div className="flex gap-2">
+        {[1,2,3,4,5].map(n => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(n)}
+            className={`w-10 h-10 rounded-xl text-sm font-black transition-all border ${
+              value === n
+                ? 'bg-[#ff00ff] border-[#ff00ff] text-white shadow-lg shadow-[#ff00ff]/30'
+                : 'bg-white/[0.04] border-white/10 text-slate-400 hover:border-[#ff00ff]/40 hover:text-white'
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FlavorCouncilForm({ currentUser }: { currentUser: User }) {
+  const empty = { balance: 0, flavorDepth: 0, aroma: 0, texture: 0, temperature: 0, finish: 0 };
+  const [fullName,   setFullName]   = useState('');
+  const [dish,       setDish]       = useState('');
+  const [ratings,    setRatings]    = useState<Record<string, number>>({ ...empty });
+  const [decision,   setDecision]   = useState('');
+  const [comments,   setComments]   = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted,  setSubmitted]  = useState(false);
+  const [error,      setError]      = useState('');
+
+  // Pre-fill name
+  useEffect(() => { setFullName(currentUser.name); }, [currentUser.name]);
+
+  const setRating = (key: string, val: number) => setRatings(r => ({ ...r, [key]: val }));
+
+  const validate = () => {
+    if (!fullName.trim()) return 'Full name is required.';
+    if (!dish) return 'Please select a dish.';
+    for (const cat of RATING_CATEGORIES) {
+      if (!ratings[cat.key]) return `Please rate "${cat.label}".`;
+    }
+    if (!decision) return 'Please select a decision.';
+    if (!comments.trim()) return 'Comments are required.';
+    return '';
+  };
+
+  const handleSubmit = async () => {
+    const err = validate();
+    if (err) { setError(err); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      await addDoc(collection(db, 'flavor_council_feedback'), {
+        fullName, dish, ratings, decision, comments,
+        submittedBy: currentUser.id,
+        submittedAt: serverTimestamp(),
+        event: 'Luau',
+      });
+      setSubmitted(true);
+    } catch {
+      setError('Failed to submit. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReset = () => {
+    setDish(''); setRatings({ ...empty }); setDecision(''); setComments('');
+    setSubmitted(false); setError('');
+  };
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <p className="text-5xl mb-4">✅</p>
+        <h3 className="text-xl font-black text-white mb-2">Feedback Submitted!</h3>
+        <p className="text-slate-500 text-sm mb-6">Thank you, {fullName}. Your feedback for <span className="text-[#ff00ff] font-bold">{dish}</span> has been recorded.</p>
+        <button
+          onClick={handleReset}
+          className="px-6 py-2.5 rounded-xl bg-[#ff00ff]/20 border border-[#ff00ff]/30 text-[#ff00ff] font-bold text-sm hover:bg-[#ff00ff]/30 transition-all"
+        >
+          Submit Another
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto p-4 sm:p-6 space-y-5">
+      {/* Header */}
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-[#ff00ff] mb-1">Luau</p>
+        <h2 className="text-2xl font-black text-white">Flavor Council Feedback Form</h2>
+        <p className="text-xs text-slate-500 mt-1">Rate each category (1–5) &nbsp;•&nbsp; 1 = Unacceptable &nbsp;•&nbsp; 5 = Excellent</p>
+      </div>
+
+      {/* Full Name */}
+      <div>
+        <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Full Name <span className="text-[#ff4d4d]">*</span></label>
+        <input
+          value={fullName}
+          onChange={e => setFullName(e.target.value)}
+          className="w-full bg-white/[0.06] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-[#ff00ff]/40 transition-colors"
+          placeholder="Your full name"
+        />
+      </div>
+
+      {/* Dish */}
+      <div>
+        <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Dish <span className="text-[#ff4d4d]">*</span></label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {LUAU_DISHES.map((d, i) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setDish(d)}
+              className={`flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm font-semibold text-left transition-all ${
+                dish === d
+                  ? 'bg-[#ff00ff]/15 border-[#ff00ff]/40 text-[#ff00ff]'
+                  : 'bg-white/[0.03] border-white/[0.07] text-slate-400 hover:border-white/20 hover:text-white'
+              }`}
+            >
+              <span className="text-[10px] font-black text-slate-600 w-5 shrink-0">{i + 1}.</span>
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Rating Categories */}
+      <div className="space-y-3">
+        {RATING_CATEGORIES.map(cat => (
+          <RatingRow
+            key={cat.key}
+            label={cat.label}
+            desc={cat.desc}
+            value={ratings[cat.key]}
+            onChange={v => setRating(cat.key, v)}
+          />
+        ))}
+      </div>
+
+      {/* Decision */}
+      <div>
+        <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Decision <span className="text-[#ff4d4d]">*</span></label>
+        <div className="flex gap-3">
+          {['Yes', 'No and Fix'].map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setDecision(opt)}
+              className={`flex-1 py-2.5 rounded-xl border text-sm font-bold transition-all ${
+                decision === opt
+                  ? opt === 'Yes'
+                    ? 'bg-green-500/20 border-green-400/50 text-green-300'
+                    : 'bg-[#ff4d4d]/20 border-[#ff4d4d]/50 text-[#ff4d4d]'
+                  : 'bg-white/[0.03] border-white/[0.07] text-slate-400 hover:border-white/20 hover:text-white'
+              }`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Comments */}
+      <div>
+        <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Comments <span className="text-[#ff4d4d]">*</span></label>
+        <textarea
+          value={comments}
+          onChange={e => setComments(e.target.value)}
+          rows={4}
+          className="w-full bg-white/[0.06] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-[#ff00ff]/40 transition-colors resize-none"
+          placeholder="Additional notes or feedback…"
+        />
+      </div>
+
+      {error && <p className="text-xs text-[#ff4d4d] font-bold">{error}</p>}
+
+      <button
+        onClick={handleSubmit}
+        disabled={submitting}
+        className="w-full py-3 rounded-xl font-black text-sm text-white transition-all disabled:opacity-40"
+        style={{ background: 'linear-gradient(135deg, #ff00ff, #a855f7)', boxShadow: '0 4px 20px rgba(255,0,255,0.3)' }}
+      >
+        {submitting ? 'Submitting…' : 'Submit Feedback'}
+      </button>
+    </div>
+  );
+}
+
+function WorkInformationTab({ profileUser, children, currentUser }: { workerDocId: string; profileUser: User; children?: React.ReactNode; currentUser?: User }) {
+  const isLindaDaeli   = profileUser.name.toLowerCase() === 'linda daeli';
+  const isKateLamoglia = profileUser.name.toLowerCase().includes('kate') && profileUser.name.toLowerCase().includes('lamoglia');
   if (isLindaDaeli) return <LaborSheetView profileUser={profileUser}>{children}</LaborSheetView>;
+  if (isKateLamoglia && currentUser) return <FlavorCouncilForm currentUser={currentUser} />;
   return null;
 }
 
