@@ -517,7 +517,7 @@ export default function SystemHub({
       {permissions.access_it_admin && (
         <button
           onClick={() => onNavigate('it-admin')}
-          className="fixed bottom-[calc(5rem+var(--sab))] md:bottom-8 right-4 md:right-8 flex items-center gap-2 px-5 py-3 rounded-2xl text-white font-bold text-sm z-40 transition-opacity hover:opacity-90"
+          className="fixed bottom-[calc(5rem+var(--sab))] md:bottom-8 right-4 md:right-8 flex items-center gap-2 px-4 py-3 sm:px-5 sm:py-4 rounded-2xl text-white font-bold text-sm z-40 transition-opacity hover:opacity-90 min-h-[44px]"
           style={{ backgroundColor: '#a855f7', boxShadow: '0 0 24px rgba(168,85,247,0.4)' }}
         >
           ⚙ Manage Systems
@@ -2404,7 +2404,7 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
           </div>
 
           {/* ── RIGHT column: Analysis ── */}
-          <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)', width: '280px', flexShrink: 0 }}>
+          <div className="rounded-2xl border border-white/10 overflow-hidden" style={{ background: 'rgba(255,255,255,0.015)', width: 'min(280px, calc(100vw - 32px))', flexShrink: 0 }}>
             <div className="px-5 py-3 border-b border-white/[0.06] bg-white/[0.02] flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: accent }}>Labor Analysis</span>
               {syncing && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}

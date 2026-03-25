@@ -98,7 +98,7 @@ export default function NotificationBell({ userId }: Props) {
       {/* Bell button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className={`relative p-2 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl ${open ? 'bg-[#ff00ff]/15 text-[#ff00ff]' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+        className={`relative p-2 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl ${open ? 'bg-[#ff00ff]/15 text-[#ff00ff]' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
         title="Notifications"
       >
         <Bell size={18} />
@@ -135,7 +135,7 @@ export default function NotificationBell({ userId }: Props) {
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all capitalize ${
+                  className={`px-4 py-1.5 min-h-[36px] rounded-full text-xs font-bold transition-all capitalize ${
                     tab === t
                       ? 'bg-[#ff00ff]/20 text-[#ff00ff] border border-[#ff00ff]/30'
                       : 'text-slate-500 hover:text-white hover:bg-white/5'
@@ -153,7 +153,7 @@ export default function NotificationBell({ userId }: Props) {
           </div>
 
           {/* ── List ── */}
-          <div className="overflow-y-auto flex-1" style={{ maxHeight: '480px' }}>
+          <div className="overflow-y-auto flex-1" style={{ maxHeight: 'min(480px, calc(100vh - 80px))' }}>
             {displayed.length === 0 && (
               <div className="py-14 text-center">
                 <p className="text-4xl mb-3">🔔</p>

@@ -103,13 +103,13 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-lg shadow-2xl shadow-[#ff00ff]/10 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-8 py-6 border-b border-white/5">
+        <div className="flex items-center justify-between px-4 py-4 sm:px-8 sm:py-6 border-b border-white/5">
           <h2 className="text-xl font-bold text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.5)]">New Project</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1"><X size={20} /></button>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"><X size={20} /></button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="px-8 py-6 space-y-5 max-h-[75vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="px-4 py-4 sm:px-8 sm:py-6 space-y-5 max-h-[75vh] overflow-y-auto">
           <div>
             <label className={labelCls}>Project Name *</label>
             <input type="text" className={inputCls} placeholder="Enter project name..."
@@ -156,7 +156,7 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className={labelCls}>Department</label>
               <select className={selectCls} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
@@ -178,7 +178,7 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div>
               <label className={labelCls}>Start Date</label>
               <input type="date" className={inputCls} value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} />

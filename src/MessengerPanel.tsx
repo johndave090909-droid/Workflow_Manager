@@ -362,7 +362,7 @@ export default function MessengerPanel({ currentUser }: Props) {
       {open && (
         <div
           className="absolute right-0 top-full mt-3 bg-[#12091e] border border-white/10 rounded-2xl shadow-2xl shadow-black/80 z-[60] overflow-hidden flex flex-col"
-          style={{ width: 'min(380px, calc(100vw - 24px))', height: '520px' }}
+          style={{ width: 'min(380px, calc(100vw - 24px))', height: 'min(520px, calc(100vh - 80px))' }}
         >
 
           {/* ── LIST ────────────────────────────────────────────────── */}
@@ -407,7 +407,7 @@ export default function MessengerPanel({ currentUser }: Props) {
                     <div
                       key={conv.id}
                       onClick={() => { setActiveConv(conv); setView('chat'); }}
-                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-white/[0.04] mx-1 rounded-xl mb-0.5 transition-all ${unread > 0 ? 'bg-white/[0.03]' : ''}`}
+                      className={`flex items-center gap-3 px-4 py-3 sm:py-2 cursor-pointer hover:bg-white/[0.04] mx-1 rounded-xl mb-0.5 transition-all ${unread > 0 ? 'bg-white/[0.03]' : ''}`}
                     >
                       {conv.type === 'group' ? (
                         <div className="w-10 h-10 rounded-full bg-[#38bdf8]/20 border border-[#38bdf8]/30 flex items-center justify-center shrink-0">
@@ -484,7 +484,7 @@ export default function MessengerPanel({ currentUser }: Props) {
                           <Avatar photo={msg.senderPhoto} name={msg.senderName} size={24} />
                         </div>
                       )}
-                      <div className={`max-w-[72%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className={`max-w-[85%] sm:max-w-[72%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                         {showName && (
                           <p className="text-[10px] text-slate-500 mb-0.5 px-1">{msg.senderName}</p>
                         )}
@@ -516,7 +516,7 @@ export default function MessengerPanel({ currentUser }: Props) {
                   <button
                     onClick={sendMessage}
                     disabled={!newMsg.trim() || sending}
-                    className="p-1.5 rounded-xl bg-[#38bdf8] text-white disabled:opacity-30 transition-all hover:bg-[#0ea5e9] shrink-0"
+                    className="p-2 min-h-[44px] min-w-[44px] rounded-xl bg-[#38bdf8] text-white disabled:opacity-30 transition-all hover:bg-[#0ea5e9] shrink-0 flex items-center justify-center"
                   >
                     <Send size={13} />
                   </button>

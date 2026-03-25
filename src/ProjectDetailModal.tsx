@@ -479,7 +479,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
       {confirmDialog && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={handleConfirmCancel}>
           <div
-            className="bg-[#12091e] border border-white/10 rounded-2xl shadow-2xl shadow-[#ff00ff]/10 w-full max-w-sm p-6 flex flex-col gap-4"
+            className="bg-[#12091e] border border-white/10 rounded-2xl shadow-2xl shadow-[#ff00ff]/10 w-full max-w-sm mx-4 p-6 flex flex-col gap-4"
             onClick={e => e.stopPropagation()}
           >
             <h3 className="text-base font-black text-white leading-snug">{confirmDialog.title}</h3>
@@ -555,12 +555,12 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
       {/* ── Main modal ── */}
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
         <div
-          className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-3xl shadow-2xl shadow-[#ff00ff]/10 flex flex-col overflow-hidden"
+          className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-3xl mx-2 sm:mx-auto shadow-2xl shadow-[#ff00ff]/10 flex flex-col overflow-hidden"
           style={{ maxHeight: '90vh' }}
           onClick={e => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-start justify-between px-8 py-6 border-b border-white/5 flex-shrink-0">
+          <div className="flex items-start justify-between px-4 py-4 sm:px-8 sm:py-6 border-b border-white/5 flex-shrink-0">
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <div className="w-3 h-3 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: DEPT_COLORS[displayDept] }} />
               {isEditing ? (
@@ -573,7 +573,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
                 <h2 className="text-xl font-bold text-white truncate">{project.name}</h2>
               )}
             </div>
-            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+            <div className="flex flex-wrap items-center gap-2 ml-4 flex-shrink-0">
               {/* Non-director assignee: toggle Not Started ↔ In Progress */}
               {!isDirector && isAssigned && (project.status === 'Not Started' || project.status === 'In Progress') && !viewOnly && (
                 <button
@@ -649,7 +649,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
             <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-white/5">
 
               {/* Left: Details */}
-              <div className="p-8 space-y-5">
+              <div className="p-4 sm:p-8 space-y-5">
                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">Project Details</p>
 
                 <div>
@@ -724,7 +724,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <label className={labelCls}>Department</label>
                     {isEditing ? (
@@ -750,7 +750,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <label className={labelCls}>Start Date</label>
                     {isEditing ? (
@@ -794,7 +794,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
               </div>
 
               {/* Right: Note + Tasks */}
-              <div className="p-8 space-y-6">
+              <div className="p-4 sm:p-8 space-y-6">
                 <div>
                   <label className={labelCls}>Director's Note</label>
                   {isEditing ? (
@@ -858,7 +858,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
             </div>
 
             {/* ── Deliverables ── */}
-            <div className="border-t border-white/5 p-8">
+            <div className="border-t border-white/5 p-4 sm:p-8">
               {/* Section header */}
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">

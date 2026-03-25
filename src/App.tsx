@@ -692,7 +692,7 @@ export default function App() {
           {perms.view_workload && (
             <div className="xl:col-span-3 glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl">
               <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 sm:mb-6">Workload by Admin</h3>
-              <div className="h-[160px] sm:h-[300px]">
+              <div className="h-[200px] sm:h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={workloadData} onClick={data => {
                     if (data?.activePayload?.[0]) setSelectedOwnerId(data.activePayload[0].payload.id);
@@ -715,7 +715,7 @@ export default function App() {
 
           <div className="xl:col-span-3 glass-card p-3 sm:p-6 rounded-2xl sm:rounded-3xl">
             <h3 className="text-[9px] sm:text-sm font-bold text-slate-400 uppercase tracking-widest mb-3 sm:mb-6">Progress by Area</h3>
-            <div className="h-[160px] sm:h-[300px]">
+            <div className="h-[200px] sm:h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={deptData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.05)" />
@@ -778,7 +778,8 @@ export default function App() {
                 />
               </div>
               {(perms.view_all_projects || showAllProjects) && assignableUsers.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
+                <div className="overflow-x-auto pb-1">
+                <div className="flex flex-nowrap items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl p-1">
                   <button
                     onClick={() => setSelectedOwnerId(null)}
                     className={cn('px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-all', selectedOwnerId === null ? 'bg-[#ff00ff] text-white' : 'text-slate-400 hover:text-white')}
@@ -794,6 +795,7 @@ export default function App() {
                       {user.name.split(' ')[0].toUpperCase()}
                     </button>
                   ))}
+                </div>
                 </div>
               )}
             </div>
@@ -865,13 +867,13 @@ export default function App() {
                       {isPending && perms.view_all_projects && (
                         <>
                           <button
-                            className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-[#ff4d4d]/40 bg-[#ff4d4d]/10 text-[#ff4d4d] hover:bg-[#ff4d4d]/25 transition-all"
+                            className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 min-h-[44px] rounded-full border border-[#ff4d4d]/40 bg-[#ff4d4d]/10 text-[#ff4d4d] hover:bg-[#ff4d4d]/25 transition-all"
                             onClick={e => { e.stopPropagation(); handleRejectCompletion(p.id); }}
                           >
                             ✕ Reject
                           </button>
                           <button
-                            className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-green-400/50 bg-green-400/20 text-green-300 hover:bg-green-400/40 transition-all"
+                            className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 min-h-[44px] rounded-full border border-green-400/50 bg-green-400/20 text-green-300 hover:bg-green-400/40 transition-all"
                             onClick={e => { e.stopPropagation(); handleApproveCompletion(p.id); }}
                           >
                             ✓ Approve
