@@ -2865,7 +2865,6 @@ function FlavorCouncilForm({ currentUser }: { currentUser: User }) {
   const setRating = (key: string, val: number) => setRatings(r => ({ ...r, [key]: val }));
 
   const validate = () => {
-    if (!fullName.trim()) return 'Full name is required.';
     if (!dish) return 'Please select a dish.';
     for (const cat of RATING_CATEGORIES) {
       if (!ratings[cat.key]) return `Please rate "${cat.label}".`;
@@ -2925,15 +2924,13 @@ function FlavorCouncilForm({ currentUser }: { currentUser: User }) {
         <p className="text-xs text-slate-500 mt-1">Rate each category (1–5) &nbsp;•&nbsp; 1 = Unacceptable &nbsp;•&nbsp; 5 = Excellent</p>
       </div>
 
-      {/* Full Name */}
+      {/* Full Name — auto from logged-in user, read-only */}
       <div>
-        <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Full Name <span className="text-[#ff4d4d]">*</span></label>
-        <input
-          value={fullName}
-          onChange={e => setFullName(e.target.value)}
-          className="w-full bg-white/[0.06] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 outline-none focus:border-[#ff00ff]/40 transition-colors"
-          placeholder="Your full name"
-        />
+        <label className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2 block">Full Name</label>
+        <div className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-sm text-slate-300 flex items-center gap-2">
+          <span className="text-slate-600">👤</span>
+          {fullName}
+        </div>
       </div>
 
       {/* Dish */}
