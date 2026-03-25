@@ -13,6 +13,7 @@ const DEPT_COLORS: Record<Department, string> = {
   Business: '#00ffff',
   Finance: '#ffd700',
   Health: '#ff4d4d',
+  Accounting: '#34d399',
 };
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {

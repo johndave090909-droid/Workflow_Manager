@@ -421,7 +421,7 @@ export default function App() {
   }, [visibleProjects]);
 
   const deptData = useMemo(() => {
-    const depts: Department[] = ['Personal', 'Business', 'Finance', 'Health'];
+    const depts: Department[] = ['Personal', 'Business', 'Finance', 'Health', 'Accounting'];
     return depts.map(dept => ({ name: dept, count: visibleProjects.filter(p => p.department === dept).length }));
   }, [visibleProjects]);
 

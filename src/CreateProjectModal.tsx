@@ -160,7 +160,7 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
             <div>
               <label className={labelCls}>Department</label>
               <select className={selectCls} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
-                {(['Business', 'Finance', 'Personal', 'Health'] as Department[]).map(d => <option key={d} value={d}>{d}</option>)}
+                {(['Business', 'Finance', 'Personal', 'Health', 'Accounting'] as Department[]).map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div>
