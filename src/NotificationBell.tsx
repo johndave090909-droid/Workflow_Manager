@@ -15,6 +15,7 @@ const TYPE_CONFIG: Record<NotificationType, { icon: string; color: string; bg: s
   completion_approved: { icon: '✅', color: '#22c55e', bg: 'rgba(34,197,94,0.15)'   },
   completion_rejected: { icon: '❌', color: '#ff4d4d', bg: 'rgba(255,77,77,0.15)'   },
   labor_report:        { icon: '📊', color: '#a78bfa', bg: 'rgba(167,139,250,0.15)' },
+  project_chat:        { icon: '💬', color: '#38bdf8', bg: 'rgba(56,189,248,0.15)'  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

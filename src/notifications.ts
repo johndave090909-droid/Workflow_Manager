@@ -6,7 +6,8 @@ export type NotificationType =
   | 'completion_pending'
   | 'completion_approved'
   | 'completion_rejected'
-  | 'labor_report';
+  | 'labor_report'
+  | 'project_chat';
 
 export interface AppNotification {
   id: string;

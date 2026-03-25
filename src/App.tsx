@@ -17,6 +17,7 @@ import LoginScreen from './LoginScreen';
 import CreateProjectModal from './CreateProjectModal';
 import ProjectDetailModal from './ProjectDetailModal';
 import NotificationBell from './NotificationBell';
+import MessengerPanel from './MessengerPanel';
 import CalendarView from './CalendarView';
 import SystemHub from './SystemHub';
 import SystemAdminPanel from './SystemAdminPanel';
@@ -462,9 +463,10 @@ export default function App() {
 
   if (!currentUser) return <LoginScreen />;
 
-  // ── Global notification bell (fixed overlay for non-tracker views) ──────────
+  // ── Global notification + messenger overlay (for non-tracker views) ─────────
   const floatingBell = (
-    <div className="fixed top-3 right-16 z-[100] sm:right-20">
+    <div className="fixed top-3 right-12 z-[100] sm:right-16 flex items-center gap-1">
+      <MessengerPanel currentUser={currentUser} />
       <NotificationBell userId={currentUser.id} />
     </div>
   );
@@ -609,6 +611,7 @@ export default function App() {
               <span className="hidden sm:inline">Create Project</span>
             </button>
           )}
+          <MessengerPanel currentUser={currentUser} />
           <NotificationBell userId={currentUser.id} />
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full p-0.5 shrink-0" style={{ border: `2px solid ${userRoleColor}` }}>

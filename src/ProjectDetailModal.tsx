@@ -286,6 +286,26 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
       setNewMessage('');
       markRead();
       chatInputRef.current?.focus();
+
+      // Notify assignees (excluding sender) + all directors
+      const assigneeIds = (project.assignees ?? [])
+        .map((a: { id: string }) => a.id)
+        .filter((id: string) => id !== currentUser.id);
+      if (assigneeIds.length) {
+        await notifyUsers(
+          assigneeIds,
+          `New message in "${project.title}"`,
+          `${currentUser.name}: ${content.length > 80 ? content.slice(0, 80) + '…' : content}`,
+          'project_chat',
+          { projectId: project.id },
+        );
+      }
+      await notifyDirectors(
+        `New message in "${project.title}"`,
+        `${currentUser.name}: ${content.length > 80 ? content.slice(0, 80) + '…' : content}`,
+        'project_chat',
+        { projectId: project.id },
+      );
     } catch {
       setChatError('Failed to send. Please try again.');
     } finally {
@@ -408,12 +428,11 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
 
   const handleApproveCompletion = async () => {
     await updateDoc(doc(db, 'projects', project.id), { status: 'Done' });
-    const others = assigneeIds.filter(id => id !== currentUser.id);
-    if (others.length) {
+    if (assigneeIds.length) {
       await notifyUsers(
-        others,
-        `Project approved: ${project.name}`,
-        `${currentUser.name} approved the completion of this project.`,
+        assigneeIds,
+        `Project approved: "${project.name}"`,
+        `${currentUser.name} has approved the completion of this project.`,
         'completion_approved',
         { projectId: project.id },
       );

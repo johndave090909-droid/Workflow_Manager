@@ -7,6 +7,7 @@ import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { notifyDirectors } from './notifications';
 import NotificationBell from './NotificationBell';
+import MessengerPanel from './MessengerPanel';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp, increment } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { renderAsync as docxRenderAsync } from 'docx-preview';
@@ -228,6 +229,7 @@ export default function SystemHub({
             <Calendar size={16} className="text-[#00ffff]" />
             <span className="text-sm font-medium text-slate-300">{format(new Date(), 'EEEE, MMMM do yyyy')}</span>
           </div>
+          <MessengerPanel currentUser={currentUser} />
           <NotificationBell userId={currentUser.id} />
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 rounded-full p-0.5" style={{ border: `2px solid ${roleColor}` }}>
