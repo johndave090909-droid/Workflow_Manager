@@ -24,7 +24,7 @@ export interface Role {
   permissions: RolePermissions;
 }
 
-export type ProjectStatus   = 'On Hold' | 'In Progress' | 'Not Started' | 'Done';
+export type ProjectStatus   = 'On Hold' | 'In Progress' | 'Not Started' | 'Done' | 'Completion Pending';
 export type ProjectPriority = 'High' | 'Medium' | 'Low';
 export type Department      = 'Personal' | 'Business' | 'Finance' | 'Health';
 

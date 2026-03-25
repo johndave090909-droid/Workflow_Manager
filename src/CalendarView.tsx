@@ -16,10 +16,11 @@ const DEPT_COLORS: Record<Department, string> = {
 };
 
 const STATUS_LABEL: Record<ProjectStatus, string> = {
-  'Not Started': '○',
-  'In Progress': '◑',
-  'On Hold': '⏸',
-  'Done': '✓',
+  'Not Started':        '○',
+  'In Progress':        '◑',
+  'On Hold':            '⏸',
+  'Done':               '✓',
+  'Completion Pending': '◉',
 };
 
 interface CalendarViewProps {
@@ -42,16 +43,17 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
   const events = projects
     .filter(p => p.end_date)
     .map(p => {
-      const isDone = p.status === 'Done';
+      const isDone    = p.status === 'Done';
+      const isPending = p.status === 'Completion Pending';
       return {
         id: String(p.id),
         title: p.name,
         start: p.end_date,
         allDay: true,
-        backgroundColor: isDone ? '#374151' : DEPT_COLORS[p.department],
-        borderColor:     isDone ? '#374151' : DEPT_COLORS[p.department],
-        textColor:       isDone ? '#9ca3af' : '#0a0510',
-        classNames:      isDone ? ['fc-event-done'] : [],
+        backgroundColor: isDone ? '#374151' : isPending ? '#22c55e' : DEPT_COLORS[p.department],
+        borderColor:     isDone ? '#374151' : isPending ? '#22c55e' : DEPT_COLORS[p.department],
+        textColor:       isDone ? '#9ca3af' : isPending ? '#052e16' : '#0a0510',
+        classNames:      isDone ? ['fc-event-done'] : isPending ? ['fc-event-pending'] : [],
         extendedProps: { project: p },
       };
     });
@@ -220,6 +222,14 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
         .fc-event-done {
           opacity: 0.45 !important;
         }
+        .fc-event-pending {
+          animation: fc-pending-blink 1.2s ease-in-out infinite !important;
+          box-shadow: 0 0 12px rgba(34,197,94,0.5) !important;
+        }
+        @keyframes fc-pending-blink {
+          0%, 100% { opacity: 1; }
+          50%       { opacity: 0.45; }
+        }
         @media (max-width: 640px) {
           .fc-toolbar {
             flex-wrap: nowrap !important;
@@ -379,8 +389,8 @@ export default function CalendarView({ projects, currentUserId: _currentUserId, 
           eventContent={(arg) => {
             const project: Project = arg.event.extendedProps.project;
             if (!project) return <span className="truncate text-[11px] font-bold px-1">{arg.event.title}</span>;
-            const unread = unreadCounts[project.id] ?? 0;
-            const isDone = project.status === 'Done';
+            const unread    = unreadCounts[project.id] ?? 0;
+            const isDone    = project.status === 'Done';
             return (
               <div className="flex flex-col px-1 overflow-hidden w-full leading-tight">
                 <div className="flex items-center gap-1 w-full">

@@ -125,10 +125,11 @@ const LEGACY_PERMS: Record<string, Partial<RolePermissions>> = {
 };
 
 const STATUS_COLORS: Record<ProjectStatus, string> = {
-  'Not Started': 'text-slate-400 border-slate-400/30 bg-slate-400/10',
-  'In Progress': 'text-[#ffd700] border-[#ffd700]/30 bg-[#ffd700]/10',
-  'On Hold':     'text-[#ff00ff] border-[#ff00ff]/30 bg-[#ff00ff]/10',
-  'Done':        'text-[#00ffff] border-[#00ffff]/30 bg-[#00ffff]/10',
+  'Not Started':        'text-slate-400 border-slate-400/30 bg-slate-400/10',
+  'In Progress':        'text-[#ffd700] border-[#ffd700]/30 bg-[#ffd700]/10',
+  'On Hold':            'text-[#ff00ff] border-[#ff00ff]/30 bg-[#ff00ff]/10',
+  'Done':               'text-[#00ffff] border-[#00ffff]/30 bg-[#00ffff]/10',
+  'Completion Pending': 'text-green-400 border-green-400/30 bg-green-400/10',
 };
 
 const DEPT_COLORS: Record<Department, string> = {
@@ -363,6 +364,16 @@ export default function App() {
   };
 
   // ── Actions ────────────────────────────────────────────────────
+  const handleApproveCompletion = async (projectId: string) => {
+    await updateDoc(doc(db, 'projects', projectId), { status: 'Done' });
+    fetchData();
+  };
+
+  const handleRejectCompletion = async (projectId: string) => {
+    await updateDoc(doc(db, 'projects', projectId), { status: 'In Progress' });
+    fetchData();
+  };
+
   const handleDateChange = async (projectId: string, newStart: string, newEnd: string) => {
     await updateDoc(doc(db, 'projects', projectId), { start_date: newStart, end_date: newEnd });
     // Optimistic local update — no full re-fetch needed
@@ -784,11 +795,20 @@ export default function App() {
             )}
             {filteredProjects.map(p => {
               const daysLeft = p.end_date ? differenceInDays(parseISO(p.end_date), new Date()) : null;
-              const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done';
-              const isDone = p.status === 'Done';
+              const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done' && p.status !== 'Completion Pending';
+              const isDone    = p.status === 'Done';
+              const isPending = p.status === 'Completion Pending';
               return (
-                <div key={p.id} className={cn("p-4 flex items-start gap-3 active:bg-white/5 cursor-pointer transition-opacity", isDone && "opacity-50")} onClick={() => setSelectedProject(p)}>
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: isDone ? '#4b5563' : DEPT_COLORS[p.department] }} />
+                <div
+                  key={p.id}
+                  className={cn(
+                    "p-4 flex items-start gap-3 active:bg-white/5 cursor-pointer transition-all",
+                    isDone    && "opacity-50",
+                    isPending && "animate-pulse bg-green-500/10 border-l-2 border-green-400",
+                  )}
+                  onClick={() => setSelectedProject(p)}
+                >
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ backgroundColor: isDone ? '#4b5563' : isPending ? '#22c55e' : DEPT_COLORS[p.department] }} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <p className={cn("text-sm font-bold truncate", isDone && "line-through text-slate-500")}>{p.name}</p>
@@ -815,6 +835,22 @@ export default function App() {
                       )}
                       {p.is_priority_focus && <span className="text-xs">⭐</span>}
                       {p.is_time_critical && <span className="text-xs">⚠️</span>}
+                      {isPending && perms.view_all_projects && (
+                        <>
+                          <button
+                            className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-[#ff4d4d]/40 bg-[#ff4d4d]/10 text-[#ff4d4d] hover:bg-[#ff4d4d]/25 transition-all"
+                            onClick={e => { e.stopPropagation(); handleRejectCompletion(p.id); }}
+                          >
+                            ✕ Reject
+                          </button>
+                          <button
+                            className="text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-green-400/50 bg-green-400/20 text-green-300 hover:bg-green-400/40 transition-all"
+                            onClick={e => { e.stopPropagation(); handleApproveCompletion(p.id); }}
+                          >
+                            ✓ Approve
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -840,14 +876,19 @@ export default function App() {
               </thead>
               <tbody ref={tableBodyRef} className="divide-y divide-white/5">
                 {filteredProjects.map(p => {
-                  const daysLeft = p.end_date ? differenceInDays(parseISO(p.end_date), new Date()) : null;
-                  const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done';
-                  const isDone = p.status === 'Done';
+                  const daysLeft  = p.end_date ? differenceInDays(parseISO(p.end_date), new Date()) : null;
+                  const isOverdue = daysLeft !== null && daysLeft < 0 && p.status !== 'Done' && p.status !== 'Completion Pending';
+                  const isDone    = p.status === 'Done';
+                  const isPending = p.status === 'Completion Pending';
 
                   return (
                     <tr
                       key={p.id}
-                      className={cn("group hover:bg-white/[0.03] transition-all cursor-pointer", isDone && "opacity-50")}
+                      className={cn(
+                        "group hover:bg-white/[0.03] transition-all cursor-pointer",
+                        isDone    && "opacity-50",
+                        isPending && "animate-pulse bg-green-500/10",
+                      )}
                       data-fc-draggable={perms.edit_projects ? 'true' : undefined}
                       data-project-id={p.id}
                       data-project-name={p.name}
@@ -860,8 +901,9 @@ export default function App() {
                       )}
                       <td className="px-8 py-5">
                         <div className="flex items-center gap-3">
-                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: isDone ? '#4b5563' : DEPT_COLORS[p.department] }} />
-                          <span className={cn("text-sm font-bold tracking-tight transition-colors", isDone ? "line-through text-slate-500" : "group-hover:text-[#ff00ff]")}>{p.name}</span>
+                          {isPending && <div className="w-1 self-stretch rounded-full bg-green-400 flex-shrink-0" />}
+                          <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: isDone ? '#4b5563' : isPending ? '#22c55e' : DEPT_COLORS[p.department] }} />
+                          <span className={cn("text-sm font-bold tracking-tight transition-colors", isDone ? "line-through text-slate-500" : isPending ? "text-green-300" : "group-hover:text-[#ff00ff]")}>{p.name}</span>
                           {(unreadCounts[p.id] ?? 0) > 0 && (
                             <span className="flex-shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-[#ff00ff] text-white text-[9px] font-black flex items-center justify-center shadow-lg shadow-[#ff00ff]/40 animate-pulse">
                               {unreadCounts[p.id]}
@@ -876,9 +918,27 @@ export default function App() {
                       </td>
                       <td className="px-8 py-5"><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{p.department}</span></td>
                       <td className="px-8 py-5">
-                        <span className={cn('text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border', STATUS_COLORS[p.status])}>
-                          {p.status}
-                        </span>
+                        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                          <span className={cn('text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border', STATUS_COLORS[p.status])}>
+                            {p.status}
+                          </span>
+                          {isPending && perms.view_all_projects && (
+                            <>
+                              <button
+                                className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-[#ff4d4d]/40 bg-[#ff4d4d]/10 text-[#ff4d4d] hover:bg-[#ff4d4d]/25 transition-all"
+                                onClick={e => { e.stopPropagation(); handleRejectCompletion(p.id); }}
+                              >
+                                ✕ Reject
+                              </button>
+                              <button
+                                className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border border-green-400/60 bg-green-400/20 text-green-300 hover:bg-green-400/40 transition-all shadow-lg shadow-green-400/20"
+                                onClick={e => { e.stopPropagation(); handleApproveCompletion(p.id); }}
+                              >
+                                ✓ Approve
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                       <td className="px-8 py-5">
                         <span className={cn('text-xs font-mono font-bold', isOverdue ? 'text-[#ff4d4d] animate-pulse' : 'text-slate-300')}>

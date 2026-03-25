@@ -48,10 +48,11 @@ const DEPT_COLORS: Record<Department, string> = {
 };
 
 const STATUS_STYLES: Record<ProjectStatus, string> = {
-  'Not Started': 'text-slate-400 border-slate-400/30 bg-slate-400/10',
-  'In Progress': 'text-[#ffd700] border-[#ffd700]/30 bg-[#ffd700]/10',
-  'On Hold':     'text-[#ff00ff] border-[#ff00ff]/30 bg-[#ff00ff]/10',
-  'Done':        'text-[#00ffff] border-[#00ffff]/30 bg-[#00ffff]/10',
+  'Not Started':        'text-slate-400 border-slate-400/30 bg-slate-400/10',
+  'In Progress':        'text-[#ffd700] border-[#ffd700]/30 bg-[#ffd700]/10',
+  'On Hold':            'text-[#ff00ff] border-[#ff00ff]/30 bg-[#ff00ff]/10',
+  'Done':               'text-[#00ffff] border-[#00ffff]/30 bg-[#00ffff]/10',
+  'Completion Pending': 'text-green-400 border-green-400/30 bg-green-400/10',
 };
 
 const PRIORITY_COLOR: Record<ProjectPriority, string> = {
@@ -94,6 +95,15 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError,    setUploadError]    = useState('');
   const [viewerFile,     setViewerFile]     = useState<Deliverable | null>(null);
+
+  // ── Custom confirm dialog ───────────────────────────────────────
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; body: string; resolve: (v: boolean) => void } | null>(null);
+
+  const showConfirm = (title: string, body: string): Promise<boolean> =>
+    new Promise(resolve => setConfirmDialog({ title, body, resolve }));
+
+  const handleConfirmOk     = () => { confirmDialog?.resolve(true);  setConfirmDialog(null); };
+  const handleConfirmCancel = () => { confirmDialog?.resolve(false); setConfirmDialog(null); };
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
   const chatInputRef  = useRef<HTMLInputElement>(null);
@@ -208,7 +218,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   };
 
   const handleDeleteProject = async () => {
-    if (!window.confirm(`Delete "${project.name}"?\n\nThis will permanently remove the project, all tasks, messages, and uploaded files. This cannot be undone.`)) return;
+    if (!await showConfirm(`Delete "${project.name}"?`, 'This will permanently remove the project, all tasks, messages, and uploaded files. This cannot be undone.')) return;
     try {
       // Delete deliverable Storage files + Firestore docs
       const delivSnap = await getDocs(collection(db, 'projects', project.id, 'deliverables'));
@@ -338,7 +348,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   };
 
   const handleDeleteDeliverable = async (deliv: Deliverable) => {
-    if (!window.confirm(`Delete "${deliv.name}"? This cannot be undone.`)) return;
+    if (!await showConfirm(`Delete "${deliv.name}"?`, 'This cannot be undone.')) return;
     try { await deleteObject(ref(storage, deliv.storagePath)); } catch {}
     await deleteDoc(doc(db, 'projects', project.id, 'deliverables', deliv.id));
     setDeliverables(prev => prev.filter(d => d.id !== deliv.id));
@@ -364,6 +374,36 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
     }
   };
 
+  // ── Completion flow ────────────────────────────────────────────
+  const isAssigned = project.assignee_ids?.includes(currentUser.id) || project.account_lead_id === currentUser.id;
+
+  const handleMarkCompleted = async () => {
+    if (!await showConfirm(`Mark "${project.name}" as completed?`, 'This will notify the Director for approval.')) return;
+    await updateDoc(doc(db, 'projects', project.id), { status: 'Completion Pending' });
+    onUpdated();
+    onClose();
+  };
+
+  const handleCancelCompletion = async () => {
+    if (!await showConfirm('Cancel completion request?', 'The project will be moved back to In Progress.')) return;
+    await updateDoc(doc(db, 'projects', project.id), { status: 'In Progress' });
+    onUpdated();
+    onClose();
+  };
+
+  const handleApproveCompletion = async () => {
+    await updateDoc(doc(db, 'projects', project.id), { status: 'Done' });
+    onUpdated();
+    onClose();
+  };
+
+  const handleRejectCompletion = async () => {
+    if (!await showConfirm('Reject completion?', 'The project will be moved back to In Progress.')) return;
+    await updateDoc(doc(db, 'projects', project.id), { status: 'In Progress' });
+    onUpdated();
+    onClose();
+  };
+
   // ── Derived ────────────────────────────────────────────────────
   const adminUsers      = assignableUsers ?? users;
   const currentLead     = users.find(u => u.id === project.account_lead_id);
@@ -381,6 +421,33 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
 
   return (
     <>
+      {/* ── Custom confirm dialog ── */}
+      {confirmDialog && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={handleConfirmCancel}>
+          <div
+            className="bg-[#12091e] border border-white/10 rounded-2xl shadow-2xl shadow-[#ff00ff]/10 w-full max-w-sm p-6 flex flex-col gap-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-base font-black text-white leading-snug">{confirmDialog.title}</h3>
+            {confirmDialog.body && <p className="text-sm text-slate-400 leading-relaxed">{confirmDialog.body}</p>}
+            <div className="flex gap-3 justify-end pt-1">
+              <button
+                onClick={handleConfirmCancel}
+                className="px-4 py-2 rounded-xl border border-white/10 text-sm font-bold text-slate-400 hover:text-white hover:border-white/20 bg-white/5 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmOk}
+                className="px-4 py-2 rounded-xl bg-[#ff00ff]/20 border border-[#ff00ff]/40 text-sm font-bold text-[#ff00ff] hover:bg-[#ff00ff]/30 hover:border-[#ff00ff]/60 transition-all shadow-lg shadow-[#ff00ff]/10"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Viewer overlay (images & videos) ── */}
       {viewerFile && (
         <div
@@ -453,6 +520,41 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
               )}
             </div>
             <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              {/* Non-director assignee: mark as completed */}
+              {!isDirector && isAssigned && project.status !== 'Done' && project.status !== 'Completion Pending' && !viewOnly && (
+                <button
+                  onClick={handleMarkCompleted}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-500/10 border border-green-400/30 text-xs font-bold text-green-400 hover:bg-green-400/20 hover:border-green-400/60 transition-all"
+                >
+                  <Check size={12} /> Mark as Completed
+                </button>
+              )}
+              {/* Non-director assignee: cancel pending completion */}
+              {!isDirector && isAssigned && project.status === 'Completion Pending' && !viewOnly && (
+                <button
+                  onClick={handleCancelCompletion}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-bold text-slate-400 hover:text-[#ff4d4d] hover:border-[#ff4d4d]/30 hover:bg-[#ff4d4d]/5 transition-all"
+                >
+                  <X size={12} /> Cancel Completion
+                </button>
+              )}
+              {/* Director: approve + reject completion */}
+              {isDirector && project.status === 'Completion Pending' && !isEditing && (
+                <>
+                  <button
+                    onClick={handleRejectCompletion}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-[#ff4d4d]/30 text-xs font-bold text-[#ff4d4d] hover:bg-[#ff4d4d]/10 hover:border-[#ff4d4d]/60 transition-all"
+                  >
+                    <X size={12} /> Reject
+                  </button>
+                  <button
+                    onClick={handleApproveCompletion}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-500/20 border border-green-400/50 text-xs font-bold text-green-300 hover:bg-green-400/30 hover:border-green-400/80 transition-all shadow-lg shadow-green-400/20 animate-pulse"
+                  >
+                    <Check size={12} /> Approve
+                  </button>
+                </>
+              )}
               {isDirector && !isEditing && (
                 <>
                   <button
@@ -488,7 +590,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
                   <label className={labelCls}>Status</label>
                   {isEditing ? (
                     <select className={selectCls} value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as ProjectStatus }))}>
-                      {(['Not Started', 'In Progress', 'On Hold', 'Done'] as ProjectStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
+                      {(['Not Started', 'In Progress', 'On Hold', 'Done', 'Completion Pending'] as ProjectStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   ) : (
                     <span className={`inline-block text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${STATUS_STYLES[project.status]}`}>{project.status}</span>
