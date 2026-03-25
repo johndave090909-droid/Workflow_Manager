@@ -1267,7 +1267,9 @@ interface MemberProfilePageProps {
 function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNavigate, systemCards, defaultTab, currentUser, isDirector }: MemberProfilePageProps) {
   const rc = ROLE_PALETTE[profileUser.role] ?? '#64748b';
 
-  const [profileTab, setProfileTab] = React.useState<'profile' | 'work'>(defaultTab ?? 'profile');
+  const isKateProfile = profileUser.name.toLowerCase().includes('kate') && profileUser.name.toLowerCase().includes('lamoglia');
+  const canSeeResults = isKateProfile && (currentUser.id === profileUser.id || isDirector);
+  const [profileTab, setProfileTab] = React.useState<'profile' | 'work' | 'results'>(defaultTab ?? 'profile');
   const [editing, setEditing] = React.useState(false);
   const [saving,  setSaving]  = React.useState(false);
   const [form, setForm] = React.useState<Omit<WorkerData, 'id' | 'name' | 'role'>>({
@@ -1330,7 +1332,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-white/[0.03] border border-white/8 rounded-xl p-1 w-fit">
-        {(['profile', 'work'] as const).map(tab => (
+        {(['profile', 'work', ...(canSeeResults ? ['results'] : [])] as ('profile' | 'work' | 'results')[]).map(tab => (
           <button
             key={tab}
             onClick={() => { setProfileTab(tab); setEditing(false); }}
@@ -1339,7 +1341,7 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
               ? { background: `${rc}20`, color: rc, border: `1px solid ${rc}30` }
               : { color: '#64748b' }}
           >
-            {tab === 'profile' ? 'User Profile' : 'Work Information'}
+            {tab === 'profile' ? 'User Profile' : tab === 'work' ? 'Work Information' : '📊 Results'}
           </button>
         ))}
       </div>
@@ -1393,6 +1395,16 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
             </div>
           );
         }
+        const isKateLamoglia = profileUser.name.toLowerCase().includes('kate') && profileUser.name.toLowerCase().includes('lamoglia');
+        if (isKateLamoglia) {
+          return (
+            <div>
+              <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
+              <FlavorCouncilForm currentUser={currentUser} />
+              <WorkDocuments {...docProps} />
+            </div>
+          );
+        }
         return (
           <div>
             <CustomSectionsPanel profileUser={profileUser} isDirector={isDirector} />
@@ -1400,6 +1412,8 @@ function MemberProfilePage({ profileUser, worker, onBack, onWorkerUpdated, onNav
           </div>
         );
       })()}
+
+      {profileTab === 'results' && canSeeResults && <FlavorCouncilResults />}
 
       {profileTab === 'profile' && <div>
 
@@ -2641,6 +2655,194 @@ function RatingRow({ label, desc, value, onChange }: { label: string; desc: stri
             {n}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Flavor Council Results ─────────────────────────────────────────────────────
+
+interface FeedbackEntry {
+  id: string;
+  fullName: string;
+  dish: string;
+  ratings: Record<string, number>;
+  decision: string;
+  comments: string;
+  submittedAt: string | null;
+}
+
+function FlavorCouncilResults() {
+  const [entries, setEntries] = useState<FeedbackEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedDish, setSelectedDish] = useState<string>('All');
+
+  useEffect(() => {
+    const q = query(collection(db, 'flavor_council_feedback'), where('event', '==', 'Luau'));
+    return onSnapshot(q, snap => {
+      const data = snap.docs.map(d => {
+        const x = d.data();
+        return {
+          id: d.id,
+          fullName:    x.fullName    ?? '',
+          dish:        x.dish        ?? '',
+          ratings:     x.ratings     ?? {},
+          decision:    x.decision    ?? '',
+          comments:    x.comments    ?? '',
+          submittedAt: x.submittedAt?.toDate?.()?.toISOString() ?? null,
+        } as FeedbackEntry;
+      });
+      data.sort((a, b) => (b.submittedAt ?? '').localeCompare(a.submittedAt ?? ''));
+      setEntries(data);
+      setLoading(false);
+    });
+  }, []);
+
+  const filtered = selectedDish === 'All' ? entries : entries.filter(e => e.dish === selectedDish);
+  const dishes = ['All', ...Array.from(new Set(entries.map(e => e.dish))).sort()];
+
+  // Average ratings per category
+  const categoryData = RATING_CATEGORIES.map(cat => {
+    const vals = filtered.map(e => e.ratings?.[cat.key] ?? 0).filter(v => v > 0);
+    const avg  = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+    return { name: cat.label.split(' (')[0], avg: parseFloat(avg.toFixed(2)), fullLabel: cat.label };
+  });
+
+  // Average overall rating per dish
+  const dishData = LUAU_DISHES.map(dish => {
+    const dishEntries = entries.filter(e => e.dish === dish);
+    if (!dishEntries.length) return null;
+    const allRatings = dishEntries.flatMap(e => Object.values(e.ratings ?? {}).filter(v => (v as number) > 0)) as number[];
+    const avg = allRatings.length ? allRatings.reduce((s, v) => s + v, 0) / allRatings.length : 0;
+    return { name: dish, avg: parseFloat(avg.toFixed(2)), count: dishEntries.length };
+  }).filter(Boolean) as { name: string; avg: number; count: number }[];
+  dishData.sort((a, b) => b.avg - a.avg);
+
+  // Decision breakdown
+  const yesCount      = filtered.filter(e => e.decision === 'Yes').length;
+  const noFixCount    = filtered.filter(e => e.decision === 'No and Fix').length;
+
+  if (loading) return <div className="py-10 text-center text-slate-500 text-sm">Loading results…</div>;
+
+  if (!entries.length) return (
+    <div className="py-16 text-center">
+      <p className="text-4xl mb-3">📋</p>
+      <p className="text-sm font-semibold text-slate-500">No submissions yet</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6 py-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-[#ff00ff] mb-0.5">Luau</p>
+          <h3 className="text-xl font-black text-white">Flavor Council Results</h3>
+          <p className="text-xs text-slate-500 mt-0.5">{entries.length} submission{entries.length !== 1 ? 's' : ''}</p>
+        </div>
+        {/* Dish filter */}
+        <select
+          value={selectedDish}
+          onChange={e => setSelectedDish(e.target.value)}
+          className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-xs font-bold text-white outline-none"
+        >
+          {dishes.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </div>
+
+      {/* Decision summary */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-green-400/20 bg-green-400/[0.05] p-4 text-center">
+          <p className="text-3xl font-black text-green-400">{yesCount}</p>
+          <p className="text-xs font-bold text-green-400/70 mt-1">✅ Approved</p>
+        </div>
+        <div className="rounded-2xl border border-[#ff4d4d]/20 bg-[#ff4d4d]/[0.05] p-4 text-center">
+          <p className="text-3xl font-black text-[#ff4d4d]">{noFixCount}</p>
+          <p className="text-xs font-bold text-[#ff4d4d]/70 mt-1">🔧 Needs Fix</p>
+        </div>
+      </div>
+
+      {/* Ratings by Category */}
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+        <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-4">Avg Rating by Category</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={categoryData} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+            <XAxis type="number" domain={[0, 5]} tick={{ fill: '#64748b', fontSize: 10 }} />
+            <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={90} />
+            <Tooltip
+              contentStyle={{ background: '#12091e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }}
+              formatter={(v: number) => [`${v} / 5`, 'Avg Rating']}
+            />
+            <Bar dataKey="avg" radius={[0, 6, 6, 0]}>
+              {categoryData.map((_, i) => (
+                <Cell key={i} fill={`hsl(${280 + i * 15}, 70%, 65%)`} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Ratings by Dish */}
+      {dishData.length > 0 && (
+        <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+          <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-4">Avg Overall Rating by Dish</p>
+          <ResponsiveContainer width="100%" height={Math.max(180, dishData.length * 32)}>
+            <BarChart data={dishData} layout="vertical" margin={{ left: 8, right: 40, top: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
+              <XAxis type="number" domain={[0, 5]} tick={{ fill: '#64748b', fontSize: 10 }} />
+              <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} width={130} />
+              <Tooltip
+                contentStyle={{ background: '#12091e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }}
+                formatter={(v: number, _: string, props: { payload?: { count?: number } }) => [`${v} / 5 (${props.payload?.count ?? 0} reviews)`, 'Avg Rating']}
+              />
+              <Bar dataKey="avg" radius={[0, 6, 6, 0]}>
+                {dishData.map((entry, i) => (
+                  <Cell key={i} fill={entry.avg >= 4 ? '#22c55e' : entry.avg >= 3 ? '#f59e0b' : '#ff4d4d'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="flex gap-4 mt-3 justify-end">
+            {[{ color: '#22c55e', label: '≥ 4.0 Excellent' }, { color: '#f59e0b', label: '3.0–3.9 Good' }, { color: '#ff4d4d', label: '< 3.0 Needs Work' }].map(l => (
+              <div key={l.label} className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-sm" style={{ background: l.color }} />
+                <span className="text-[10px] text-slate-500">{l.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent submissions */}
+      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
+        <p className="text-xs font-black uppercase tracking-widest text-slate-500 mb-4">Recent Submissions</p>
+        <div className="space-y-3">
+          {filtered.slice(0, 10).map(e => (
+            <div key={e.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div>
+                  <p className="text-sm font-bold text-white">{e.fullName}</p>
+                  <p className="text-xs text-[#ff00ff]">{e.dish}</p>
+                </div>
+                <span className={`text-[10px] font-black px-2 py-1 rounded-full ${e.decision === 'Yes' ? 'bg-green-400/15 text-green-400' : 'bg-[#ff4d4d]/15 text-[#ff4d4d]'}`}>
+                  {e.decision}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 mb-2">
+                {RATING_CATEGORIES.map(cat => (
+                  <div key={cat.key} className="text-center">
+                    <p className="text-[9px] text-slate-600 truncate">{cat.label.split(' (')[0]}</p>
+                    <p className="text-xs font-black" style={{ color: (e.ratings?.[cat.key] ?? 0) >= 4 ? '#22c55e' : (e.ratings?.[cat.key] ?? 0) >= 3 ? '#f59e0b' : '#ff4d4d' }}>
+                      {e.ratings?.[cat.key] ?? '—'}/5
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {e.comments && <p className="text-[11px] text-slate-500 italic">"{e.comments}"</p>}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
