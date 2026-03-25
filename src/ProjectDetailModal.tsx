@@ -3,6 +3,7 @@ import { X, Edit2, Save, Plus, Trash2, Check, Send, MessageSquare, Upload, Paper
 import { format, parseISO } from 'date-fns';
 import { User, Project, Task, Message, Deliverable, ProjectStatus, ProjectPriority, Department } from './types';
 import { db, storage } from './firebase';
+import { notifyDirectors, notifyUsers } from './notifications';
 import {
   collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, serverTimestamp, setDoc,
@@ -383,9 +384,17 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
     onUpdated();
   };
 
+  const assigneeIds = project.assignee_ids ?? [project.account_lead_id];
+
   const handleMarkCompleted = async () => {
     if (!await showConfirm(`Mark "${project.name}" as completed?`, 'This will notify the Director for approval.')) return;
     await updateDoc(doc(db, 'projects', project.id), { status: 'Completion Pending' });
+    await notifyDirectors(
+      `Completion pending: ${project.name}`,
+      `${currentUser.name} has marked this project as completed and is awaiting your approval.`,
+      'completion_pending',
+      { projectId: project.id },
+    );
     onUpdated();
     onClose();
   };
@@ -399,6 +408,16 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
 
   const handleApproveCompletion = async () => {
     await updateDoc(doc(db, 'projects', project.id), { status: 'Done' });
+    const others = assigneeIds.filter(id => id !== currentUser.id);
+    if (others.length) {
+      await notifyUsers(
+        others,
+        `Project approved: ${project.name}`,
+        `${currentUser.name} approved the completion of this project.`,
+        'completion_approved',
+        { projectId: project.id },
+      );
+    }
     onUpdated();
     onClose();
   };
@@ -406,6 +425,16 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
   const handleRejectCompletion = async () => {
     if (!await showConfirm('Reject completion?', 'The project will be moved back to In Progress.')) return;
     await updateDoc(doc(db, 'projects', project.id), { status: 'In Progress' });
+    const others = assigneeIds.filter(id => id !== currentUser.id);
+    if (others.length) {
+      await notifyUsers(
+        others,
+        `Completion rejected: ${project.name}`,
+        `${currentUser.name} sent this project back to In Progress.`,
+        'completion_rejected',
+        { projectId: project.id },
+      );
+    }
     onUpdated();
     onClose();
   };

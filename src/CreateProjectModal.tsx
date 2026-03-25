@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { User, ProjectStatus, ProjectPriority, Department } from './types';
 import { db } from './firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { notifyUsers, notifyDirectors } from './notifications';
 
 interface CreateProjectModalProps {
   adminUsers: User[];
@@ -69,6 +70,22 @@ export default function CreateProjectModal({ adminUsers, currentUser, onClose, o
         details:    `Created project: ${form.name.trim()}`,
         timestamp:  serverTimestamp(),
       });
+      // Notify assigned users (excluding the creator)
+      const assigneeIdsToNotify = form.assignee_ids.filter(id => id !== currentUser.id);
+      if (assigneeIdsToNotify.length) {
+        await notifyUsers(
+          assigneeIdsToNotify,
+          `New project assigned: ${form.name.trim()}`,
+          `${currentUser.name} assigned you to this project.`,
+          'project_assigned',
+        );
+      }
+      // Notify Directors (excluding the creator if they are a Director)
+      await notifyDirectors(
+        `New project created: ${form.name.trim()}`,
+        `Created by ${currentUser.name} · Assigned to ${selectedUsers.map(u => u.name).join(', ')}`,
+        'project_assigned',
+      );
       onCreated();
       onClose();
     } catch {

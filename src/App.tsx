@@ -16,6 +16,7 @@ import { twMerge } from 'tailwind-merge';
 import LoginScreen from './LoginScreen';
 import CreateProjectModal from './CreateProjectModal';
 import ProjectDetailModal from './ProjectDetailModal';
+import NotificationBell from './NotificationBell';
 import CalendarView from './CalendarView';
 import SystemHub from './SystemHub';
 import SystemAdminPanel from './SystemAdminPanel';
@@ -461,6 +462,13 @@ export default function App() {
 
   if (!currentUser) return <LoginScreen />;
 
+  // ── Global notification bell (fixed overlay for non-tracker views) ──────────
+  const floatingBell = (
+    <div className="fixed top-3 right-16 z-[100] sm:right-20">
+      <NotificationBell userId={currentUser.id} />
+    </div>
+  );
+
   if (currentView === 'hub') return (
     <>
       <SystemHub
@@ -479,6 +487,7 @@ export default function App() {
 
   if (currentView === 'workflow') return (
     <>
+      {floatingBell}
       <WorkflowAutomation
         currentUser={currentUser}
         onBackToHub={() => setCurrentView('hub')}
@@ -493,6 +502,7 @@ export default function App() {
 
   if (currentView === 'workers') return (
     <>
+      {floatingBell}
       <WorkerRoster
         currentUser={currentUser}
         onBackToHub={() => setCurrentView('hub')}
@@ -505,9 +515,9 @@ export default function App() {
     </>
   );
 
-
   if (currentView === 'scheduler') return (
     <>
+      {floatingBell}
       <ShiftFlowApp onBackToHub={() => setCurrentView('hub')} />
       <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
     </>
@@ -517,6 +527,7 @@ export default function App() {
     if (!perms.access_it_admin) { setCurrentView('hub'); return null; }
     return (
       <>
+        {floatingBell}
         <SystemAdminPanel
           currentUser={currentUser}
           onBackToHub={() => setCurrentView('hub')}
@@ -598,6 +609,7 @@ export default function App() {
               <span className="hidden sm:inline">Create Project</span>
             </button>
           )}
+          <NotificationBell userId={currentUser.id} />
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full p-0.5 shrink-0" style={{ border: `2px solid ${userRoleColor}` }}>
               <img

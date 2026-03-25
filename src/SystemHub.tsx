@@ -5,6 +5,8 @@ import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db, storage } from './firebase';
 import ComplaintsView from './ComplaintsView';
+import { notifyDirectors } from './notifications';
+import NotificationBell from './NotificationBell';
 import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp, increment } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { renderAsync as docxRenderAsync } from 'docx-preview';
@@ -226,6 +228,7 @@ export default function SystemHub({
             <Calendar size={16} className="text-[#00ffff]" />
             <span className="text-sm font-medium text-slate-300">{format(new Date(), 'EEEE, MMMM do yyyy')}</span>
           </div>
+          <NotificationBell userId={currentUser.id} />
           <div className="flex items-center gap-2">
             <div className="w-10 h-10 rounded-full p-0.5" style={{ border: `2px solid ${roleColor}` }}>
               <img
@@ -2100,6 +2103,7 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
   const [tabs, setTabs]           = React.useState<string[]>([]);
   const [currentIdx, setCurrentIdx] = React.useState<number>(-1);
   const [activeTab, setActiveTab] = React.useState<string>('');
+  const knownTabsRef              = React.useRef<string[]>([]);
   const [values, setValues]       = React.useState<string[][]>([]);
   const [loading, setLoading]     = React.useState(true);
   const [syncing, setSyncing]     = React.useState(false);
@@ -2122,6 +2126,16 @@ function LaborSheetView({ profileUser, children }: { profileUser: User; children
       const adjTab = allTabs.find(t => /adjustment/i.test(t)) ?? '';
       console.log('[AdjRate] all tabs:', allTabs, '| adjTab found:', adjTab);
       setAdjTabName(adjTab);
+      // Detect new month tabs and notify Directors
+      const newTabs = list.filter(t => !knownTabsRef.current.includes(t));
+      if (knownTabsRef.current.length > 0 && newTabs.length > 0) {
+        notifyDirectors(
+          `New labor report available: ${newTabs.join(', ')}`,
+          `A new monthly labor sheet has been generated for ${profileUser.name}.`,
+          'labor_report',
+        ).catch(() => {});
+      }
+      knownTabsRef.current = list;
       setTabs(list);
       const saved = snap.data()?.activeTab as string | undefined;
       const idx = saved ? list.findIndex(t => t === saved) : list.length - 1;
@@ -2922,9 +2936,9 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
   }, []);
 
   const venues = [
-    { key: 'aloha',   label: 'Aloha Luau',      color: '#f59e0b' },
-    { key: 'ohana',   label: 'Hale Ohana Luau', color: '#10b981' },
-    { key: 'gateway', label: 'Gateway Buffet',  color: '#6366f1' },
+    { key: 'aloha',   label: 'Aloha Luau',      color: '#f59e0b', highThreshold: 345 },
+    { key: 'ohana',   label: 'Hale Ohana Luau', color: '#10b981', highThreshold: 200 },
+    { key: 'gateway', label: 'Gateway Buffet',  color: '#6366f1', highThreshold: 800 },
   ] as const;
 
   const total = (counts?.aloha ?? 0) + (counts?.ohana ?? 0) + (counts?.gateway ?? 0);
@@ -2978,12 +2992,14 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {venues.map(v => {
               const val = counts[v.key];
+              const isHigh = val != null && val >= v.highThreshold;
               return (
                 <div key={v.key} className="rounded-2xl border bg-white/[0.02] p-6"
-                  style={{ borderColor: `${v.color}33` }}>
+                  style={{ borderColor: isHigh ? `${v.color}66` : `${v.color}33` }}>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-2 h-2 rounded-full" style={{ background: v.color }} />
                     <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: v.color }}>{v.label}</p>
+                    {isHigh && <span className="ml-auto text-sm">⚠️</span>}
                   </div>
                   <p className="text-4xl font-black text-white">
                     {val != null ? val.toLocaleString() : '—'}
@@ -5024,6 +5040,47 @@ function OfficeSchedulesView({
   );
 }
 
+// ── Live guest count widget (used inside Ticketing card) ──────────────────────
+function LiveGuestCount() {
+  const [counts, setCounts] = React.useState<{ aloha: number | null; ohana: number | null; gateway: number | null } | null>(null);
+
+  React.useEffect(() => {
+    return onSnapshot(doc(db, 'food_prep_state', 'latest'), snap => {
+      const d = snap.data();
+      setCounts(d ? { aloha: d.aloha ?? null, ohana: d.ohana ?? null, gateway: d.gateway ?? null } : null);
+    });
+  }, []);
+
+  if (!counts) return null;
+
+  const rows = [
+    { label: 'A', value: counts.aloha,   color: '#f59e0b', highThreshold: 345 },
+    { label: 'O', value: counts.ohana,   color: '#10b981', highThreshold: 200 },
+    { label: 'G', value: counts.gateway, color: '#6366f1', highThreshold: 800 },
+  ];
+
+  return (
+    <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 bg-black/40 backdrop-blur-sm rounded-xl px-2 py-1.5 sm:px-3 sm:py-2 border border-white/10 flex flex-col gap-0.5">
+      {rows.map(r => {
+        const isHigh = r.value != null && r.value >= r.highThreshold;
+        return (
+        <div key={r.label} className="flex items-center gap-1.5">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest" style={{ color: r.color }}>{r.label}:</span>
+          <span className="text-[10px] sm:text-xs font-black text-white tabular-nums">
+            {r.value != null ? r.value.toLocaleString() : '—'}
+          </span>
+          {isHigh && <span className="text-[10px] leading-none">⚠️</span>}
+        </div>
+        );
+      })}
+      <div className="flex items-center gap-1 mt-0.5 pt-0.5 border-t border-white/10">
+        <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
+        <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Live</span>
+      </div>
+    </div>
+  );
+}
+
 function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (view: AppView) => void }) {
   const handleClick = () => {
     if (card.link_type === 'internal') {
@@ -5032,6 +5089,8 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
       window.open(card.link, '_blank', 'noopener,noreferrer');
     }
   };
+
+  const isTicketing = card.title.toLowerCase() === 'ticketing';
 
   return (
     <button
@@ -5042,6 +5101,7 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
         className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300"
         style={{ backgroundColor: card.color_accent }}
       />
+      {isTicketing && <LiveGuestCount />}
       <div
         className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}
