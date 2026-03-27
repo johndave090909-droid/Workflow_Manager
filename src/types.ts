@@ -26,7 +26,7 @@ export interface Role {
 
 export type ProjectStatus   = 'On Hold' | 'In Progress' | 'Not Started' | 'Done' | 'Completion Pending';
 export type ProjectPriority = 'High' | 'Medium' | 'Low';
-export type Department      = 'Personal' | 'Business' | 'Finance' | 'Health' | 'Accounting';
+export type Department      = 'Operations' | 'Management' | 'Initiatives' | 'Systems' | 'Accounting';
 
 export interface Project {
   id: string;        // Firestore document ID
