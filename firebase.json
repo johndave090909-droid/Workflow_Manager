@@ -45,6 +45,13 @@
         }
       },
       {
+        "source": "/api/admin/update-user-auth",
+        "function": {
+          "functionId": "updateUserAuth",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

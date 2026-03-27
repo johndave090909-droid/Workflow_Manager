@@ -1305,3 +1305,25 @@ exports.foodPrepHistoryCleanup = onSchedule(
     );
   }
 );
+
+// ── Firebase Auth — update email / password ──────────────────────────────────
+exports.updateUserAuth = onRequest({ region: "us-central1", cors: true }, async (req, res) => {
+  if (req.method === "OPTIONS") return res.status(204).send("");
+  if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+
+  const { uid, email, password } = parseJsonBody(req);
+  if (!uid) return sendJson(res, 400, { error: "uid is required." });
+
+  const updates = {};
+  if (email)    updates.email    = email.trim();
+  if (password) updates.password = password;
+
+  if (Object.keys(updates).length === 0) return sendJson(res, 200, { success: true });
+
+  try {
+    await admin.auth().updateUser(uid, updates);
+    return sendJson(res, 200, { success: true });
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message ?? "Failed to update user." });
+  }
+});

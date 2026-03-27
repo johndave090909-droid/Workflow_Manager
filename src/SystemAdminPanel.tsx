@@ -69,6 +69,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [toggling,       setToggling]       = useState<string | null>(null);
   const [ccblUploading,  setCcblUploading]  = useState(false);
   const [ccblUploadPct,  setCcblUploadPct]  = useState(0);
+  const [ccblOpen,       setCcblOpen]       = useState(false);
   const ccblInputRef = useRef<HTMLInputElement>(null);
 
   // Listen to published items
@@ -82,7 +83,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     setStorageLoading(true);
     try {
       const { listAll } = await import('firebase/storage');
-      const listRef = ref(storage, 'ccbl');
+      const listRef = ref(storage, 'CCBL');
       const res = await listAll(listRef);
       const files = await Promise.all(res.items.map(async item => {
         const url = await getDownloadURL(item);
@@ -92,11 +93,11 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
         return { storagePath: item.fullPath, name, url, type };
       }));
       setStorageFiles(files);
-    } catch { alert('Could not load Storage files. Make sure the ccbl/ folder exists.'); }
+    } catch { alert('Could not load Storage files. Make sure the CCBL/ folder exists.'); }
     setStorageLoading(false);
   };
 
-  useEffect(() => { loadStorageFiles(); }, []);
+  useEffect(() => { if (ccblOpen && storageFiles.length === 0) loadStorageFiles(); }, [ccblOpen]);
 
   const isPublished = (storagePath: string) => published.some(p => p.storagePath === storagePath);
 
@@ -125,7 +126,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
       const isPhoto = file.type.startsWith('image/');
       if (!isVideo && !isPhoto) continue;
       setCcblUploadPct(Math.round((i / files.length) * 100));
-      const storagePath = `ccbl/${Date.now()}_${file.name}`;
+      const storagePath = `CCBL/${Date.now()}_${file.name}`;
       await new Promise<void>((resolve, reject) => {
         const task = uploadBytesResumable(ref(storage, storagePath), file);
         task.on('state_changed', () => {}, reject, resolve);
@@ -571,7 +572,16 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>CCBL Gallery</h2>
               <p className="text-sm text-slate-400 mt-1">Browse your Firebase Storage files and toggle which appear on the CCBL page.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCcblOpen(o => !o)}
+              className="px-4 py-2.5 rounded-xl text-sm font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+            >
+              {ccblOpen ? '▲ Hide' : '▼ Show'}
+            </button>
+          </div>
+
+          {ccblOpen && (<>
+            <div className="flex items-center gap-2 justify-end">
               <input ref={ccblInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleCcblUpload} />
               <button
                 onClick={() => ccblInputRef.current?.click()}
@@ -590,17 +600,16 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 {storageLoading ? '…' : '↻ Refresh'}
               </button>
             </div>
-          </div>
 
-          <p className="text-xs text-slate-500">
-            Toggle items on/off — only <span className="text-[#a855f7] font-semibold">highlighted</span> ones show on the CCBL page. You can also upload files directly to the <code className="bg-white/5 px-1 rounded">ccbl/</code> folder in Firebase Console.
-          </p>
+            <p className="text-xs text-slate-500">
+              Toggle items on/off — only <span className="text-[#a855f7] font-semibold">highlighted</span> ones show on the CCBL page. You can also upload files directly to the <code className="bg-white/5 px-1 rounded">CCBL/</code> folder in Firebase Console.
+            </p>
 
           {storageLoading ? (
             <div className="glass-card rounded-2xl border border-white/10 py-12 text-center text-slate-500 text-sm">Loading Storage files…</div>
           ) : storageFiles.length === 0 ? (
             <div className="glass-card rounded-2xl border border-white/10 py-12 text-center text-slate-500 text-sm">
-              No files found in <code className="bg-white/5 px-1 rounded">ccbl/</code> — upload files here or via Firebase Console.
+              No files found in <code className="bg-white/5 px-1 rounded">CCBL/</code> — upload files here or via Firebase Console.
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -620,7 +629,23 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                     {file.type === 'video' ? (
                       <video src={file.url} className="w-full h-full object-cover" muted playsInline />
                     ) : (
-                      <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                      <img
+                        src={file.url}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={e => {
+                          const img = e.currentTarget;
+                          img.style.display = 'none';
+                          const fb = img.nextElementSibling as HTMLElement | null;
+                          if (fb) fb.style.display = 'flex';
+                        }}
+                      />
+                    )}
+                    {file.type !== 'video' && (
+                      <div className="w-full h-full items-center justify-center bg-white/5 text-slate-500 text-[10px] text-center px-2 hidden">
+                        {file.name}
+                      </div>
                     )}
                     {/* Overlay */}
                     <div className={`absolute inset-0 flex items-end justify-between p-1.5 transition-colors ${on ? 'bg-[#a855f7]/20' : 'bg-black/20'}`}>
@@ -641,6 +666,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               })}
             </div>
           )}
+          </>)}
         </div>
 
         {/* ── System Cards ── */}

@@ -577,11 +577,19 @@ function MediaGallerySection() {
     return onSnapshot(q, snap => setMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblMedia))));
   }, []);
 
+  const BROWSER_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'];
+  const supportedPhoto = (m: CcblMedia) => {
+    const ext = m.name.split('.').pop()?.toLowerCase() ?? '';
+    return BROWSER_IMAGE_EXTS.includes(ext);
+  };
+  const videos = media.filter(m => m.type === 'video');
+  const photos = media.filter(m => m.type === 'photo' && supportedPhoto(m));
+
   if (media.length === 0) return null;
 
   return (
-    <section style={{ background: CREAM_DARK }} className="px-4 py-16">
-      <div className="max-w-3xl mx-auto text-center">
+    <section style={{ background: CREAM_DARK }} className="w-full py-16 overflow-hidden">
+      <div className="max-w-3xl mx-auto text-center px-4">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -596,35 +604,100 @@ function MediaGallerySection() {
           </h2>
           <GoldRule width={160} />
         </motion.div>
+      </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-8">
-          {media.map((item, i) => (
+      {/* ── Videos ── */}
+      {videos.length > 0 && (
+        <div className="max-w-4xl mx-auto mt-10 grid grid-cols-1 sm:grid-cols-2 gap-4 px-4">
+          {videos.map((item, i) => (
             <motion.button
               key={item.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ delay: i * 0.05, duration: 0.4 }}
+              transition={{ delay: i * 0.08, duration: 0.4 }}
               onClick={() => setLightbox(item)}
-              className="relative aspect-square rounded-2xl overflow-hidden group"
-              style={{ border: `1px solid ${GOLD}30`, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
+              className="relative rounded-2xl overflow-hidden group"
+              style={{ aspectRatio: '16/9', border: `1px solid ${GOLD}30`, boxShadow: '0 2px 16px rgba(0,0,0,0.10)' }}
             >
-              {item.type === 'video' ? (
-                <>
-                  <video src={item.url} className="w-full h-full object-cover" muted playsInline />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
-                    <div style={{ background: `${GOLD}CC` }} className="w-10 h-10 rounded-full flex items-center justify-center">
-                      <Play size={18} color={BROWN} fill={BROWN} />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <img src={item.url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-              )}
+              <video
+                src={item.url}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
+                onLoadedMetadata={e => { (e.currentTarget as HTMLVideoElement).currentTime = 1; }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
+                <div style={{ background: `${GOLD}CC` }} className="w-12 h-12 rounded-full flex items-center justify-center">
+                  <Play size={22} color={BROWN} fill={BROWN} />
+                </div>
+              </div>
             </motion.button>
           ))}
         </div>
-      </div>
+      )}
+
+      {/* ── Photo marquee rows ── */}
+      {photos.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 40 }}>
+        <div style={{
+          width: '100%',
+          maxWidth: 1040,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+          WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 16%, black 84%, transparent 100%)',
+          maskImage: 'linear-gradient(to right, transparent 0%, black 16%, black 84%, transparent 100%)',
+        }}>
+          {[0, 1].map(row => {
+            const half = Math.ceil(photos.length / 2);
+            const slice = row === 0 ? photos.slice(0, half) : photos.slice(half);
+            const base: CcblMedia[] = slice.length === 0 ? photos : slice;
+            // Repeat until we have at least 12 items so the loop fills the screen
+            let repeated = [...base, ...base];
+            while (repeated.length < 12) repeated = [...repeated, ...base];
+            const dir = row === 0 ? 'ccbl-scroll-left' : 'ccbl-scroll-right';
+            const duration = `${Math.max(22, repeated.length * 2)}s`;
+            return (
+              <div key={row} style={{
+                display: 'flex',
+                gap: 12,
+                width: 'max-content',
+                animation: `${dir} ${duration} linear infinite`,
+                willChange: 'transform',
+              }}>
+                {repeated.map((item, i) => (
+                  <button
+                    key={`${item.id}-${i}`}
+                    onClick={() => setLightbox(item)}
+                    style={{
+                      width: 160, height: 120,
+                      flexShrink: 0,
+                      borderRadius: 12,
+                      overflow: 'hidden',
+                      border: `1px solid ${GOLD}30`,
+                      boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+                      position: 'relative',
+                    }}
+                  >
+                    <img
+                      src={item.url}
+                      alt={item.name}
+                      loading="lazy"
+                      decoding="async"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={e => { (e.currentTarget.closest('button') as HTMLElement).style.display = 'none'; }}
+                    />
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {lightbox && (
@@ -673,10 +746,10 @@ export default function CCBLLandingPage() {
 
 
       <HeroSection />
+      <MediaGallerySection />
       <VerificationSealSection />
       <JourneySection />
       <PillarsSection />
-      <MediaGallerySection />
       <AboutPCCSection />
       <FooterSection />
 

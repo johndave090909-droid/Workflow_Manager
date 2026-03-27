@@ -1,6 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;600;700&display=swap');
 @import "tailwindcss";
 
+/* CCBL gallery marquee */
+@keyframes ccbl-scroll-left {
+  0%   { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+@keyframes ccbl-scroll-right {
+  0%   { transform: translate3d(-50%, 0, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
 /* MessengerPanel: fullscreen on mobile, dropdown on desktop */
 @media (min-width: 768px) {
   .messenger-panel-size {
