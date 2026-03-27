@@ -94,9 +94,9 @@ function Avatar({ photo, name, size = 36 }: { photo?: string; name: string; size
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-interface Props { currentUser: AppUser; }
+interface Props { currentUser: AppUser; standalone?: boolean; }
 
-export default function MessengerPanel({ currentUser }: Props) {
+export default function MessengerPanel({ currentUser, standalone = false }: Props) {
   const [open,          setOpen]          = useState(false);
   const [view,          setView]          = useState<View>('list');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -350,31 +350,10 @@ export default function MessengerPanel({ currentUser }: Props) {
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
-  return (
-    <div className="relative" ref={panelRef}>
 
-      {/* Trigger button */}
-      <button
-        onClick={() => { setOpen(o => !o); if (!open) setView('list'); }}
-        className={`relative p-2 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl ${
-          open ? 'bg-[#38bdf8]/15 text-[#38bdf8]' : 'text-slate-400 hover:text-white hover:bg-white/5'
-        }`}
-        title="Messages"
-      >
-        <MessageCircle size={18} />
-        {totalUnread > 0 && (
-          <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#38bdf8] text-white text-[9px] font-black flex items-center justify-center shadow-lg shadow-[#38bdf8]/50 animate-pulse">
-            {totalUnread > 99 ? '99+' : totalUnread}
-          </span>
-        )}
-      </button>
-
-      {/* Panel — rendered in a portal so it escapes any parent stacking context */}
-      {open && createPortal(
-        <div
-          ref={portalRef}
-          className="fixed inset-0 md:inset-auto md:top-16 md:right-4 bg-[#12091e] border-0 md:border border-white/10 rounded-none md:rounded-2xl shadow-2xl shadow-black/80 z-[9998] overflow-hidden flex flex-col messenger-panel-size"
-        >
+  // ── Shared panel body (used by both standalone and overlay) ─────────────
+  const panelBody = (
+    <>
 
           {/* ── LIST ────────────────────────────────────────────────── */}
           {view === 'list' && (
@@ -675,6 +654,41 @@ export default function MessengerPanel({ currentUser }: Props) {
             </>
           )}
 
+    </>
+  );
+
+  // ── Standalone mode (full-page) ───────────────────────────────────────────
+  if (standalone) {
+    return (
+      <div className="flex flex-col h-full w-full bg-[#12091e] overflow-hidden">
+        {panelBody}
+      </div>
+    );
+  }
+
+  // ── Overlay mode (portal) ─────────────────────────────────────────────────
+  return (
+    <div className="relative" ref={panelRef}>
+      <button
+        onClick={() => { setOpen(o => !o); if (!open) setView('list'); }}
+        className={`relative p-2 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl ${
+          open ? 'bg-[#38bdf8]/15 text-[#38bdf8]' : 'text-slate-400 hover:text-white hover:bg-white/5'
+        }`}
+        title="Messages"
+      >
+        <MessageCircle size={18} />
+        {totalUnread > 0 && (
+          <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#38bdf8] text-white text-[9px] font-black flex items-center justify-center shadow-lg shadow-[#38bdf8]/50 animate-pulse">
+            {totalUnread > 99 ? '99+' : totalUnread}
+          </span>
+        )}
+      </button>
+      {open && createPortal(
+        <div
+          ref={portalRef}
+          className="fixed inset-0 md:inset-auto md:top-16 md:right-4 bg-[#12091e] border-0 md:border border-white/10 rounded-none md:rounded-2xl shadow-2xl shadow-black/80 z-[9998] overflow-hidden flex flex-col messenger-panel-size"
+        >
+          {panelBody}
         </div>,
         document.body
       )}

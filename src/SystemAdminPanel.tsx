@@ -445,6 +445,48 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
 
       <div className="p-4 sm:p-8 max-w-5xl mx-auto space-y-12 pb-nav md:pb-8">
 
+        {/* ── Important Links ── */}
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>Important Links</h2>
+            <p className="text-sm text-slate-400 mt-1">Quick access to standalone tools and public pages.</p>
+          </div>
+          <div className="glass-card rounded-2xl overflow-hidden border border-white/10 divide-y divide-white/5">
+            {[
+              { label: 'Live Guest Count', desc: 'Real-time dining hall guest counter', url: `${window.location.origin}/guest-count`, emoji: '👥' },
+              { label: 'PCC Chat', desc: 'Standalone messaging app for mobile & web', url: `${window.location.origin}/chat`, emoji: '💬' },
+            ].map(link => (
+              <div key={link.url} className="flex items-center justify-between px-5 py-4 gap-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">{link.emoji}</span>
+                  <div>
+                    <p className="text-sm font-bold text-white">{link.label}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{link.desc}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(link.url); }}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+                    title="Copy link"
+                  >
+                    Copy
+                  </button>
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:opacity-80"
+                    style={{ backgroundColor: '#a855f7' }}
+                  >
+                    Open ↗
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* ── System Cards ── */}
         <div className="space-y-6">
           <div className="flex items-center justify-between">
