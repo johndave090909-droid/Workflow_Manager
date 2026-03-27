@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
-import { Award, ChefHat, TrendingUp, Users, Star, Shield } from 'lucide-react';
+import { Award, ChefHat, TrendingUp, Users, Star, Shield, Play, X } from 'lucide-react';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 
 // --- Color palette matching the physical certificate ---
 const GOLD       = '#C9A84C';
@@ -562,6 +564,93 @@ function FooterSection() {
   );
 }
 
+// --- Section G: Media Gallery ---
+
+type CcblMedia = { id: string; url: string; type: 'photo' | 'video'; name: string };
+
+function MediaGallerySection() {
+  const [media,     setMedia]     = useState<CcblMedia[]>([]);
+  const [lightbox,  setLightbox]  = useState<CcblMedia | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'ccbl_media'), orderBy('uploadedAt', 'desc'));
+    return onSnapshot(q, snap => setMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblMedia))));
+  }, []);
+
+  if (media.length === 0) return null;
+
+  return (
+    <section style={{ background: CREAM_DARK }} className="px-4 py-16">
+      <div className="max-w-3xl mx-auto text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+        >
+          <p style={{ color: GOLD, letterSpacing: '0.3em' }} className="text-[10px] sm:text-xs uppercase font-black mb-2">
+            Moments
+          </p>
+          <h2 style={{ color: BROWN, fontFamily: 'Outfit, sans-serif' }} className="text-2xl sm:text-3xl font-black mb-1">
+            Gallery
+          </h2>
+          <GoldRule width={160} />
+        </motion.div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-8">
+          {media.map((item, i) => (
+            <motion.button
+              key={item.id}
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.05, duration: 0.4 }}
+              onClick={() => setLightbox(item)}
+              className="relative aspect-square rounded-2xl overflow-hidden group"
+              style={{ border: `1px solid ${GOLD}30`, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
+            >
+              {item.type === 'video' ? (
+                <>
+                  <video src={item.url} className="w-full h-full object-cover" muted playsInline />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
+                    <div style={{ background: `${GOLD}CC` }} className="w-10 h-10 rounded-full flex items-center justify-center">
+                      <Play size={18} color={BROWN} fill={BROWN} />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <img src={item.url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+              )}
+            </motion.button>
+          ))}
+        </div>
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+          >
+            <X size={20} />
+          </button>
+          <div onClick={e => e.stopPropagation()} className="max-w-3xl w-full max-h-[85vh]">
+            {lightbox.type === 'video' ? (
+              <video src={lightbox.url} controls autoPlay className="w-full max-h-[85vh] rounded-2xl" />
+            ) : (
+              <img src={lightbox.url} alt={lightbox.name} className="w-full max-h-[85vh] object-contain rounded-2xl" />
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // --- Root Component ---
 
 export default function CCBLLandingPage() {
@@ -587,6 +676,7 @@ export default function CCBLLandingPage() {
       <VerificationSealSection />
       <JourneySection />
       <PillarsSection />
+      <MediaGallerySection />
       <AboutPCCSection />
       <FooterSection />
 

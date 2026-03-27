@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
-import { Calendar, LogOut, Plus, Edit2, Trash2, Check, X } from 'lucide-react';
+import { Calendar, LogOut, Plus, Edit2, Trash2, Check, X, Upload, Image, Film } from 'lucide-react';
 import { User, SystemCard, Role, RolePermissions } from './types';
-import { db, auth, firebaseConfig } from './firebase';
+import { db, auth, storage, firebaseConfig } from './firebase';
 import {
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc,
-  addDoc, query, orderBy,
+  addDoc, query, orderBy, onSnapshot, serverTimestamp,
 } from 'firebase/firestore';
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut as fbSignOut } from 'firebase/auth';
 
@@ -58,6 +59,49 @@ const TONE_ORDER = ['blue', 'red', 'green', 'purple'];
 export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChanged, onUsersChanged, onRolesChanged, onLogout, permissions, roleColor }: SystemAdminPanelProps) {
   // Guard
   if (!permissions.access_it_admin) { onBackToHub(); return null; }
+
+  // ── CCBL Media state ───────────────────────────────────────────
+  type CcblMedia = { id: string; url: string; type: 'photo' | 'video'; name: string; storagePath: string };
+  const [ccblMedia,        setCcblMedia]        = useState<CcblMedia[]>([]);
+  const [ccblUploading,    setCcblUploading]    = useState(false);
+  const [ccblUploadPct,    setCcblUploadPct]    = useState(0);
+  const ccblInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'ccbl_media'), orderBy('uploadedAt', 'desc'));
+    return onSnapshot(q, snap => setCcblMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblMedia))));
+  }, []);
+
+  const handleCcblUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isVideo = file.type.startsWith('video/');
+    const isPhoto = file.type.startsWith('image/');
+    if (!isVideo && !isPhoto) { alert('Only images and videos are supported.'); return; }
+    setCcblUploading(true); setCcblUploadPct(0);
+    const storagePath = `ccbl/${Date.now()}_${file.name}`;
+    const task = uploadBytesResumable(ref(storage, storagePath), file);
+    task.on('state_changed',
+      snap => setCcblUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
+      () => { alert('Upload failed.'); setCcblUploading(false); },
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        await addDoc(collection(db, 'ccbl_media'), {
+          url, storagePath, name: file.name,
+          type: isVideo ? 'video' : 'photo',
+          uploadedAt: serverTimestamp(),
+        });
+        setCcblUploading(false); setCcblUploadPct(0);
+        if (ccblInputRef.current) ccblInputRef.current.value = '';
+      }
+    );
+  };
+
+  const handleCcblDelete = async (item: CcblMedia) => {
+    if (!window.confirm(`Delete "${item.name}"?`)) return;
+    try { await deleteObject(ref(storage, item.storagePath)); } catch {}
+    await deleteDoc(doc(db, 'ccbl_media', item.id));
+  };
 
   // ── System cards state ─────────────────────────────────────────
   const [cards,        setCards]        = useState<SystemCard[]>([]);
@@ -485,6 +529,62 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               </div>
             ))}
           </div>
+        </div>
+
+        {/* ── CCBL Gallery ── */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>CCBL Gallery</h2>
+              <p className="text-sm text-slate-400 mt-1">Photos and videos shown on the CCBL certificate page.</p>
+            </div>
+            <div>
+              <input ref={ccblInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleCcblUpload} />
+              <button
+                onClick={() => ccblInputRef.current?.click()}
+                disabled={ccblUploading}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}
+              >
+                <Upload size={15} />
+                {ccblUploading ? `Uploading ${ccblUploadPct}%` : 'Upload'}
+              </button>
+            </div>
+          </div>
+
+          {ccblMedia.length === 0 && !ccblUploading ? (
+            <div className="glass-card rounded-2xl border border-white/10 py-12 text-center text-slate-500 text-sm">
+              No media yet — upload a photo or video to get started.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {ccblMedia.map(item => (
+                <div key={item.id} className="relative group rounded-xl overflow-hidden border border-white/10 bg-white/5 aspect-square">
+                  {item.type === 'video' ? (
+                    <video src={item.url} className="w-full h-full object-cover" muted />
+                  ) : (
+                    <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
+                  )}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                    <div className="text-white">
+                      {item.type === 'video' ? <Film size={20} /> : <Image size={20} />}
+                    </div>
+                    <button
+                      onClick={() => handleCcblDelete(item)}
+                      className="px-3 py-1 rounded-lg bg-red-500/80 text-white text-xs font-bold hover:bg-red-500 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  <div className="absolute top-1.5 left-1.5">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/60 text-white uppercase tracking-wider">
+                      {item.type === 'video' ? 'VID' : 'IMG'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ── System Cards ── */}
