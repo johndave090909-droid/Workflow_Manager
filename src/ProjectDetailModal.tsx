@@ -45,7 +45,7 @@ function formatBytes(bytes: number): string {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DEPT_COLORS: Record<Department, string> = {
-  Personal: '#ff00ff', Business: '#00ffff', Finance: '#ffd700', Health: '#ff4d4d', Accounting: '#34d399',
+  Operations: '#00ffff', Management: '#ff00ff', Initiatives: '#ffd700', Systems: '#a855f7', Accounting: '#34d399',
 };
 
 const STATUS_STYLES: Record<ProjectStatus, string> = {
@@ -729,7 +729,7 @@ export default function ProjectDetailModal({ project, users, assignableUsers, cu
                     <label className={labelCls}>Department</label>
                     {isEditing ? (
                       <select className={selectCls} value={form.department} onChange={e => setForm(f => ({ ...f, department: e.target.value as Department }))}>
-                        {(['Business', 'Finance', 'Personal', 'Health', 'Accounting'] as Department[]).map(d => <option key={d} value={d}>{d}</option>)}
+                        {(['Operations', 'Management', 'Initiatives', 'Systems', 'Accounting'] as Department[]).map(d => <option key={d} value={d}>{d}</option>)}
                       </select>
                     ) : (
                       <span className="text-sm text-white font-medium flex items-center gap-2">

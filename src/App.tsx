@@ -135,10 +135,11 @@ const STATUS_COLORS: Record<ProjectStatus, string> = {
 };
 
 const DEPT_COLORS: Record<Department, string> = {
-  Personal: '#ff00ff',
-  Business: '#00ffff',
-  Finance:  '#ffd700',
-  Health:   '#ff4d4d',
+  Operations:  '#00ffff',
+  Management:  '#ff00ff',
+  Initiatives: '#ffd700',
+  Systems:     '#a855f7',
+  Accounting:  '#ff4d4d',
 };
 
 export default function App() {
@@ -422,7 +423,7 @@ export default function App() {
   }, [visibleProjects]);
 
   const deptData = useMemo(() => {
-    const depts: Department[] = ['Personal', 'Business', 'Finance', 'Health', 'Accounting'];
+    const depts: Department[] = ['Operations', 'Management', 'Initiatives', 'Systems', 'Accounting'];
     return depts.map(dept => ({ name: dept, count: visibleProjects.filter(p => p.department === dept).length }));
   }, [visibleProjects]);
 
