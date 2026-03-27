@@ -61,46 +61,79 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   if (!permissions.access_it_admin) { onBackToHub(); return null; }
 
   // ── CCBL Media state ───────────────────────────────────────────
-  type CcblMedia = { id: string; url: string; type: 'photo' | 'video'; name: string; storagePath: string };
-  const [ccblMedia,        setCcblMedia]        = useState<CcblMedia[]>([]);
-  const [ccblUploading,    setCcblUploading]    = useState(false);
-  const [ccblUploadPct,    setCcblUploadPct]    = useState(0);
+  type StorageFile = { storagePath: string; name: string; url: string; type: 'photo' | 'video' };
+  type CcblPublished = { id: string; storagePath: string; url: string; type: 'photo' | 'video'; name: string };
+  const [storageFiles,   setStorageFiles]   = useState<StorageFile[]>([]);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [published,      setPublished]      = useState<CcblPublished[]>([]);
+  const [toggling,       setToggling]       = useState<string | null>(null);
+  const [ccblUploading,  setCcblUploading]  = useState(false);
+  const [ccblUploadPct,  setCcblUploadPct]  = useState(0);
   const ccblInputRef = useRef<HTMLInputElement>(null);
 
+  // Listen to published items
   useEffect(() => {
     const q = query(collection(db, 'ccbl_media'), orderBy('uploadedAt', 'desc'));
-    return onSnapshot(q, snap => setCcblMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblMedia))));
+    return onSnapshot(q, snap => setPublished(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblPublished))));
   }, []);
 
-  const handleCcblUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const isVideo = file.type.startsWith('video/');
-    const isPhoto = file.type.startsWith('image/');
-    if (!isVideo && !isPhoto) { alert('Only images and videos are supported.'); return; }
-    setCcblUploading(true); setCcblUploadPct(0);
-    const storagePath = `ccbl/${Date.now()}_${file.name}`;
-    const task = uploadBytesResumable(ref(storage, storagePath), file);
-    task.on('state_changed',
-      snap => setCcblUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
-      () => { alert('Upload failed.'); setCcblUploading(false); },
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
-        await addDoc(collection(db, 'ccbl_media'), {
-          url, storagePath, name: file.name,
-          type: isVideo ? 'video' : 'photo',
-          uploadedAt: serverTimestamp(),
-        });
-        setCcblUploading(false); setCcblUploadPct(0);
-        if (ccblInputRef.current) ccblInputRef.current.value = '';
-      }
-    );
+  // List all files in storage ccbl/ folder
+  const loadStorageFiles = async () => {
+    setStorageLoading(true);
+    try {
+      const { listAll } = await import('firebase/storage');
+      const listRef = ref(storage, 'ccbl');
+      const res = await listAll(listRef);
+      const files = await Promise.all(res.items.map(async item => {
+        const url = await getDownloadURL(item);
+        const name = item.name;
+        const ext = name.split('.').pop()?.toLowerCase() ?? '';
+        const type: 'photo' | 'video' = ['mp4', 'mov', 'webm', 'avi', 'm4v'].includes(ext) ? 'video' : 'photo';
+        return { storagePath: item.fullPath, name, url, type };
+      }));
+      setStorageFiles(files);
+    } catch { alert('Could not load Storage files. Make sure the ccbl/ folder exists.'); }
+    setStorageLoading(false);
   };
 
-  const handleCcblDelete = async (item: CcblMedia) => {
-    if (!window.confirm(`Delete "${item.name}"?`)) return;
-    try { await deleteObject(ref(storage, item.storagePath)); } catch {}
-    await deleteDoc(doc(db, 'ccbl_media', item.id));
+  useEffect(() => { loadStorageFiles(); }, []);
+
+  const isPublished = (storagePath: string) => published.some(p => p.storagePath === storagePath);
+
+  const togglePublish = async (file: StorageFile) => {
+    setToggling(file.storagePath);
+    const existing = published.find(p => p.storagePath === file.storagePath);
+    if (existing) {
+      await deleteDoc(doc(db, 'ccbl_media', existing.id));
+    } else {
+      await addDoc(collection(db, 'ccbl_media'), {
+        storagePath: file.storagePath, url: file.url,
+        name: file.name, type: file.type,
+        uploadedAt: serverTimestamp(),
+      });
+    }
+    setToggling(null);
+  };
+
+  const handleCcblUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    setCcblUploading(true);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const isVideo = file.type.startsWith('video/');
+      const isPhoto = file.type.startsWith('image/');
+      if (!isVideo && !isPhoto) continue;
+      setCcblUploadPct(Math.round((i / files.length) * 100));
+      const storagePath = `ccbl/${Date.now()}_${file.name}`;
+      await new Promise<void>((resolve, reject) => {
+        const task = uploadBytesResumable(ref(storage, storagePath), file);
+        task.on('state_changed', () => {}, reject, resolve);
+      });
+    }
+    setCcblUploading(false); setCcblUploadPct(0);
+    if (ccblInputRef.current) ccblInputRef.current.value = '';
+    await loadStorageFiles();
   };
 
   // ── System cards state ─────────────────────────────────────────
@@ -536,10 +569,10 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>CCBL Gallery</h2>
-              <p className="text-sm text-slate-400 mt-1">Photos and videos shown on the CCBL certificate page.</p>
+              <p className="text-sm text-slate-400 mt-1">Browse your Firebase Storage files and toggle which appear on the CCBL page.</p>
             </div>
-            <div>
-              <input ref={ccblInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleCcblUpload} />
+            <div className="flex items-center gap-2">
+              <input ref={ccblInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleCcblUpload} />
               <button
                 onClick={() => ccblInputRef.current?.click()}
                 disabled={ccblUploading}
@@ -547,42 +580,65 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                 style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}
               >
                 <Upload size={15} />
-                {ccblUploading ? `Uploading ${ccblUploadPct}%` : 'Upload'}
+                {ccblUploading ? `Uploading ${ccblUploadPct}%…` : 'Upload'}
+              </button>
+              <button
+                onClick={loadStorageFiles}
+                disabled={storageLoading}
+                className="px-3 py-2.5 rounded-xl text-sm font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all disabled:opacity-50"
+              >
+                {storageLoading ? '…' : '↻ Refresh'}
               </button>
             </div>
           </div>
 
-          {ccblMedia.length === 0 && !ccblUploading ? (
+          <p className="text-xs text-slate-500">
+            Toggle items on/off — only <span className="text-[#a855f7] font-semibold">highlighted</span> ones show on the CCBL page. You can also upload files directly to the <code className="bg-white/5 px-1 rounded">ccbl/</code> folder in Firebase Console.
+          </p>
+
+          {storageLoading ? (
+            <div className="glass-card rounded-2xl border border-white/10 py-12 text-center text-slate-500 text-sm">Loading Storage files…</div>
+          ) : storageFiles.length === 0 ? (
             <div className="glass-card rounded-2xl border border-white/10 py-12 text-center text-slate-500 text-sm">
-              No media yet — upload a photo or video to get started.
+              No files found in <code className="bg-white/5 px-1 rounded">ccbl/</code> — upload files here or via Firebase Console.
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {ccblMedia.map(item => (
-                <div key={item.id} className="relative group rounded-xl overflow-hidden border border-white/10 bg-white/5 aspect-square">
-                  {item.type === 'video' ? (
-                    <video src={item.url} className="w-full h-full object-cover" muted />
-                  ) : (
-                    <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
-                  )}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                    <div className="text-white">
-                      {item.type === 'video' ? <Film size={20} /> : <Image size={20} />}
+              {storageFiles.map(file => {
+                const on = isPublished(file.storagePath);
+                return (
+                  <button
+                    key={file.storagePath}
+                    onClick={() => togglePublish(file)}
+                    disabled={toggling === file.storagePath}
+                    className="relative rounded-xl overflow-hidden aspect-square transition-all disabled:opacity-60"
+                    style={{
+                      border: on ? '2px solid #a855f7' : '2px solid rgba(255,255,255,0.1)',
+                      boxShadow: on ? '0 0 16px rgba(168,85,247,0.4)' : 'none',
+                    }}
+                  >
+                    {file.type === 'video' ? (
+                      <video src={file.url} className="w-full h-full object-cover" muted playsInline />
+                    ) : (
+                      <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                    )}
+                    {/* Overlay */}
+                    <div className={`absolute inset-0 flex items-end justify-between p-1.5 transition-colors ${on ? 'bg-[#a855f7]/20' : 'bg-black/20'}`}>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/60 text-white uppercase tracking-wider">
+                        {file.type === 'video' ? 'VID' : 'IMG'}
+                      </span>
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center ${on ? 'bg-[#a855f7]' : 'bg-black/50 border border-white/30'}`}>
+                        {on && <Check size={11} color="white" strokeWidth={3} />}
+                      </span>
                     </div>
-                    <button
-                      onClick={() => handleCcblDelete(item)}
-                      className="px-3 py-1 rounded-lg bg-red-500/80 text-white text-xs font-bold hover:bg-red-500 transition-colors"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                  <div className="absolute top-1.5 left-1.5">
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/60 text-white uppercase tracking-wider">
-                      {item.type === 'video' ? 'VID' : 'IMG'}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                    {toggling === file.storagePath && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
