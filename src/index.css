@@ -1,6 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;600;700&display=swap');
 @import "tailwindcss";
 
+/* MessengerPanel: fullscreen on mobile, dropdown on desktop */
+@media (min-width: 768px) {
+  .messenger-panel-size {
+    width: min(380px, calc(100vw - 24px));
+    height: min(520px, calc(100vh - 80px));
+  }
+}
+
 /* ── Mobile-first: safe area insets (notch / home indicator) ── */
 :root {
   --sat: env(safe-area-inset-top,    0px);

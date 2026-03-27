@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { format } from 'date-fns';
 import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
-import { db, storage } from './firebase';
+import { db, storage, guardianDb } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { notifyDirectors } from './notifications';
 import NotificationBell from './NotificationBell';
@@ -5472,9 +5472,9 @@ function LiveGuestCount() {
   if (!counts) return null;
 
   const rows = [
-    { label: 'A', value: counts.aloha,   color: '#f59e0b', highThreshold: 345 },
-    { label: 'O', value: counts.ohana,   color: '#10b981', highThreshold: 200 },
-    { label: 'G', value: counts.gateway, color: '#6366f1', highThreshold: 800 },
+    { label: 'A', value: counts.aloha,   color: '#f59e0b', highThreshold: 300 },
+    { label: 'O', value: counts.ohana,   color: '#10b981', highThreshold: 180 },
+    { label: 'G', value: counts.gateway, color: '#6366f1', highThreshold: 650 },
   ];
 
   return (
@@ -5499,6 +5499,46 @@ function LiveGuestCount() {
   );
 }
 
+function GuardianCheckStats() {
+  const [stats, setStats] = React.useState<{ hr: number; at: number; rt: number } | null>(null);
+
+  React.useEffect(() => {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const unsubscribe = onSnapshot(collection(guardianDb, 'kitchen_issues'), snap => {
+      let hr = 0, at = 0, rt = 0;
+      snap.docs.forEach(d => {
+        const data = d.data();
+        if ((data.riskLevel ?? 0) >= 3) hr++;
+        if (data.dateAdded === today) at++;
+        if (data.status === 'Resolved' && data.dateAdded === today) rt++;
+      });
+      setStats({ hr, at, rt });
+    });
+    return unsubscribe;
+  }, []);
+
+  const rows = [
+    { label: 'HR', value: stats?.hr, color: '#ef4444' },
+    { label: 'AT', value: stats?.at, color: '#f59e0b' },
+    { label: 'RT', value: stats?.rt, color: '#10b981' },
+  ];
+
+  return (
+    <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 bg-black/40 backdrop-blur-sm rounded-xl px-2 py-1.5 sm:px-3 sm:py-2 border border-white/10 flex flex-col gap-0.5">
+      {rows.map(r => (
+        <div key={r.label} className="flex items-center gap-1.5">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest" style={{ color: r.color }}>{r.label}:</span>
+          {stats === null
+            ? <span className="w-4 h-1.5 rounded bg-white/20 animate-pulse" />
+            : <span className="text-[10px] sm:text-xs font-black text-white tabular-nums">{r.value}</span>
+          }
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (view: AppView) => void }) {
   const handleClick = () => {
     if (card.link_type === 'internal') {
@@ -5509,6 +5549,7 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
   };
 
   const isTicketing = card.title.toLowerCase() === 'ticketing';
+  const isGuardian  = card.title.toLowerCase() === 'safetycheck' || card.title.toLowerCase() === 'guardiancheck';
 
   return (
     <button
@@ -5520,6 +5561,7 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
         style={{ backgroundColor: card.color_accent }}
       />
       {isTicketing && <LiveGuestCount />}
+      {isGuardian  && <GuardianCheckStats />}
       <div
         className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}

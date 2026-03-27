@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ClipboardList, AlertCircle, CheckCircle2, Clock, Calendar,
   ArrowUpRight, Target, Zap, Search, Plus, LogOut, GripVertical, X, EyeOff,
-  Home, Settings2 as SettingsIcon, Menu
+  Home, Settings2 as SettingsIcon, Menu, MessageCircle
 } from 'lucide-react';
 import { Draggable } from '@fullcalendar/interaction';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1019,10 +1019,9 @@ function BottomNav({ current, onNavigate, perms, roleColor, systemCards }: {
   perms: RolePermissions; roleColor: string; systemCards: SystemCard[];
 }) {
   const trackerLabel = systemCards.find((c: SystemCard) => c.link === 'tracker' && c.link_type === 'internal')?.title ?? 'Tracker';
-  const items = [
+  const navItems = [
     { view: 'hub'      as AppView, icon: <Home size={20} />,          label: 'Hub',        always: true },
     { view: 'tracker'  as AppView, icon: <ClipboardList size={20} />, label: trackerLabel, always: false, show: perms.access_tracker },
-    { view: 'workflow' as AppView, icon: <Zap size={20} />,           label: 'Workflow',   always: false, show: true },
     { view: 'it-admin' as AppView, icon: <SettingsIcon size={20} />,  label: 'Admin',      always: false, show: perms.access_it_admin },
   ].filter(i => i.always || i.show);
 
@@ -1030,7 +1029,7 @@ function BottomNav({ current, onNavigate, perms, roleColor, systemCards }: {
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bottom-nav-safe"
       style={{ background: 'rgba(9,5,26,.97)', borderTop: '1px solid rgba(255,255,255,.08)', backdropFilter: 'blur(12px)' }}>
       <div className="flex items-stretch">
-        {items.map(item => {
+        {navItems.map(item => {
           const active = current === item.view;
           return (
             <button
@@ -1048,6 +1047,14 @@ function BottomNav({ current, onNavigate, perms, roleColor, systemCards }: {
             </button>
           );
         })}
+        {/* Chat button — opens MessengerPanel overlay */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('open-messenger'))}
+          className="flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-all min-h-[56px]"
+          style={{ color: 'rgba(148,163,184,.6)' }}>
+          <MessageCircle size={20} />
+          <span className="text-[10px] font-black uppercase tracking-wider">Chat</span>
+        </button>
       </div>
     </nav>
   );

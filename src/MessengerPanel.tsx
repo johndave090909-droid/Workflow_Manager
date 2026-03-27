@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MessageCircle, ArrowLeft, Plus, Users, Send, Search, X, Check } from 'lucide-react';
 import {
   collection, query, where, limit,
@@ -109,8 +110,16 @@ export default function MessengerPanel({ currentUser }: Props) {
   const [groupName,     setGroupName]     = useState('');
 
   const panelRef      = useRef<HTMLDivElement>(null);
+  const portalRef     = useRef<HTMLDivElement>(null);
   const messagesEnd   = useRef<HTMLDivElement>(null);
   const inputRef      = useRef<HTMLInputElement>(null);
+
+  // Allow bottom nav Chat button to open the panel
+  useEffect(() => {
+    const handler = () => { setOpen(true); setView('list'); };
+    window.addEventListener('open-messenger', handler);
+    return () => window.removeEventListener('open-messenger', handler);
+  }, []);
 
   // ── Conversations listener ────────────────────────────────────────────────
   useEffect(() => {
@@ -200,7 +209,9 @@ export default function MessengerPanel({ currentUser }: Props) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+      const inTrigger = panelRef.current?.contains(e.target as Node);
+      const inPortal  = portalRef.current?.contains(e.target as Node);
+      if (!inTrigger && !inPortal) setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -358,11 +369,11 @@ export default function MessengerPanel({ currentUser }: Props) {
         )}
       </button>
 
-      {/* Panel */}
-      {open && (
+      {/* Panel — rendered in a portal so it escapes any parent stacking context */}
+      {open && createPortal(
         <div
-          className="absolute right-0 top-full mt-3 bg-[#12091e] border border-white/10 rounded-2xl shadow-2xl shadow-black/80 z-[60] overflow-hidden flex flex-col"
-          style={{ width: 'min(380px, calc(100vw - 24px))', height: 'min(520px, calc(100vh - 80px))' }}
+          ref={portalRef}
+          className="fixed inset-0 md:inset-auto md:top-16 md:right-4 bg-[#12091e] border-0 md:border border-white/10 rounded-none md:rounded-2xl shadow-2xl shadow-black/80 z-[9998] overflow-hidden flex flex-col messenger-panel-size"
         >
 
           {/* ── LIST ────────────────────────────────────────────────── */}
@@ -372,6 +383,13 @@ export default function MessengerPanel({ currentUser }: Props) {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-black text-white tracking-tight">Messages</h2>
                   <div className="flex gap-1">
+                    <button
+                      onClick={() => setOpen(false)}
+                      className="md:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                      title="Close"
+                    >
+                      <X size={18} />
+                    </button>
                     <button
                       onClick={() => { setView('new-group'); setSearchQuery(''); setSelectedUsers([]); }}
                       className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
@@ -473,10 +491,20 @@ export default function MessengerPanel({ currentUser }: Props) {
                   </div>
                 )}
                 {messages.map((msg, i) => {
-                  const isMe     = msg.senderId === currentUser.id;
-                  const prev     = messages[i - 1];
-                  const showName = !isMe && activeConv.type === 'group' && (!prev || prev.senderId !== msg.senderId);
-                  const showAvatar = !isMe && (!messages[i + 1] || messages[i + 1].senderId !== msg.senderId);
+                  const isMe       = msg.senderId === currentUser.id;
+                  const prev       = messages[i - 1];
+                  const next       = messages[i + 1];
+                  const showName   = !isMe && activeConv.type === 'group' && (!prev || prev.senderId !== msg.senderId);
+                  const showAvatar = !isMe && (!next || next.senderId !== msg.senderId);
+                  const isLastInGroup = !next || next.senderId !== msg.senderId;
+                  const timeLabel = (() => {
+                    if (!msg.timestamp) return null;
+                    const d = new Date(msg.timestamp);
+                    const isToday = d.toDateString() === new Date().toDateString();
+                    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    if (isToday) return time;
+                    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ', ' + time;
+                  })();
                   return (
                     <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} items-end gap-1.5`}>
                       {!isMe && (
@@ -495,6 +523,9 @@ export default function MessengerPanel({ currentUser }: Props) {
                         }`}>
                           {msg.content}
                         </div>
+                        {isLastInGroup && timeLabel && (
+                          <p className="text-[10px] text-slate-600 mt-0.5 px-1">{timeLabel}</p>
+                        )}
                       </div>
                     </div>
                   );
@@ -644,7 +675,8 @@ export default function MessengerPanel({ currentUser }: Props) {
             </>
           )}
 
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
