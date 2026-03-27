@@ -19,7 +19,7 @@ export const storage = getStorage(app);
 
 // ── GuardianCheck (progress-log-e3900) ────────────────────────────────────────
 const guardianApp = initializeApp({
-  apiKey: "AIzaSyCxFAxzqQQEdGSHf6GmyJn5HJ9RdgguYqc",
+  apiKey: import.meta.env.VITE_GUARDIAN_API_KEY,
   authDomain: "progress-log-e3900.firebaseapp.com",
   projectId: "progress-log-e3900",
   storageBucket: "progress-log-e3900.firebasestorage.app",
