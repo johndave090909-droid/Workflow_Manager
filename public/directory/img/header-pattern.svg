@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="72">
+  <rect width="120" height="72" fill="#f6f1e8"/>
+
+  <!-- Row 1: solid downward triangles -->
+  <polygon points="0,0 15,16 30,0"   fill="#d9cdb0"/>
+  <polygon points="30,0 45,16 60,0"  fill="#d9cdb0"/>
+  <polygon points="60,0 75,16 90,0"  fill="#d9cdb0"/>
+  <polygon points="90,0 105,16 120,0" fill="#d9cdb0"/>
+
+  <!-- Row 1b: outline upward triangles in the gaps -->
+  <polygon points="15,16 30,0 45,16"  fill="none" stroke="#d9cdb0" stroke-width="1.2"/>
+  <polygon points="45,16 60,0 75,16"  fill="none" stroke="#d9cdb0" stroke-width="1.2"/>
+  <polygon points="75,16 90,0 105,16" fill="none" stroke="#d9cdb0" stroke-width="1.2"/>
+
+  <!-- Divider line -->
+  <line x1="0" y1="18" x2="120" y2="18" stroke="#d9cdb0" stroke-width="1"/>
+
+  <!-- Row 2: arch / scallop shapes (large) -->
+  <path d="M0,26 Q30,52 60,26"   stroke="#d9cdb0" stroke-width="1.8" fill="none"/>
+  <path d="M60,26 Q90,52 120,26" stroke="#d9cdb0" stroke-width="1.8" fill="none"/>
+
+  <!-- Row 3: smaller arches offset -->
+  <path d="M-30,38 Q0,58 30,38"  stroke="#d9cdb0" stroke-width="1.2" fill="none" opacity="0.7"/>
+  <path d="M30,38 Q60,58 90,38"  stroke="#d9cdb0" stroke-width="1.2" fill="none" opacity="0.7"/>
+  <path d="M90,38 Q120,58 150,38" stroke="#d9cdb0" stroke-width="1.2" fill="none" opacity="0.7"/>
+</svg>
