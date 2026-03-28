@@ -83,6 +83,15 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [apprenticeUploading, setApprenticeUploading] = useState(false);
   const apprenticeInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Directory Gallery state ────────────────────────────────────
+  type DirGalleryItem = { id: string; storagePath: string; url: string; type: 'photo' | 'video'; name: string; row: 1 | 2 };
+  const [dirGallery,    setDirGallery]    = useState<DirGalleryItem[]>([]);
+  const [dirGalleryOpen, setDirGalleryOpen] = useState(false);
+  const [dirUploading,  setDirUploading]  = useState(false);
+  const [dirUploadPct,  setDirUploadPct]  = useState(0);
+  const [dirUploadRow,  setDirUploadRow]  = useState<1 | 2>(1);
+  const dirInputRef = useRef<HTMLInputElement>(null);
+
   // Listen to published items
   useEffect(() => {
     const q = query(collection(db, 'ccbl_media'), orderBy('uploadedAt', 'desc'));
@@ -121,6 +130,11 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
 
   useEffect(() => { if (ccblOpen && storageFiles.length === 0) loadStorageFiles(); }, [ccblOpen]);
 
+  useEffect(() => {
+    const q = query(collection(db, 'directory_gallery'), orderBy('uploadedAt', 'asc'));
+    return onSnapshot(q, snap => setDirGallery(snap.docs.map(d => ({ id: d.id, ...d.data() } as DirGalleryItem))));
+  }, []);
+
   const isPublished = (storagePath: string) => published.some(p => p.storagePath === storagePath);
 
   const togglePublish = async (file: StorageFile) => {
@@ -157,6 +171,55 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
       img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('img failed to load')); };
       img.src = blobUrl;
     });
+
+  const handleDirUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []).filter(f =>
+      f.type.startsWith('video/') || f.type.startsWith('image/')
+    );
+    if (!files.length) return;
+    setDirUploading(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const isPhoto = file.type.startsWith('image/');
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        let blob: Blob = file;
+        let ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+        if (isPhoto) {
+          try { blob = await compressImage(file, 1200, 0.85); ext = 'jpg'; } catch {}
+        }
+        const storagePath = `DirectoryGallery/${Date.now()}_${baseName}.${ext}`;
+        const storageRef = ref(storage, storagePath);
+        await new Promise<void>((resolve, reject) => {
+          const task = uploadBytesResumable(storageRef, blob, { contentType: isPhoto ? 'image/jpeg' : file.type });
+          task.on('state_changed',
+            snap => setDirUploadPct(Math.round(((i + snap.bytesTransferred / snap.totalBytes) / files.length) * 100)),
+            reject, resolve,
+          );
+        });
+        const url = await getDownloadURL(storageRef);
+        await addDoc(collection(db, 'directory_gallery'), {
+          storagePath, url,
+          type: isPhoto ? 'photo' : 'video',
+          name: file.name,
+          row: dirUploadRow,
+          uploadedAt: serverTimestamp(),
+        });
+      }
+    } catch (err: any) {
+      alert(`Upload failed: ${err?.message ?? 'Unknown error'}`);
+    } finally {
+      setDirUploading(false);
+      setDirUploadPct(0);
+      if (dirInputRef.current) dirInputRef.current.value = '';
+    }
+  };
+
+  const handleDirDelete = async (item: DirGalleryItem) => {
+    if (!window.confirm(`Delete "${item.name}"?`)) return;
+    try { await deleteObject(ref(storage, item.storagePath)); } catch {}
+    await deleteDoc(doc(db, 'directory_gallery', item.id));
+  };
 
   const handleCcblUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).filter(f =>
@@ -721,6 +784,90 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
               </div>
             ))}
           </div>
+        </div>
+
+        {/* ── Directory Gallery ── */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: '#f59e0b' }}>Directory Gallery</h2>
+              <p className="text-sm text-slate-400 mt-1">Upload photos and videos for the Taste Polynesia directory page slider. Assign each file to Row 1 (slides right) or Row 2 (slides left).</p>
+            </div>
+            <button
+              onClick={() => setDirGalleryOpen(o => !o)}
+              className="px-4 py-2.5 rounded-xl text-sm font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+            >
+              {dirGalleryOpen ? '▲ Hide' : '▼ Show'}
+            </button>
+          </div>
+
+          {dirGalleryOpen && (<>
+            {/* Upload controls */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex rounded-xl overflow-hidden border border-white/10">
+                <button
+                  onClick={() => setDirUploadRow(1)}
+                  className={`px-4 py-2 text-sm font-bold transition-all ${dirUploadRow === 1 ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                  style={dirUploadRow === 1 ? { backgroundColor: '#f59e0b' } : {}}
+                >Row 1 →</button>
+                <button
+                  onClick={() => setDirUploadRow(2)}
+                  className={`px-4 py-2 text-sm font-bold transition-all ${dirUploadRow === 2 ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                  style={dirUploadRow === 2 ? { backgroundColor: '#f59e0b' } : {}}
+                >← Row 2</button>
+              </div>
+              <input ref={dirInputRef} type="file" accept="image/*,video/*" multiple className="hidden" onChange={handleDirUpload} />
+              <button
+                onClick={() => dirInputRef.current?.click()}
+                disabled={dirUploading}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                style={{ backgroundColor: '#f59e0b', boxShadow: '0 0 20px rgba(245,158,11,0.3)' }}
+              >
+                <Upload size={15} />
+                {dirUploading ? `Uploading ${dirUploadPct}%…` : `Upload to Row ${dirUploadRow}`}
+              </button>
+            </div>
+
+            {/* Grid of items by row */}
+            {([1, 2] as const).map(rowNum => {
+              const rowItems = dirGallery.filter(i => i.row === rowNum);
+              return (
+                <div key={rowNum}>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">
+                    Row {rowNum} — {rowNum === 1 ? 'slides right →' : '← slides left'} ({rowItems.length} item{rowItems.length !== 1 ? 's' : ''})
+                  </p>
+                  {rowItems.length === 0 ? (
+                    <div className="rounded-xl border border-white/5 py-6 text-center text-slate-600 text-xs">
+                      No items in Row {rowNum} yet
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {rowItems.map(item => (
+                        <div key={item.id} className="relative rounded-xl overflow-hidden aspect-video border border-white/10 group">
+                          {item.type === 'video' ? (
+                            <video src={item.url} className="w-full h-full object-cover" muted playsInline />
+                          ) : (
+                            <img src={item.url} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
+                          )}
+                          <div className="absolute inset-0 bg-black/30 flex items-end p-1.5">
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-black/60 text-white uppercase tracking-wider">
+                              {item.type === 'video' ? 'VID' : 'IMG'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleDirDelete(item)}
+                            className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-red-500/80 hover:bg-red-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 size={11} color="white" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </>)}
         </div>
 
         {/* ── CCBL Gallery ── */}
