@@ -12,6 +12,16 @@ service firebase.storage {
       allow read, write: if true;
     }
 
+    // CCBL thumbnails are public (small resized versions, safe to expose)
+    match /CCBL/thumbs/{file} {
+      allow read: if true;
+    }
+
+    // CCBL background video is public (used on the public landing page)
+    match /Whisk_gto3azmmbjm4e2yy0yy3ytytuwzlrtllhzmk1sm.mp4 {
+      allow read: if true;
+    }
+
     // Everything else requires a signed-in user
     match /{allPaths=**} {
       allow read, write: if request.auth != null;

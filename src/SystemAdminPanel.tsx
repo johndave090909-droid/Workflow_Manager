@@ -5,7 +5,7 @@ import { User, SystemCard, Role, RolePermissions } from './types';
 import { db, auth, storage, firebaseConfig } from './firebase';
 import {
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc,
-  addDoc, query, orderBy, onSnapshot, serverTimestamp,
+  addDoc, query, orderBy, onSnapshot, serverTimestamp, where,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -72,11 +72,33 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [ccblOpen,       setCcblOpen]       = useState(false);
   const ccblInputRef = useRef<HTMLInputElement>(null);
 
+  // ── CCBL Apprentices state ─────────────────────────────────────
+  type CcblApprentice = { id: string; name: string; role?: string; sortOrder: number };
+  type CcblApprenticMedia = { id: string; apprenticeId: string; url: string; storagePath?: string; type: 'photo' | 'video'; name: string };
+  const [apprentices, setApprentices] = useState<CcblApprentice[]>([]);
+  const [apprenticesOpen, setApprenticesOpen] = useState(false);
+  const [selectedApprentice, setSelectedApprentice] = useState<CcblApprentice | null>(null);
+  const [apprenticeMedia, setApprenticeMedia] = useState<CcblApprenticMedia[]>([]);
+  const [apprenticeForm, setApprenticeForm] = useState({ name: '', role: '' });
+  const [apprenticeUploading, setApprenticeUploading] = useState(false);
+  const apprenticeInputRef = useRef<HTMLInputElement>(null);
+
   // Listen to published items
   useEffect(() => {
     const q = query(collection(db, 'ccbl_media'), orderBy('uploadedAt', 'desc'));
     return onSnapshot(q, snap => setPublished(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblPublished))));
   }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, 'ccbl_apprentices'), orderBy('sortOrder'));
+    return onSnapshot(q, snap => setApprentices(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblApprentice))));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedApprentice) { setApprenticeMedia([]); return; }
+    const q = query(collection(db, 'ccbl_apprentice_media'), where('apprenticeId', '==', selectedApprentice.id));
+    return onSnapshot(q, snap => setApprenticeMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblApprenticMedia))));
+  }, [selectedApprentice]);
 
   // List all files in storage ccbl/ folder
   const loadStorageFiles = async () => {
@@ -103,38 +125,174 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
 
   const togglePublish = async (file: StorageFile) => {
     setToggling(file.storagePath);
-    const existing = published.find(p => p.storagePath === file.storagePath);
-    if (existing) {
-      await deleteDoc(doc(db, 'ccbl_media', existing.id));
-    } else {
-      await addDoc(collection(db, 'ccbl_media'), {
-        storagePath: file.storagePath, url: file.url,
-        name: file.name, type: file.type,
-        uploadedAt: serverTimestamp(),
-      });
+    try {
+      const existing = published.find(p => p.storagePath === file.storagePath);
+      if (existing) {
+        await deleteDoc(doc(db, 'ccbl_media', existing.id));
+      } else {
+        await addDoc(collection(db, 'ccbl_media'), {
+          storagePath: file.storagePath, url: file.url,
+          name: file.name, type: file.type,
+          uploadedAt: serverTimestamp(),
+        });
+      }
+    } finally {
+      setToggling(null);
     }
-    setToggling(null);
   };
 
+  const compressImage = (file: File, maxPx: number, quality: number): Promise<Blob> =>
+    new Promise((resolve, reject) => {
+      const blobUrl = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        URL.revokeObjectURL(blobUrl);
+        const ratio = Math.min(maxPx / img.width, maxPx / img.height, 1);
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round(img.width  * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob failed')), 'image/jpeg', quality);
+      };
+      img.onerror = () => { URL.revokeObjectURL(blobUrl); reject(new Error('img failed to load')); };
+      img.src = blobUrl;
+    });
+
   const handleCcblUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+    const files = Array.from(e.target.files ?? []).filter(f =>
+      f.type.startsWith('video/') || f.type.startsWith('image/')
+    );
     if (!files.length) return;
-    setCcblUploading(true);
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const isVideo = file.type.startsWith('video/');
-      const isPhoto = file.type.startsWith('image/');
-      if (!isVideo && !isPhoto) continue;
-      setCcblUploadPct(Math.round((i / files.length) * 100));
-      const storagePath = `CCBL/${Date.now()}_${file.name}`;
-      await new Promise<void>((resolve, reject) => {
-        const task = uploadBytesResumable(ref(storage, storagePath), file);
-        task.on('state_changed', () => {}, reject, resolve);
-      });
+
+    // Reject duplicates: compare base name (strip timestamp prefix) against existing files
+    const existingBaseNames = new Set(
+      storageFiles.map(f => f.name.replace(/^\d+_/, '').replace(/\.[^.]+$/, '').toLowerCase())
+    );
+    const duplicates = files.filter(f => existingBaseNames.has(f.name.replace(/\.[^.]+$/, '').toLowerCase()));
+    if (duplicates.length) {
+      alert(`Already exists — skipping:\n${duplicates.map(f => f.name).join('\n')}`);
+      const unique = files.filter(f => !existingBaseNames.has(f.name.replace(/\.[^.]+$/, '').toLowerCase()));
+      if (!unique.length) { if (ccblInputRef.current) ccblInputRef.current.value = ''; return; }
     }
-    setCcblUploading(false); setCcblUploadPct(0);
-    if (ccblInputRef.current) ccblInputRef.current.value = '';
-    await loadStorageFiles();
+    const toUpload = files.filter(f => !existingBaseNames.has(f.name.replace(/\.[^.]+$/, '').toLowerCase()));
+
+    setCcblUploading(true);
+    try {
+      for (let i = 0; i < toUpload.length; i++) {
+        const file = toUpload[i];
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        const prefix = `${Date.now()}_${baseName}`;
+
+        if (file.type.startsWith('image/')) {
+          // Compress to max 1200px — fall back to original if format unsupported (e.g. HEIC)
+          let blob: Blob = file;
+          let ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+          try {
+            blob = await compressImage(file, 1200, 0.85);
+            ext = 'jpg';
+          } catch { /* unsupported format — upload original as-is */ }
+          const storagePath = `CCBL/${prefix}.${ext}`;
+          await new Promise<void>((resolve, reject) => {
+            const task = uploadBytesResumable(ref(storage, storagePath), blob, { contentType: blob.type || file.type });
+            task.on('state_changed',
+              snap => setCcblUploadPct(Math.round(((i + snap.bytesTransferred / snap.totalBytes) / toUpload.length) * 100)),
+              reject, resolve,
+            );
+          });
+        } else {
+          // Videos: upload as-is
+          const storagePath = `CCBL/${prefix}_${file.name}`;
+          await new Promise<void>((resolve, reject) => {
+            const task = uploadBytesResumable(ref(storage, storagePath), file);
+            task.on('state_changed',
+              snap => setCcblUploadPct(Math.round(((i + snap.bytesTransferred / snap.totalBytes) / toUpload.length) * 100)),
+              reject, resolve,
+            );
+          });
+        }
+      }
+    } catch (err: any) {
+      alert(`Upload failed: ${err?.message ?? 'Unknown error'}`);
+    } finally {
+      setCcblUploading(false);
+      setCcblUploadPct(0);
+      if (ccblInputRef.current) ccblInputRef.current.value = '';
+      await loadStorageFiles();
+    }
+  };
+
+  // ── CCBL Apprentice handlers ───────────────────────────────────
+  const addApprentice = async () => {
+    if (!apprenticeForm.name.trim()) return;
+    await addDoc(collection(db, 'ccbl_apprentices'), {
+      name: apprenticeForm.name.trim(),
+      role: apprenticeForm.role.trim() || null,
+      sortOrder: apprentices.length,
+    });
+    setApprenticeForm({ name: '', role: '' });
+  };
+
+  const deleteApprentice = async (a: CcblApprentice) => {
+    if (!window.confirm(`Delete "${a.name}" and all their media?`)) return;
+    const snap = await getDocs(query(collection(db, 'ccbl_apprentice_media'), where('apprenticeId', '==', a.id)));
+    await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+    await deleteDoc(doc(db, 'ccbl_apprentices', a.id));
+    if (selectedApprentice?.id === a.id) setSelectedApprentice(null);
+  };
+
+  const handleApprenticeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('[apprenticeUpload] files:', e.target.files?.length, 'selectedApprentice:', selectedApprentice?.id);
+    const files = Array.from(e.target.files ?? []).filter(f =>
+      f.type.startsWith('video/') || f.type.startsWith('image/')
+    );
+    console.log('[apprenticeUpload] filtered files:', files.map(f => f.name + ' (' + f.type + ')'));
+    if (!files.length || !selectedApprentice) {
+      console.warn('[apprenticeUpload] early return — files:', files.length, 'selectedApprentice:', selectedApprentice?.id);
+      return;
+    }
+    setApprenticeUploading(true);
+    try {
+      const { uploadBytes } = await import('firebase/storage');
+      for (const file of files) {
+        console.log('[apprenticeUpload] uploading:', file.name);
+        const isPhoto = file.type.startsWith('image/');
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        let blob: Blob = file;
+        let ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+        if (isPhoto) {
+          try { blob = await compressImage(file, 1200, 0.85); ext = 'jpg'; console.log('[apprenticeUpload] compressed ok'); }
+          catch (ce) { console.warn('[apprenticeUpload] compress failed, using original:', ce); }
+        }
+        const storagePath = `CCBL/apprentices/${selectedApprentice.id}/${Date.now()}_${baseName}.${ext}`;
+        console.log('[apprenticeUpload] storagePath:', storagePath);
+        const storageRef = ref(storage, storagePath);
+        await uploadBytes(storageRef, blob, { contentType: isPhoto ? 'image/jpeg' : file.type });
+        console.log('[apprenticeUpload] upload done, getting URL');
+        const url = await getDownloadURL(storageRef);
+        console.log('[apprenticeUpload] got URL, saving to Firestore');
+        await addDoc(collection(db, 'ccbl_apprentice_media'), {
+          apprenticeId: selectedApprentice.id,
+          storagePath,
+          url, type: isPhoto ? 'photo' : 'video',
+          name: file.name,
+          uploadedAt: serverTimestamp(),
+        });
+        console.log('[apprenticeUpload] done:', file.name);
+      }
+    } catch (err: any) {
+      console.error('[apprenticeUpload] ERROR:', err);
+      alert(`Upload failed: ${err?.message ?? 'Unknown error'}`);
+    } finally {
+      setApprenticeUploading(false);
+      if (apprenticeInputRef.current) apprenticeInputRef.current.value = '';
+    }
+  };
+
+  const deleteApprenticeMedia = async (m: CcblApprenticMedia) => {
+    await deleteDoc(doc(db, 'ccbl_apprentice_media', m.id));
+    if (m.storagePath) {
+      try { await deleteObject(ref(storage, m.storagePath)); } catch {}
+    }
   };
 
   // ── System cards state ─────────────────────────────────────────
@@ -188,7 +346,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
       const reader = new FileReader();
       reader.onerror = reject;
       reader.onload = ev => {
-        const img = new Image();
+        const img = new window.Image();
         img.onerror = reject;
         img.onload = () => {
           const scale  = Math.min(maxPx / img.width, maxPx / img.height, 1);
@@ -667,6 +825,153 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
             </div>
           )}
           </>)}
+        </div>
+
+        {/* ── CCBL Apprentices ── */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>CCBL Apprentices</h2>
+              <p className="text-sm text-slate-400 mt-1">Manage apprentice profiles and their portfolio media.</p>
+            </div>
+            <button
+              onClick={() => setApprenticesOpen(o => !o)}
+              className="px-4 py-2.5 rounded-xl text-sm font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+            >
+              {apprenticesOpen ? '▲ Hide' : '▼ Show'}
+            </button>
+          </div>
+
+          {apprenticesOpen && (
+            <div className="flex flex-col sm:flex-row gap-4">
+              {/* Left panel — apprentice list */}
+              <div className="flex-1 glass-card rounded-2xl border border-white/10 p-4 space-y-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Apprentices</p>
+
+                {/* Add form */}
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Name *"
+                    value={apprenticeForm.name}
+                    onChange={e => setApprenticeForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Role (optional)"
+                    value={apprenticeForm.role}
+                    onChange={e => setApprenticeForm(f => ({ ...f, role: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                  />
+                  <button
+                    onClick={addApprentice}
+                    disabled={!apprenticeForm.name.trim()}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                    style={{ backgroundColor: '#a855f7', boxShadow: '0 0 16px rgba(168,85,247,0.25)' }}
+                  >
+                    <Plus size={14} /> Add Apprentice
+                  </button>
+                </div>
+
+                {/* Apprentice list */}
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {apprentices.length === 0 && (
+                    <p className="text-xs text-slate-600 italic text-center py-4">No apprentices yet.</p>
+                  )}
+                  {apprentices.map(a => (
+                    <div
+                      key={a.id}
+                      onClick={() => setSelectedApprentice(prev => prev?.id === a.id ? null : a)}
+                      className="flex items-center justify-between px-3 py-2.5 rounded-xl cursor-pointer transition-all"
+                      style={{
+                        border: selectedApprentice?.id === a.id ? '1.5px solid #a855f7' : '1px solid rgba(255,255,255,0.08)',
+                        background: selectedApprentice?.id === a.id ? 'rgba(168,85,247,0.12)' : 'rgba(255,255,255,0.03)',
+                        boxShadow: selectedApprentice?.id === a.id ? '0 0 12px rgba(168,85,247,0.2)' : 'none',
+                      }}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-white leading-none">{a.name}</p>
+                        {a.role && <p className="text-[10px] text-slate-500 mt-0.5">{a.role}</p>}
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); deleteApprentice(a); }}
+                        className="p-1.5 text-slate-600 hover:text-[#ff4d4d] transition-colors rounded-lg hover:bg-[#ff4d4d]/10 flex-shrink-0"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right panel — media for selected apprentice */}
+              <div className="flex-1 glass-card rounded-2xl border border-white/10 p-4 space-y-3">
+                {!selectedApprentice ? (
+                  <div className="flex items-center justify-center h-full min-h-[200px]">
+                    <p className="text-sm text-slate-600 italic text-center">Select an apprentice to manage their media</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Portfolio</p>
+                        <p className="text-sm font-bold text-white mt-0.5">{selectedApprentice.name}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          ref={apprenticeInputRef}
+                          type="file"
+                          accept="image/*,video/*"
+                          multiple
+                          className="hidden"
+                          onChange={handleApprenticeUpload}
+                        />
+                        <button
+                          onClick={() => apprenticeInputRef.current?.click()}
+                          disabled={apprenticeUploading}
+                          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                          style={{ backgroundColor: '#a855f7', boxShadow: '0 0 14px rgba(168,85,247,0.25)' }}
+                        >
+                          <Upload size={13} />
+                          {apprenticeUploading ? 'Uploading…' : 'Upload'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {apprenticeMedia.length === 0 ? (
+                      <p className="text-xs text-slate-600 italic text-center py-6">No media uploaded yet.</p>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+                        {apprenticeMedia.map(m => (
+                          <div key={m.id} className="relative rounded-xl overflow-hidden aspect-square group" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+                            {m.type === 'video' ? (
+                              <video src={m.url} className="w-full h-full object-cover" muted playsInline />
+                            ) : (
+                              <img src={m.url} alt={m.name} className="w-full h-full object-cover" loading="lazy" />
+                            )}
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                              <button
+                                onClick={() => deleteApprenticeMedia(m)}
+                                className="p-1.5 rounded-full bg-[#ff4d4d]/80 text-white hover:bg-[#ff4d4d] transition-colors"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                            <div className="absolute bottom-1 left-1">
+                              <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-black/60 text-white uppercase">
+                                {m.type === 'video' ? 'VID' : 'IMG'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── System Cards ── */}

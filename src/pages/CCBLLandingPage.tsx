@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { Award, ChefHat, TrendingUp, Users, Star, Shield, Play, X } from 'lucide-react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 
 // --- Color palette matching the physical certificate ---
@@ -51,111 +51,72 @@ function CornerLaurel({ className, style }: { className?: string; style?: React.
 
 function HeroSection() {
   return (
-    <section
-      style={{ background: CREAM }}
-      className="relative flex flex-col items-center justify-center min-h-screen px-6 py-20 text-center overflow-hidden"
-    >
+    <section style={{ background: CREAM }} className="px-6 py-24 text-center relative">
       <CornerLaurel className="absolute top-6 left-2 opacity-40 pointer-events-none" />
       <CornerLaurel className="absolute top-6 right-2 opacity-40 pointer-events-none" style={{ transform: 'scaleX(-1)' }} />
       <CornerLaurel className="absolute bottom-16 left-2 opacity-25 pointer-events-none" style={{ transform: 'rotate(180deg) scaleX(-1)' }} />
       <CornerLaurel className="absolute bottom-16 right-2 opacity-25 pointer-events-none" style={{ transform: 'rotate(180deg)' }} />
 
-      {/* PCC Logo */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.7, delay: 0.1 }}
-        className="mb-8"
-      >
-        <img
-          src="/PCC_logo.png"
-          alt="Polynesian Cultural Center"
-          className="h-20 sm:h-24 w-auto mx-auto"
-          onError={e => {
-            (e.currentTarget as HTMLImageElement).style.display = 'none';
-            const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
-            if (fallback) fallback.style.display = 'block';
-          }}
-        />
-        <div
-          style={{ display: 'none', color: GOLD, fontFamily: 'Outfit, sans-serif' }}
-          className="text-4xl font-black tracking-widest"
-        >
-          PCC
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.1 }}
+            className="mb-8"
+          >
+            <img
+              src="/PCC_logo.png"
+              alt="Polynesian Cultural Center"
+              className="h-20 sm:h-24 w-auto mx-auto"
+              onError={e => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                const fallback = e.currentTarget.nextElementSibling as HTMLElement | null;
+                if (fallback) fallback.style.display = 'block';
+              }}
+            />
+            <div style={{ display: 'none', color: GOLD, fontFamily: 'Outfit, sans-serif' }} className="text-4xl font-black tracking-widest">PCC</div>
+          </motion.div>
+
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25, duration: 0.6 }}
+            style={{ color: BROWN_MID, letterSpacing: '0.2em' }} className="text-[10px] sm:text-xs font-bold uppercase mb-1">
+            Polynesian Cultural Center
+          </motion.p>
+
+          <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.35, duration: 0.6 }}
+            style={{ color: GOLD, letterSpacing: '0.35em' }} className="text-[10px] sm:text-xs font-black uppercase mb-3">
+            Certificate of Achievement
+          </motion.p>
+
+          <GoldRule width={200} />
+
+          <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5, duration: 0.7, type: 'spring', stiffness: 200 }}
+            style={{ color: BROWN, fontFamily: 'Outfit, sans-serif' }} className="text-5xl sm:text-7xl font-black leading-none mb-3">
+            CCBL
+          </motion.h1>
+
+          <motion.p initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65, duration: 0.6 }}
+            style={{ color: BROWN_MID, fontFamily: 'Outfit, sans-serif' }}
+            className="text-sm sm:text-lg font-semibold tracking-wide mb-8 max-w-xs sm:max-w-sm mx-auto">
+            Certified Culinary Business Leader
+          </motion.p>
+
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8, duration: 0.6 }}
+            style={{ borderColor: `${GOLD}50`, background: `${GOLD}08` }} className="border rounded-2xl px-6 py-5 max-w-sm mx-auto">
+            <p style={{ color: BROWN_MID }} className="text-sm leading-relaxed">
+              This certificate recognizes the successful completion of a rigorous,{' '}
+              <span style={{ color: GOLD }} className="font-bold">2,000+ hour</span>{' '}
+              culinary leadership program at the Polynesian Cultural Center in Laie, Hawai'i.
+            </p>
+          </motion.div>
+
+          <motion.div animate={{ y: [0, 8, 0] }} transition={{ repeat: Infinity, duration: 1.8, ease: 'easeInOut' }}
+            style={{ color: GOLD, marginTop: 40 }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={GOLD} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </motion.div>
         </div>
-      </motion.div>
-
-      {/* Polynesian Cultural Center name */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.25, duration: 0.6 }}
-        style={{ color: BROWN_MID, letterSpacing: '0.2em' }}
-        className="text-[10px] sm:text-xs font-bold uppercase mb-1"
-      >
-        Polynesian Cultural Center
-      </motion.p>
-
-      {/* Certificate label */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.35, duration: 0.6 }}
-        style={{ color: GOLD, letterSpacing: '0.35em' }}
-        className="text-[10px] sm:text-xs font-black uppercase mb-3"
-      >
-        Certificate of Achievement
-      </motion.p>
-
-      <GoldRule width={200} />
-
-      {/* Main headline */}
-      <motion.h1
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5, duration: 0.7, type: 'spring', stiffness: 200 }}
-        style={{ color: BROWN, fontFamily: 'Outfit, sans-serif' }}
-        className="text-5xl sm:text-7xl font-black leading-none mb-3"
-      >
-        CCBL
-      </motion.h1>
-
-      <motion.p
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.65, duration: 0.6 }}
-        style={{ color: BROWN_MID, fontFamily: 'Outfit, sans-serif' }}
-        className="text-sm sm:text-lg font-semibold tracking-wide mb-8 max-w-xs sm:max-w-sm mx-auto"
-      >
-        Certified Culinary Business Leader
-      </motion.p>
-
-      {/* Description box */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.8, duration: 0.6 }}
-        style={{ borderColor: `${GOLD}50`, background: `${GOLD}08` }}
-        className="border rounded-2xl px-6 py-5 max-w-sm mx-auto"
-      >
-        <p style={{ color: BROWN_MID }} className="text-sm leading-relaxed">
-          This certificate recognizes the successful completion of a rigorous,{' '}
-          <span style={{ color: GOLD }} className="font-bold">2,000+ hour</span>{' '}
-          culinary leadership program at the Polynesian Cultural Center in Laie, Hawai'i.
-        </p>
-      </motion.div>
-
-      {/* Scroll indicator */}
-      <motion.div
-        animate={{ y: [0, 8, 0] }}
-        transition={{ repeat: Infinity, duration: 1.8, ease: 'easeInOut' }}
-        style={{ color: GOLD }}
-        className="absolute bottom-8 left-1/2 -translate-x-1/2"
-      >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={GOLD} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-      </motion.div>
     </section>
   );
 }
@@ -270,8 +231,8 @@ function JourneySection() {
   ];
 
   return (
-    <section style={{ background: CREAM }} className="px-4 py-16">
-      <div className="max-w-2xl mx-auto text-center">
+    <section style={{ background: CREAM }} className="relative px-4 py-16 overflow-hidden">
+      <div className="max-w-6xl mx-auto text-center" style={{ position: 'relative', zIndex: 2 }}>
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           whileInView={{ opacity: 1, y: 0 }}
@@ -310,7 +271,7 @@ function JourneySection() {
         </div>
 
         {/* Training area grid */}
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 text-left">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 text-left">
           {areas.map(({ label, hours, icon: Icon }, i) => (
             <motion.div
               key={label}
@@ -566,15 +527,28 @@ function FooterSection() {
 
 // --- Section G: Media Gallery ---
 
-type CcblMedia = { id: string; url: string; type: 'photo' | 'video'; name: string };
+type CcblMedia = { id: string; url: string; thumbUrl?: string; storagePath: string; type: 'photo' | 'video'; name: string };
+type CcblApprentice = { id: string; name: string; role?: string; sortOrder: number };
+type CcblApprenticeMedia = { id: string; apprenticeId: string; url: string; type: 'photo' | 'video'; name: string };
 
 function MediaGallerySection() {
   const [media,     setMedia]     = useState<CcblMedia[]>([]);
   const [lightbox,  setLightbox]  = useState<CcblMedia | null>(null);
+  const [inView,    setInView]    = useState(true);
+  const sectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'ccbl_media'), orderBy('uploadedAt', 'desc'));
     return onSnapshot(q, snap => setMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblMedia))));
+  }, []);
+
+  // Pause animation when section is off-screen
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting), { threshold: 0.05 });
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
 
   const BROWSER_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg'];
@@ -582,13 +556,16 @@ function MediaGallerySection() {
     const ext = m.name.split('.').pop()?.toLowerCase() ?? '';
     return BROWSER_IMAGE_EXTS.includes(ext);
   };
-  const videos = media.filter(m => m.type === 'video');
+  // Deduplicate videos by storagePath (same file toggled multiple times = different tokens but same path)
+  const videos = media
+    .filter(m => m.type === 'video')
+    .filter((m, i, arr) => arr.findIndex(x => x.storagePath === m.storagePath) === i);
   const photos = media.filter(m => m.type === 'photo' && supportedPhoto(m));
 
   if (media.length === 0) return null;
 
   return (
-    <section style={{ background: CREAM_DARK }} className="w-full py-16 overflow-hidden">
+    <section ref={sectionRef} className="w-full py-16 overflow-hidden">
       <div className="max-w-3xl mx-auto text-center px-4">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -627,6 +604,10 @@ function MediaGallerySection() {
                 playsInline
                 preload="metadata"
                 onLoadedMetadata={e => { (e.currentTarget as HTMLVideoElement).currentTime = 1; }}
+                onError={e => {
+                  const btn = (e.currentTarget as HTMLVideoElement).closest('button') as HTMLElement | null;
+                  if (btn) btn.style.display = 'none';
+                }}
               />
               <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
                 <div style={{ background: `${GOLD}CC` }} className="w-12 h-12 rounded-full flex items-center justify-center">
@@ -648,24 +629,29 @@ function MediaGallerySection() {
           display: 'flex',
           flexDirection: 'column',
           gap: 14,
-          WebkitMaskImage: 'linear-gradient(to right, transparent 0%, black 16%, black 84%, transparent 100%)',
-          maskImage: 'linear-gradient(to right, transparent 0%, black 16%, black 84%, transparent 100%)',
+          position: 'relative',
         }}>
-          {[0, 1].map(row => {
-            const half = Math.ceil(photos.length / 2);
-            const slice = row === 0 ? photos.slice(0, half) : photos.slice(half);
-            const base: CcblMedia[] = slice.length === 0 ? photos : slice;
-            // Repeat until we have at least 12 items so the loop fills the screen
-            let repeated = [...base, ...base];
-            while (repeated.length < 12) repeated = [...repeated, ...base];
-            const dir = row === 0 ? 'ccbl-scroll-left' : 'ccbl-scroll-right';
-            const duration = `${Math.max(22, repeated.length * 2)}s`;
+          {/* Side fades as plain divs — avoids expensive CSS maskImage on scroll */}
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '12%', background: `linear-gradient(to right, ${CREAM_DARK}, transparent)`, pointerEvents: 'none', zIndex: 2 }} />
+          <div style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '12%', background: `linear-gradient(to left, ${CREAM_DARK}, transparent)`, pointerEvents: 'none', zIndex: 2 }} />
+          {[0, 1, 2].map(row => {
+            const raw = photos.slice(0, 8);
+            const base: CcblMedia[] = row === 1 ? [...raw].reverse() : raw;
+            // Pad so the first half always fills the container (272px per card)
+            const minCount = Math.ceil(1040 / 272) + 1;
+            const padded = base.length >= minCount
+              ? base
+              : Array.from({ length: Math.ceil(minCount / base.length) }, () => base).flat().slice(0, minCount);
+            const repeated = [...padded, ...padded];
+            const dir = row === 1 ? 'ccbl-scroll-right' : 'ccbl-scroll-left';
+            const duration = `${Math.max(20, base.length * 3)}s`;
             return (
               <div key={row} style={{
                 display: 'flex',
                 gap: 12,
                 width: 'max-content',
                 animation: `${dir} ${duration} linear infinite`,
+                animationPlayState: inView ? 'running' : 'paused',
                 willChange: 'transform',
               }}>
                 {repeated.map((item, i) => (
@@ -673,7 +659,7 @@ function MediaGallerySection() {
                     key={`${item.id}-${i}`}
                     onClick={() => setLightbox(item)}
                     style={{
-                      width: 160, height: 120,
+                      width: 260, height: 195,
                       flexShrink: 0,
                       borderRadius: 12,
                       overflow: 'hidden',
@@ -683,10 +669,11 @@ function MediaGallerySection() {
                     }}
                   >
                     <img
-                      src={item.url}
+                      src={item.thumbUrl ?? item.url}
                       alt={item.name}
-                      loading="lazy"
                       decoding="async"
+                      width={260}
+                      height={195}
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                       onError={e => { (e.currentTarget.closest('button') as HTMLElement).style.display = 'none'; }}
                     />
@@ -696,6 +683,277 @@ function MediaGallerySection() {
             );
           })}
         </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+          >
+            <X size={20} />
+          </button>
+          <div onClick={e => e.stopPropagation()} className="max-w-3xl w-full max-h-[85vh]">
+            {lightbox.type === 'video' ? (
+              <video src={lightbox.url} controls autoPlay className="w-full max-h-[85vh] rounded-2xl" />
+            ) : (
+              <img src={lightbox.url} alt={lightbox.name} className="w-full max-h-[85vh] object-contain rounded-2xl" />
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// --- Section H: Apprentices ---
+
+function ApprenticesSection() {
+  const [apprentices, setApprentices] = useState<CcblApprentice[]>([]);
+  const [allMedia, setAllMedia] = useState<CcblApprenticeMedia[]>([]);
+  const [selectedApprentice, setSelectedApprentice] = useState<CcblApprentice | null>(null);
+  const [lightbox, setLightbox] = useState<CcblApprenticeMedia | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'ccbl_apprentices'), orderBy('sortOrder'));
+    return onSnapshot(q, snap =>
+      setApprentices(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblApprentice)))
+    );
+  }, []);
+
+  useEffect(() => {
+    getDocs(query(collection(db, 'ccbl_apprentice_media'))).then(snap =>
+      setAllMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblApprenticeMedia)))
+    );
+  }, []);
+
+  if (apprentices.length === 0) return null;
+
+  const portfolioPhotos = selectedApprentice
+    ? allMedia.filter(m => m.apprenticeId === selectedApprentice.id && m.type === 'photo')
+    : [];
+  const portfolioVideos = selectedApprentice
+    ? allMedia.filter(m => m.apprenticeId === selectedApprentice.id && m.type === 'video')
+    : [];
+
+  return (
+    <section className="px-4 py-16 h-full">
+      <div className="max-w-3xl mx-auto">
+        {/* Section header */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-10"
+        >
+          <p
+            style={{ color: GOLD, letterSpacing: '0.3em' }}
+            className="text-[10px] sm:text-xs uppercase font-black mb-2"
+          >
+            Our People
+          </p>
+          <h2
+            style={{ color: BROWN, fontFamily: 'Outfit, sans-serif' }}
+            className="text-2xl sm:text-3xl font-black mb-1"
+          >
+            Apprentices
+          </h2>
+          <GoldRule width={160} />
+        </motion.div>
+
+        {/* Apprentice card grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {apprentices.map((apprentice, i) => (
+            <motion.button
+              key={apprentice.id}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.07, duration: 0.4 }}
+              onClick={() => setSelectedApprentice(apprentice)}
+              className="flex flex-col items-center text-center p-4 rounded-2xl transition-all"
+              style={{
+                background: '#FFFFFF',
+                border: `1.5px solid ${GOLD}40`,
+                boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 4px 24px ${GOLD}50`;
+                (e.currentTarget as HTMLButtonElement).style.borderColor = GOLD;
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 2px 12px rgba(0,0,0,0.06)';
+                (e.currentTarget as HTMLButtonElement).style.borderColor = `${GOLD}40`;
+              }}
+            >
+              {/* Avatar placeholder */}
+              <div
+                style={{
+                  background: `linear-gradient(135deg, ${GOLD_DARK}, ${GOLD})`,
+                  width: 52,
+                  height: 52,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 10,
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{ color: CREAM, fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: '1.1rem' }}>
+                  {apprentice.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <p style={{ color: BROWN, fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '0.85rem', lineHeight: 1.3 }}>
+                {apprentice.name}
+              </p>
+              {apprentice.role && (
+                <p style={{ color: BROWN_MID, fontSize: '0.7rem', marginTop: 3 }}>
+                  {apprentice.role}
+                </p>
+              )}
+              <p style={{ color: GOLD, fontSize: '0.65rem', marginTop: 6, fontWeight: 600, letterSpacing: '0.05em' }}>
+                View Portfolio →
+              </p>
+            </motion.button>
+          ))}
+        </div>
+      </div>
+
+      {/* Portfolio modal */}
+      {selectedApprentice && (
+        <div
+          className="fixed inset-0 z-[9990] flex items-start justify-center overflow-y-auto"
+          style={{ background: 'rgba(0,0,0,0.82)' }}
+          onClick={() => setSelectedApprentice(null)}
+        >
+          <div
+            className="relative w-full max-w-3xl mx-auto my-8 rounded-3xl overflow-hidden"
+            style={{ background: CREAM }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div
+              style={{
+                background: BROWN,
+                padding: '1.5rem 2rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div>
+                <p style={{ color: `${CREAM}70`, fontSize: '0.65rem', letterSpacing: '0.25em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 2 }}>
+                  Portfolio
+                </p>
+                <h3 style={{ color: CREAM, fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: '1.4rem', lineHeight: 1.2 }}>
+                  {selectedApprentice.name}
+                </h3>
+                {selectedApprentice.role && (
+                  <p style={{ color: GOLD, fontSize: '0.78rem', marginTop: 2, fontWeight: 600 }}>
+                    {selectedApprentice.role}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setSelectedApprentice(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.12)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: 36,
+                  height: 36,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: CREAM,
+                  flexShrink: 0,
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 sm:p-8">
+              {portfolioPhotos.length === 0 && portfolioVideos.length === 0 && (
+                <p style={{ color: BROWN_MID, textAlign: 'center', padding: '2rem 0', fontSize: '0.9rem' }}>
+                  No portfolio media yet.
+                </p>
+              )}
+
+              {/* Photo grid */}
+              {portfolioPhotos.length > 0 && (
+                <>
+                  <p style={{ color: GOLD, fontSize: '0.65rem', letterSpacing: '0.25em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 12 }}>
+                    Photos
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 mb-8">
+                    {portfolioPhotos.map((photo, i) => (
+                      <motion.button
+                        key={photo.id}
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: i * 0.05 }}
+                        onClick={() => setLightbox(photo)}
+                        className="rounded-xl overflow-hidden"
+                        style={{ aspectRatio: '1', border: `1px solid ${GOLD}30`, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                      >
+                        <img
+                          src={photo.url}
+                          alt={photo.name}
+                          className="w-full h-full object-cover"
+                          onError={e => { (e.currentTarget.closest('button') as HTMLElement).style.display = 'none'; }}
+                        />
+                      </motion.button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Video grid */}
+              {portfolioVideos.length > 0 && (
+                <>
+                  <p style={{ color: GOLD, fontSize: '0.65rem', letterSpacing: '0.25em', textTransform: 'uppercase', fontWeight: 800, marginBottom: 12 }}>
+                    Videos
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {portfolioVideos.map((vid, i) => (
+                      <motion.button
+                        key={vid.id}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.08 }}
+                        onClick={() => setLightbox(vid)}
+                        className="relative rounded-2xl overflow-hidden group"
+                        style={{ aspectRatio: '16/9', border: `1px solid ${GOLD}30`, boxShadow: '0 2px 12px rgba(0,0,0,0.10)' }}
+                      >
+                        <video
+                          src={vid.url}
+                          className="w-full h-full object-cover"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          onLoadedMetadata={e => { (e.currentTarget as HTMLVideoElement).currentTime = 1; }}
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/40 transition-colors">
+                          <div style={{ background: `${GOLD}CC` }} className="w-12 h-12 rounded-full flex items-center justify-center">
+                            <Play size={22} color={BROWN} fill={BROWN} />
+                          </div>
+                        </div>
+                      </motion.button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -746,9 +1004,16 @@ export default function CCBLLandingPage() {
 
 
       <HeroSection />
-      <MediaGallerySection />
-      <VerificationSealSection />
       <JourneySection />
+      <div style={{ background: CREAM_DARK }} className="flex flex-col lg:flex-row">
+        <div className="lg:w-3/5 overflow-hidden">
+          <MediaGallerySection />
+        </div>
+        <div className="lg:w-2/5">
+          <ApprenticesSection />
+        </div>
+      </div>
+      <VerificationSealSection />
       <PillarsSection />
       <AboutPCCSection />
       <FooterSection />

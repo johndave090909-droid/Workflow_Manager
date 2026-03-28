@@ -1,7 +1,9 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const crypto = require("crypto");
 const pdfParse = require("pdf-parse");
+const sharp = require("sharp");
 const admin = require("firebase-admin");
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
@@ -1327,3 +1329,134 @@ exports.updateUserAuth = onRequest({ region: "us-central1", cors: true }, async 
     return sendJson(res, 400, { error: err.message ?? "Failed to update user." });
   }
 });
+
+// ── CCBL media thumbnail generator ───────────────────────────────────────────
+// Triggers when a doc is added to ccbl_media. Downloads the image, resizes to
+// 300px max, uploads to CCBL/thumbs/, and writes thumbUrl back to the doc.
+exports.generateCcblThumb = onDocumentCreated(
+  { document: "ccbl_media/{docId}", region: "us-central1" },
+  async (event) => {
+    const data = event.data?.data();
+    if (!data || data.type !== "photo" || data.thumbUrl) return;
+
+    const { url, storagePath } = data;
+    if (!url || !storagePath) return;
+
+    try {
+      // Download the original image
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`fetch failed: ${response.status}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      // Resize to max 300px on longest side, JPEG 80%
+      const thumb = await sharp(buffer)
+        .resize(300, 300, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+
+      // Upload thumbnail to Storage
+      const bucket = admin.storage().bucket();
+      const baseName = storagePath.split("/").pop().replace(/\.[^.]+$/, "");
+      const thumbPath = `CCBL/thumbs/${baseName}_thumb.jpg`;
+      const file = bucket.file(thumbPath);
+      await file.save(thumb, { contentType: "image/jpeg" });
+      await file.makePublic();
+      const thumbUrl = `https://storage.googleapis.com/${bucket.name}/${thumbPath}`;
+
+      // Write thumbUrl back to Firestore
+      await event.data.ref.update({ thumbUrl });
+      console.log(`[generateCcblThumb] created ${thumbPath}`);
+    } catch (err) {
+      console.error("[generateCcblThumb] failed:", err.message);
+    }
+  }
+);
+
+// ── Push notification helpers ─────────────────────────────────────────────────
+
+// Increment the user's unread counter and return the new total (used as badge count)
+async function incrementUnread(uid) {
+  const ref = db.collection("users").doc(uid);
+  await ref.set({ unreadMessages: admin.firestore.FieldValue.increment(1) }, { merge: true });
+  const snap = await ref.get();
+  return snap.data()?.unreadMessages || 1;
+}
+
+// Send push to one user's registered tokens and prune any stale ones
+async function sendPushToUser(uid, title, body, badge) {
+  const tokensSnap = await db.collection("users").doc(uid).collection("fcmTokens").get();
+  const tokens = tokensSnap.docs.map(d => d.id);
+  if (tokens.length === 0) return;
+
+  const result = await admin.messaging().sendEachForMulticast({
+    tokens,
+    notification: { title, body },
+    data: { badge: String(badge) },
+    webpush: {
+      notification: { icon: "/PCC_logo.png", badge: "/PCC_logo.png" },
+      fcmOptions: { link: "/" },
+    },
+  });
+
+  // Remove tokens that are no longer valid
+  const stale = tokens.filter((_, i) => {
+    const code = result.responses[i]?.error?.code;
+    return code === "messaging/registration-token-not-registered" ||
+           code === "messaging/invalid-registration-token";
+  });
+  for (const token of stale) {
+    await db.collection("users").doc(uid).collection("fcmTokens").doc(token).delete().catch(() => {});
+  }
+}
+
+// ── Trigger: new direct message ───────────────────────────────────────────────
+exports.onNewDirectMessage = onDocumentCreated(
+  { document: "conversations/{convId}/messages/{msgId}", region: "us-central1" },
+  async (event) => {
+    const msgData = event.data?.data();
+    if (!msgData) return;
+
+    const senderId   = msgData.senderId;
+    const senderName = msgData.senderName || "Someone";
+    const content    = (msgData.content || "").slice(0, 100);
+
+    const convSnap = await db.collection("conversations").doc(event.params.convId).get();
+    if (!convSnap.exists) return;
+
+    const members      = convSnap.data().members || [];
+    const recipientIds = members.filter(id => id !== senderId);
+
+    for (const uid of recipientIds) {
+      const badge = await incrementUnread(uid);
+      await sendPushToUser(uid, senderName, content, badge);
+    }
+  }
+);
+
+// ── Trigger: new project chat message ────────────────────────────────────────
+exports.onNewProjectMessage = onDocumentCreated(
+  { document: "projects/{projectId}/messages/{msgId}", region: "us-central1" },
+  async (event) => {
+    const msgData = event.data?.data();
+    if (!msgData) return;
+
+    const senderId   = msgData.sender_id;
+    const senderName = msgData.sender_name || "Someone";
+    const content    = (msgData.content || "").slice(0, 100);
+
+    const projectSnap = await db.collection("projects").doc(event.params.projectId).get();
+    if (!projectSnap.exists) return;
+
+    const pd = projectSnap.data();
+    const assigneeIds = Array.from(new Set([
+      ...(pd.assignee_ids || []),
+      ...(pd.account_lead_id ? [pd.account_lead_id] : []),
+    ]));
+    const recipientIds = assigneeIds.filter(id => id !== senderId);
+
+    for (const uid of recipientIds) {
+      const badge = await incrementUnread(uid);
+      await sendPushToUser(uid, senderName, content, badge);
+    }
+  }
+);
