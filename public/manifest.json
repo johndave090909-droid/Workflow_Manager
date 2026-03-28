@@ -1,0 +1,17 @@
+{
+  "name": "PCC Culinary Command Center",
+  "short_name": "PCC CCC",
+  "description": "PCC Culinary Command Center — project management and communication hub",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#7c3aed",
+  "icons": [
+    {
+      "src": "/PCC_logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

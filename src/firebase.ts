@@ -2,6 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
+import { getMessaging, isSupported } from 'firebase/messaging';
 
 export const firebaseConfig = {
   apiKey: "AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg",
@@ -16,6 +17,9 @@ export const app     = initializeApp(firebaseConfig);
 export const db      = getFirestore(app);
 export const auth    = getAuth(app);
 export const storage = getStorage(app);
+
+// Resolves to a Messaging instance when supported (not available in all browsers/environments)
+export const messagingPromise = isSupported().then(yes => yes ? getMessaging(app) : null);
 
 // ── GuardianCheck (progress-log-e3900) ────────────────────────────────────────
 const guardianApp = initializeApp({

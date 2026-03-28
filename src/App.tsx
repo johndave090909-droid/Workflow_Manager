@@ -26,6 +26,7 @@ import WorkerRoster from './WorkerRoster';
 import ShiftFlowApp from './ShiftFlow/ShiftFlowApp';
 import WorkerPortal from './ShiftFlow/WorkerPortal';
 import CCBLLandingPage from './pages/CCBLLandingPage';
+import { usePushNotifications } from './usePushNotifications';
 
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -165,6 +166,9 @@ export default function App() {
   const [showViewOnlyToast, setShowViewOnlyToast] = useState(false);
   const [showAllProjects,   setShowAllProjects]   = useState(false);
   const tableBodyRef = useRef<HTMLTableSectionElement>(null);
+
+  // Register this device for push notifications once the user is signed in
+  usePushNotifications(currentUser?.id ?? null);
 
   // Resolve current user's permissions from the /roles collection
   const userRoleDef    = roles.find(r => r.name === currentUser?.role);

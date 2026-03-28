@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "systems-hub"
+  },
+  "targets": {},
+  "etags": {
+    "systems-hub": {
+      "extensionInstances": {
+        "storage-resize-images": "c46572fd37cea47fa2eb12ab576c73c81b810f6b2228c2841b79123a5b91877f"
+      }
+    }
   }
 }
