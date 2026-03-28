@@ -16,15 +16,21 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Called when a push arrives while the app is in the background or closed
+// Called when a push arrives while the app is in the background or closed.
+// We use data-only FCM messages so this handler always fires (no auto-display).
 messaging.onBackgroundMessage(payload => {
-  const title      = payload.notification?.title || 'New Message';
-  const body       = payload.notification?.body  || '';
+  const title      = payload.data?.title || payload.notification?.title || 'New Message';
+  const body       = payload.data?.body  || payload.notification?.body  || '';
   const badgeCount = parseInt(payload.data?.badge || '0', 10);
 
   // Update the app icon badge number (Android Chrome + iOS Safari PWA)
-  if (badgeCount > 0 && 'setAppBadge' in self.registration) {
-    self.registration.setAppBadge(badgeCount).catch(() => {});
+  // navigator.setAppBadge is available in service workers and has better browser support
+  if (badgeCount > 0) {
+    if ('setAppBadge' in navigator) {
+      navigator.setAppBadge(badgeCount).catch(() => {});
+    } else if ('setAppBadge' in self.registration) {
+      self.registration.setAppBadge(badgeCount).catch(() => {});
+    }
   }
 
   self.registration.showNotification(title, {

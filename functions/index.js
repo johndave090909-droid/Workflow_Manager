@@ -1388,14 +1388,13 @@ async function sendPushToUser(uid, title, body, badge) {
   const tokens = tokensSnap.docs.map(d => d.id);
   if (tokens.length === 0) return;
 
+  // Data-only message: no top-level 'notification' field, so the browser won't
+  // auto-display it and will always invoke onBackgroundMessage in the service
+  // worker. The SW then shows the notification AND sets the badge count itself.
   const result = await admin.messaging().sendEachForMulticast({
     tokens,
-    notification: { title, body },
-    data: { badge: String(badge) },
-    webpush: {
-      notification: { icon: "/PCC_logo.png", badge: "/PCC_logo.png" },
-      fcmOptions: { link: "/" },
-    },
+    data: { title, body, badge: String(badge) },
+    webpush: { headers: { Urgency: "high" } },
   });
 
   // Remove tokens that are no longer valid
