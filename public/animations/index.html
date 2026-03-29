@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Motion Samples</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Fixed HUD -->
+  <div id="hud">
+    <span id="hud-num">01</span>
+    <span id="hud-name">fade-up</span>
+  </div>
+  <div id="progress-bar"></div>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 01 · FADE UP                                          -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="01" data-key="fade-up" data-color="#38bdf8">
+    <div class="glow" style="background:#38bdf8"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 01</span>
+      <h2 class="heading">Fade<br>Up</h2>
+      <p class="body-text">Elements rise from 50px below with opacity 0 → 1.<br>Children stagger at 0.12s intervals.</p>
+      <code class="code-badge">data-animation="fade-up"</code>
+      <div class="params">
+        <span>y: 50 → 0</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 0.9s</span>
+        <span>ease: power3.out</span>
+        <span>stagger: 0.12s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 02 · SLIDE LEFT                                       -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="02" data-key="slide-left" data-color="#a78bfa">
+    <div class="glow" style="background:#a78bfa"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 02</span>
+      <h2 class="heading">Slide<br>Left</h2>
+      <p class="body-text">Elements fly in from 80px left.<br>Good for side-aligned text panels.</p>
+      <code class="code-badge">data-animation="slide-left"</code>
+      <div class="params">
+        <span>x: -80 → 0</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 0.9s</span>
+        <span>ease: power3.out</span>
+        <span>stagger: 0.14s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 03 · SLIDE RIGHT                                      -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="03" data-key="slide-right" data-color="#fb923c">
+    <div class="glow" style="background:#fb923c"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 03</span>
+      <h2 class="heading">Slide<br>Right</h2>
+      <p class="body-text">Elements fly in from 80px right.<br>Mirror of slide-left for alternating rows.</p>
+      <code class="code-badge">data-animation="slide-right"</code>
+      <div class="params">
+        <span>x: 80 → 0</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 0.9s</span>
+        <span>ease: power3.out</span>
+        <span>stagger: 0.14s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 04 · SCALE UP                                         -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="04" data-key="scale-up" data-color="#4ade80">
+    <div class="glow" style="background:#4ade80"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 04</span>
+      <h2 class="heading">Scale<br>Up</h2>
+      <p class="body-text">Elements grow from 85% size to full.<br>Feels organic — good for product reveals.</p>
+      <code class="code-badge">data-animation="scale-up"</code>
+      <div class="params">
+        <span>scale: 0.85 → 1</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 1.0s</span>
+        <span>ease: power2.out</span>
+        <span>stagger: 0.12s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 05 · ROTATE IN                                        -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="05" data-key="rotate-in" data-color="#f472b6">
+    <div class="glow" style="background:#f472b6"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 05</span>
+      <h2 class="heading">Rotate<br>In</h2>
+      <p class="body-text">Subtle 3° tilt straightens as element rises.<br>Editorial feel — premium editorial sites.</p>
+      <code class="code-badge">data-animation="rotate-in"</code>
+      <div class="params">
+        <span>y: 40 → 0</span>
+        <span>rotation: 3 → 0</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 0.9s</span>
+        <span>stagger: 0.10s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 06 · STAGGER UP                                       -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="06" data-key="stagger-up" data-color="#fbbf24">
+    <div class="glow" style="background:#fbbf24"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 06</span>
+      <h2 class="heading">Stagger<br>Up</h2>
+      <p class="body-text">Multiple items cascade upward one after another.<br>Best for stat grids and feature lists.</p>
+      <code class="code-badge">data-animation="stagger-up"</code>
+      <div class="stagger-demo">
+        <div class="stagger-item"><span class="stagger-num">24</span><span class="stagger-label">Hours</span></div>
+        <div class="stagger-item"><span class="stagger-num">98</span><span class="stagger-label">Score</span></div>
+        <div class="stagger-item"><span class="stagger-num">360</span><span class="stagger-label">Degrees</span></div>
+        <div class="stagger-item"><span class="stagger-num">∞</span><span class="stagger-label">Scale</span></div>
+      </div>
+      <div class="params">
+        <span>y: 60 → 0</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 0.8s</span>
+        <span>ease: power3.out</span>
+        <span>stagger: 0.15s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 07 · CLIP REVEAL                                      -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="07" data-key="clip-reveal" data-color="#e879f9">
+    <div class="glow" style="background:#e879f9"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 07</span>
+      <h2 class="heading">Clip<br>Reveal</h2>
+      <p class="body-text">Text wipes in from below via clip-path inset.<br>Sharp, theatrical — great for hero headings.</p>
+      <code class="code-badge">data-animation="clip-reveal"</code>
+      <div class="params">
+        <span>clipPath: inset(100% 0 0 0) → inset(0%)</span>
+        <span>opacity: 0 → 1</span>
+        <span>duration: 1.2s</span>
+        <span>ease: power4.inOut</span>
+        <span>stagger: 0.15s</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 08 · CIRCLE WIPE                                      -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="08" data-key="circle-wipe" data-color="#34d399">
+    <div class="glow" style="background:#34d399"></div>
+    <div class="circle-bg">
+      <div class="circle-content">
+        <span class="tag" style="color:rgba(255,255,255,0.5)">ANIMATION · 08</span>
+        <h2 class="heading" style="color:#fff">Canvas<br>Reveals</h2>
+        <p class="body-text" style="color:rgba(255,255,255,0.7)">Here the circle would be the canvas showing.<br>The canvas clip-path expands from the center.</p>
+      </div>
+    </div>
+    <div class="section-inner circle-meta">
+      <code class="code-badge">clip-path: circle(0% → 75%) at 50% 50%</code>
+      <div class="params">
+        <span>circle(0%) → circle(75%)</span>
+        <span>at 50% 50%</span>
+        <span>scrub: true (scroll-driven)</span>
+        <span>hero fades simultaneously</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 09 · MARQUEE                                          -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section marquee-section" data-n="09" data-key="marquee" data-color="#94a3b8">
+    <div class="glow" style="background:#94a3b8"></div>
+    <div class="marquee-track-wrap">
+      <div class="marquee-track">
+        <span>SCROLL DRIVEN&nbsp;&nbsp;·&nbsp;&nbsp;SCROLL DRIVEN&nbsp;&nbsp;·&nbsp;&nbsp;SCROLL DRIVEN&nbsp;&nbsp;·&nbsp;&nbsp;SCROLL DRIVEN&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+      </div>
+    </div>
+    <div class="marquee-track-wrap reverse">
+      <div class="marquee-track reverse-track">
+        <span>MARQUEE TEXT&nbsp;&nbsp;·&nbsp;&nbsp;MARQUEE TEXT&nbsp;&nbsp;·&nbsp;&nbsp;MARQUEE TEXT&nbsp;&nbsp;·&nbsp;&nbsp;MARQUEE TEXT&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+      </div>
+    </div>
+    <div class="section-inner" style="position:relative;z-index:2;margin-top:auto">
+      <span class="tag">ANIMATION · 09</span>
+      <code class="code-badge">xPercent: 0 → -25 (scrub: true)</code>
+      <div class="params">
+        <span>xPercent: speed × scroll</span>
+        <span>scrub: true</span>
+        <span>font-size: 12vw+</span>
+        <span>one track per direction</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────────────── -->
+  <!-- 10 · COUNTER                                          -->
+  <!-- ────────────────────────────────────────────────────── -->
+  <section class="anim-section" data-n="10" data-key="counter" data-color="#60a5fa">
+    <div class="glow" style="background:#60a5fa"></div>
+    <div class="section-inner">
+      <span class="tag">ANIMATION · 10</span>
+      <h2 class="heading" style="margin-bottom:2rem">Counter</h2>
+      <div class="counter-grid">
+        <div class="counter-item">
+          <span class="counter-num" data-target="98.6" data-decimals="1">0</span>
+          <span class="counter-suffix">%</span>
+          <span class="counter-label">Uptime</span>
+        </div>
+        <div class="counter-item">
+          <span class="counter-num" data-target="2400" data-decimals="0">0</span>
+          <span class="counter-suffix">+</span>
+          <span class="counter-label">Users</span>
+        </div>
+        <div class="counter-item">
+          <span class="counter-num" data-target="4.9" data-decimals="1">0</span>
+          <span class="counter-suffix">★</span>
+          <span class="counter-label">Rating</span>
+        </div>
+      </div>
+      <code class="code-badge">gsap textContent tween · snap · scrollTrigger</code>
+      <div class="params">
+        <span>textContent: 0 → target</span>
+        <span>duration: 2s</span>
+        <span>ease: power1.out</span>
+        <span>snap: { textContent: 1 }</span>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1/dist/lenis.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/ScrollTrigger.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

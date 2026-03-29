@@ -52,6 +52,14 @@
         }
       },
       {
+        "source": "/animations",
+        "destination": "/animations/index.html"
+      },
+      {
+        "source": "/animations/**",
+        "destination": "/animations/index.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

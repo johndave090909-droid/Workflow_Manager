@@ -400,27 +400,27 @@ export default function SystemHub({
                 </h2>
                 <p className="hidden sm:block text-sm text-slate-400">Select a system to get started.</p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-6 max-w-5xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 max-w-6xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
                 {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
                 {/* CCBL Certificate Landing Page */}
                 <button
                   onClick={() => window.open('/ccbl', '_blank', 'noopener,noreferrer')}
-                  className="glass-card rounded-2xl sm:rounded-3xl p-3 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                  className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
                 >
-                  <div className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#C9A84C' }} />
-                  <div className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden" style={{ backgroundColor: '#C9A84C20', border: '1px solid #C9A84C40' }}>
-                    <span className="text-base sm:text-2xl">🏅</span>
+                  <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#C9A84C' }} />
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#C9A84C20', border: '1px solid #C9A84C40' }}>
+                    <span className="text-base sm:text-lg">🏅</span>
                   </div>
-                  <h3 className="text-xs sm:text-lg font-bold mb-1 sm:mb-2 relative z-10 leading-tight" style={{ color: '#C9A84C' }}>
+                  <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#C9A84C' }}>
                     CCBL Certificate
                   </h3>
-                  <p className="hidden sm:block text-sm text-slate-400 leading-relaxed relative z-10">
+                  <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
                     Certified Culinary Business Leader — credential landing page for QR code verification.
                   </p>
-                  <div className="mt-2 sm:mt-6 flex items-center gap-1 sm:gap-2 relative z-10">
-                    <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <div className="mt-1.5 flex items-center gap-1 relative z-10">
+                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
                       ↗<span className="hidden sm:inline"> External</span>
                     </span>
                   </div>
@@ -428,27 +428,49 @@ export default function SystemHub({
                 {/* Apprentice Program */}
                 <button
                   onClick={() => onNavigate('apprentice-program')}
-                  className="glass-card rounded-2xl sm:rounded-3xl p-3 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                  className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
                 >
-                  <div className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#6366f1' }} />
-                  <div className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden" style={{ backgroundColor: '#6366f120', border: '1px solid #6366f140' }}>
-                    <span className="text-base sm:text-2xl">🎓</span>
+                  <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#6366f1' }} />
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#6366f120', border: '1px solid #6366f140' }}>
+                    <span className="text-base sm:text-lg">🎓</span>
                   </div>
-                  <h3 className="text-xs sm:text-lg font-bold mb-1 sm:mb-2 relative z-10 leading-tight" style={{ color: '#6366f1' }}>
+                  <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#6366f1' }}>
                     Apprentice Program
                   </h3>
-                  <p className="hidden sm:block text-sm text-slate-400 leading-relaxed relative z-10">
+                  <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
                     Track and manage culinary apprentices through their training milestones.
                   </p>
-                  <div className="mt-2 sm:mt-6 flex items-center gap-1 sm:gap-2 relative z-10">
-                    <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-600">
+                  <div className="mt-1.5 flex items-center gap-1 relative z-10">
+                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
                       — <span className="hidden sm:inline">Open</span>
                     </span>
                   </div>
                 </button>
 
+                {/* Motion Samples */}
+                <button
+                  onClick={() => window.open('/animations', '_blank', 'noopener,noreferrer')}
+                  className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                >
+                  <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#7c3aed' }} />
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#7c3aed20', border: '1px solid #7c3aed40' }}>
+                    <span className="text-base sm:text-lg">✨</span>
+                  </div>
+                  <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#7c3aed' }}>
+                    Motion Samples
+                  </h3>
+                  <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
+                    Scroll-driven animation library for building premium websites.
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-1 relative z-10">
+                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
+                      ↗<span className="hidden sm:inline"> External</span>
+                    </span>
+                  </div>
+                </button>
+
                 {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').length === 0 && (
-                  <div className="col-span-3 text-center py-20 text-slate-600 italic text-sm">
+                  <div className="col-span-4 text-center py-20 text-slate-600 italic text-sm">
                     No systems available. Contact your IT Administrator.
                   </div>
                 )}
@@ -5576,34 +5598,34 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
   return (
     <button
       onClick={handleClick}
-      className="glass-card rounded-2xl sm:rounded-3xl p-3 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+      className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
     >
       <div
-        className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300"
+        className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300"
         style={{ backgroundColor: card.color_accent }}
       />
       {isTicketing && <LiveGuestCount />}
       {isGuardian  && <GuardianCheckStats />}
       <div
-        className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden"
+        className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}
       >
         {card.icon.startsWith('http') || card.icon.startsWith('data:')
-          ? <img src={card.icon} className="w-5 h-5 sm:w-9 sm:h-9 object-contain" alt={card.title} />
-          : <span className="text-base sm:text-2xl">{card.icon}</span>
+          ? <img src={card.icon} className="w-5 h-5 sm:w-6 sm:h-6 object-contain" alt={card.title} />
+          : <span className="text-base sm:text-lg">{card.icon}</span>
         }
       </div>
-      <h3 className="text-xs sm:text-lg font-bold mb-1 sm:mb-2 relative z-10 transition-opacity group-hover:opacity-90 leading-tight" style={{ color: card.color_accent }}>
+      <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 transition-opacity group-hover:opacity-90 leading-tight" style={{ color: card.color_accent }}>
         {card.title}
       </h3>
-      <p className="hidden sm:block text-sm text-slate-400 leading-relaxed relative z-10">{card.description}</p>
-      <div className="mt-2 sm:mt-6 flex items-center gap-1 sm:gap-2 relative z-10">
-        <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-600">
+      <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">{card.description}</p>
+      <div className="mt-1.5 flex items-center gap-1 relative z-10">
+        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
           {card.link_type === 'external' ? '↗' : '→'}
           <span className="hidden sm:inline"> {card.link_type === 'external' ? 'External' : 'Open'}</span>
         </span>
         {card.is_view_only && (
-          <span className="text-[7px] sm:text-[9px] font-black uppercase tracking-widest px-1.5 sm:px-2 py-0.5 rounded-full border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">
+          <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border border-[#ffd700]/40 bg-[#ffd700]/10 text-[#ffd700]">
             View Only
           </span>
         )}
