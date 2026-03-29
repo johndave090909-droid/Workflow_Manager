@@ -38,7 +38,10 @@ function resizeCanvas() {
   ctx.scale(dpr, dpr);
   drawFrame(currentFrame);
 }
-window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.refresh();
+});
 
 /* ── Background color sampler (no longer used — CSS controls body bg) ───── */
 function sampleBgColor(_img) { /* no-op */ }
@@ -133,17 +136,19 @@ function initLenis() {
 
 /* ── Hero word entrance ─────────────────────────────────────────────────── */
 function initHeroEntrance() {
-  const words   = heroSection.querySelectorAll('.word');
-  const label   = heroSection.querySelector('.section-label');
-  const tagline = heroSection.querySelector('.hero-tagline');
+  const words    = heroSection.querySelectorAll('.word');
+  const labels   = heroSection.querySelectorAll('.section-label');
+  const tagline  = heroSection.querySelector('.hero-tagline');
   const scrollInd = heroSection.querySelector('.scroll-indicator');
+  const subHead  = heroSection.querySelector('.hero-sub-heading');
+  const subBody  = heroSection.querySelector('.hero-sub-body');
 
   gsap.from(words, {
     y: 90, opacity: 0, stagger: 0.14,
     duration: 1.2, ease: 'power3.out', delay: 0.3,
   });
-  gsap.from([label, tagline, scrollInd], {
-    opacity: 0, y: 20, stagger: 0.1,
+  gsap.from([...labels, tagline, scrollInd, subHead, subBody].filter(Boolean), {
+    opacity: 0, y: 20, stagger: 0.08,
     duration: 0.9, ease: 'power2.out', delay: 0.9,
   });
 }
@@ -157,8 +162,8 @@ function initHeroTransition() {
     scrub: true,
     onUpdate(self) {
       const p = self.progress;
-      // Hero fades out as scroll begins
-      heroSection.style.opacity = Math.max(0, 1 - p * 15);
+      // Hero fades out only after 8% scroll so entrance animation always completes
+      heroSection.style.opacity = Math.max(0, 1 - Math.max(0, p - 0.08) * 20);
       // Canvas expands via circle clip-path (150% covers full half-panel)
       const wipeProgress = Math.min(1, Math.max(0, (p - 0.01) / 0.06));
       const radius = wipeProgress * 150;
@@ -463,6 +468,18 @@ async function init() {
   initGallerySlider();
   initMarquees();
   initDarkOverlay();
+}
+
+/* ── Play/pause toggle for alt-row videos ────────────────────────────────── */
+function toggleVid(id, btn) {
+  const vid = document.getElementById(id);
+  if (vid.paused) {
+    vid.play();
+    btn.style.opacity = '0';
+  } else {
+    vid.pause();
+    btn.style.opacity = '1';
+  }
 }
 
 /* ── Boot ────────────────────────────────────────────────────────────────── */
