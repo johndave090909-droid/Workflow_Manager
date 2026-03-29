@@ -449,7 +449,7 @@ export default function SystemHub({
 
                 {/* Motion Samples */}
                 <button
-                  onClick={() => window.open('/animations', '_blank', 'noopener,noreferrer')}
+                  onClick={() => onNavigate('motion-samples')}
                   className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
                 >
                   <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#7c3aed' }} />
@@ -464,7 +464,7 @@ export default function SystemHub({
                   </p>
                   <div className="mt-1.5 flex items-center gap-1 relative z-10">
                     <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
-                      ↗<span className="hidden sm:inline"> External</span>
+                      — <span className="hidden sm:inline">Open</span>
                     </span>
                   </div>
                 </button>

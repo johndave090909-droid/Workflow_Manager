@@ -27,6 +27,7 @@ import ShiftFlowApp from './ShiftFlow/ShiftFlowApp';
 import WorkerPortal from './ShiftFlow/WorkerPortal';
 import CCBLLandingPage from './pages/CCBLLandingPage';
 import ApprenticeProgram from './pages/ApprenticeProgram';
+import MotionSamples from './pages/MotionSamples';
 import { usePushNotifications } from './usePushNotifications';
 
 import { auth, db } from './firebase';
@@ -557,6 +558,16 @@ export default function App() {
       <>
         {floatingBell}
         <ApprenticeProgram onBackToHub={() => setCurrentView('hub')} />
+        <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
+      </>
+    );
+  }
+
+  if (currentView === 'motion-samples') {
+    return (
+      <>
+        {floatingBell}
+        <MotionSamples onBackToHub={() => setCurrentView('hub')} />
         <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       </>
     );

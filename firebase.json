@@ -52,10 +52,6 @@
         }
       },
       {
-        "source": "/animations",
-        "destination": "/animations/index.html"
-      },
-      {
         "source": "/animations/reference",
         "destination": "/animations/reference/index.html"
       },

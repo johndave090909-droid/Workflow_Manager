@@ -85,7 +85,7 @@ export interface Deliverable {
   sharedWithAll?: boolean; // Director can make visible to all accounts
 }
 
-export type AppView = 'hub' | 'tracker' | 'it-admin' | 'workflow' | 'workers' | 'scheduler' | 'ccbl' | 'apprentice-program';
+export type AppView = 'hub' | 'tracker' | 'it-admin' | 'workflow' | 'workers' | 'scheduler' | 'ccbl' | 'apprentice-program' | 'motion-samples';
 
 export interface SystemCard {
   id: string;        // Firestore document ID
