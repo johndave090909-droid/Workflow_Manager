@@ -6,7 +6,8 @@
   <title>Sample 01 — Frame Scroll</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;500;600&display=swap" />
-  <!-- Auth guard: checks Firestore pageVisibility before showing page -->
+  <!-- Auth guard: hide page until visibility + auth check completes -->
+  <style> body { visibility: hidden; } </style>
   <script>
     (async function() {
       const PAGE_KEY = 'animations-sample-01';
@@ -15,7 +16,6 @@
         authDomain: "systems-hub.firebaseapp.com",
         projectId: "systems-hub",
       };
-      // Load Firebase compat SDK
       await Promise.all([
         new Promise(r => { const s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js'; s.onload = r; document.head.appendChild(s); }),
         new Promise(r => { const s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js'; s.onload = r; document.head.appendChild(s); }),
@@ -23,14 +23,14 @@
       ]);
       if (!firebase.apps.length) firebase.initializeApp(cfg);
       const db = firebase.firestore();
-      // Check visibility setting
       const snap = await db.collection('settings').doc('pageVisibility').get().catch(() => null);
       const isPublic = snap && snap.exists ? (snap.data()[PAGE_KEY] ?? false) : false;
-      if (isPublic) return; // public — show page normally
-      // Private — check if user is logged in
+      if (isPublic) { document.body.style.visibility = 'visible'; return; }
+      // Private — check auth
       await new Promise(resolve => firebase.auth().onAuthStateChanged(resolve));
       const user = firebase.auth().currentUser;
-      if (!user) window.location.replace('/?private=1');
+      if (user) { document.body.style.visibility = 'visible'; }
+      else { window.location.replace('/?private=1'); }
     })();
   </script>
   <style>

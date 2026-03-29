@@ -6,7 +6,8 @@
   <title>Animation Reference — Motion Samples</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap" />
-  <!-- Auth guard -->
+  <!-- Auth guard: hide page until visibility + auth check completes -->
+  <style> body { visibility: hidden; } </style>
   <script>
     (async function() {
       const PAGE_KEY = 'animations-reference';
@@ -24,10 +25,11 @@
       const db = firebase.firestore();
       const snap = await db.collection('settings').doc('pageVisibility').get().catch(() => null);
       const isPublic = snap && snap.exists ? (snap.data()[PAGE_KEY] ?? false) : false;
-      if (isPublic) return;
+      if (isPublic) { document.body.style.visibility = 'visible'; return; }
       await new Promise(resolve => firebase.auth().onAuthStateChanged(resolve));
       const user = firebase.auth().currentUser;
-      if (!user) window.location.replace('/?private=1');
+      if (user) { document.body.style.visibility = 'visible'; }
+      else { window.location.replace('/?private=1'); }
     })();
   </script>
   <link rel="stylesheet" href="css/style.css" />
