@@ -62,29 +62,72 @@
     </nav>
   </header>
 
-  <!-- ── Intro Video ───────────────────────────────────────────────────────── -->
+  <!-- ── Intro Video (sashimi) ─────────────────────────────────────────────── -->
   <section class="intro-video-section">
     <video class="intro-video" autoplay muted loop playsinline>
       <source src="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/CCBL%2F1774600778010_2205_TastePolynesia_Inspired_Ahi%20Sashimi_1920x1080_d1m%20%281%29_2205_TastePolynesia_Inspired_Ahi%20Sashimi_1920x1080_d1m%20%281%29.m4v?alt=media" type="video/mp4">
     </video>
-    <div class="intro-video-overlay"></div>
   </section>
 
-  <!-- ── Hero (standalone 100vh, solid dark bg) ─────────────────────────── -->
+  <!-- ── Hero (standalone, solid dark bg) ──────────────────────────────── -->
   <section class="hero-standalone" id="hero">
-    <span class="section-label">001 / The Art</span>
-    <h1 class="hero-heading">
-      <span class="word">Crafted</span><br>
-      <span class="word">With</span>
-      <span class="word">Purpose</span>
-    </h1>
-    <p class="hero-tagline">Polynesian Cultural Center &mdash; Culinary Excellence, Laie Hawai&lsquo;i</p>
-    <div class="scroll-indicator">
-      <span>Scroll</span>
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9"/>
-      </svg>
+    <div class="hero-left">
+      <span class="section-label">001 / The Art</span>
+      <h1 class="hero-heading">
+        <span class="word">Crafted</span><br>
+        <span class="word">With</span>
+        <span class="word">Purpose</span>
+      </h1>
+      <p class="hero-tagline">Polynesian Cultural Center &mdash; Culinary Excellence, Laie Hawai&lsquo;i</p>
+      <div class="scroll-indicator">
+        <span>Scroll</span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
     </div>
+    <div class="hero-right">
+      <span class="section-label">001 / The Craft</span>
+      <h2 class="hero-sub-heading">Where Passion<br>Meets Precision</h2>
+      <p class="hero-sub-body">Every dish is a story told through heat, technique, and devotion. Our culinary program transforms raw passion into professional mastery — one plate at a time.</p>
+    </div>
+  </section>
+
+  <!-- ── Alternating Video + Text Rows ─────────────────────────────────────── -->
+  <section class="alt-rows-section">
+
+    <!-- Row 1: text left, video right -->
+    <div class="alt-row">
+      <div class="alt-text">
+        <h2 class="alt-heading">The Ground Oven</h2>
+        <p class="alt-body">Ground ovens are traditional throughout the Polynesian Islands. In the early morning hours at the Center a Hawaiian ground oven, or imu, is built and used to dry age and steam a whole roasted pig for 10 hours to ensure the most tender and delicious meat. This practice has been passed down through the generations — honoring the long-standing traditions of Polynesian cooking.</p>
+      </div>
+      <div class="alt-video">
+        <video muted loop playsinline id="vid1">
+          <source src="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/DirectoryGallery%2Fvideos%2F3191697714.mp4?alt=media" type="video/mp4">
+        </video>
+        <button class="play-btn" onclick="toggleVid('vid1', this)">
+          <svg viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Row 2: video left, text right -->
+    <div class="alt-row alt-row-reverse">
+      <div class="alt-video">
+        <video muted loop playsinline id="vid2">
+          <source src="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/DirectoryGallery%2Fvideos%2F3209454685.mp4?alt=media" type="video/mp4">
+        </video>
+        <button class="play-btn" onclick="toggleVid('vid2', this)">
+          <svg viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
+        </button>
+      </div>
+      <div class="alt-text">
+        <h2 class="alt-heading">Cooking on Hot Rocks</h2>
+        <p class="alt-body">Cultural experts from our Samoan village and Executive Chef Felix Tai showcase one of the many ways that the Center uses traditional Polynesian techniques and recipes in innovative ways to bring unique dishes to our Ohana. Our chefs use a hot rock technique to create a delicious meal with fresh Kona Kampachi fish marinated in brown sugar and coconut milk vinaigrette — based off a traditional Samoan recipe.</p>
+      </div>
+    </div>
+
   </section>
 
   <!-- ── Canvas (fixed, full viewport, circle-wipe reveal) ─────────────── -->
@@ -108,19 +151,9 @@
   <!-- ── Scroll Container (900vh — all sections positioned absolutely) ───── -->
   <div id="scroll-container">
 
-    <!-- Section 1: The Craft -->
-    <section class="scroll-section section-content align-left"
-             data-enter="8" data-leave="22" data-animation="slide-left">
-      <div class="section-inner">
-        <span class="section-label">001 / The Craft</span>
-        <h2 class="section-heading">Where Passion<br>Meets Precision</h2>
-        <p class="section-body">Every dish is a story told through heat, technique, and devotion. Our culinary program transforms raw passion into professional mastery — one plate at a time.</p>
-      </div>
-    </section>
-
     <!-- Section 2: The Experience -->
     <section class="scroll-section section-content align-left"
-             data-enter="25" data-leave="40" data-animation="slide-left">
+             data-enter="10" data-leave="24" data-animation="slide-left">
       <div class="section-inner">
         <span class="section-label">002 / Experience</span>
         <h2 class="section-heading">An Immersive<br>Kitchen Education</h2>
@@ -130,7 +163,7 @@
 
     <!-- Section 3: Leadership -->
     <section class="scroll-section section-content align-left"
-             data-enter="42" data-leave="55" data-animation="scale-up">
+             data-enter="26" data-leave="40" data-animation="scale-up">
       <div class="section-inner">
         <span class="section-label">003 / Leadership</span>
         <h2 class="section-heading">Building Culinary<br>Business Leaders</h2>
@@ -169,7 +202,7 @@
 
     <!-- Section 5: Heritage -->
     <section class="scroll-section section-content align-left"
-             data-enter="73" data-leave="85" data-animation="rotate-in">
+             data-enter="74" data-leave="86" data-animation="rotate-in">
       <div class="section-inner">
         <span class="section-label">004 / Heritage</span>
         <h2 class="section-heading">Rooted in<br>Polynesian Culture</h2>
@@ -179,7 +212,7 @@
 
     <!-- Section 6: CTA (persists) -->
     <section class="scroll-section section-cta align-left"
-             data-enter="87" data-leave="100" data-animation="clip-reveal" data-persist="true">
+             data-enter="88" data-leave="100" data-animation="clip-reveal" data-persist="true">
       <div class="section-inner">
         <span class="section-label">005 / Begin</span>
         <h2 class="section-heading">Your Journey<br>Starts Here</h2>
@@ -189,6 +222,27 @@
     </section>
 
   </div><!-- #scroll-container -->
+
+  <!-- ── Footer ────────────────────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <div class="footer-social">
+      <span>FOLLOW US:</span>
+      <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>Facebook</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.742l7.735-8.835L1.254 2.25H8.08l4.259 5.63 5.905-5.63zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>X</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 3a3 3 0 0 0-3 3v2.1a8.5 8.5 0 0 0 17 0V6a3 3 0 0 0-3-3H6zm6 14a6.5 6.5 0 0 1-6.5-6.5V6a1 1 0 0 1 1-1h11a1 1 0 0 1 1 1v4.5A6.5 6.5 0 0 1 12 17z"/></svg>Blog</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path fill="#47392a" d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" stroke="#47392a" stroke-width="2"/></svg>Instagram</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46A2.78 2.78 0 0 0 1.46 6.42 29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58 2.78 2.78 0 0 0 1.95 1.95C5.12 20 12 20 12 20s6.88 0 8.59-.47a2.78 2.78 0 0 0 1.95-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon fill="#47392a" points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/></svg>YouTube</a>
+      <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>Download App</a>
+    </div>
+    <div class="footer-bottom">
+      <span>Polynesian Cultural Center, All Rights Reserved, &copy; 2026</span>
+      <div class="footer-links">
+        <a href="#">Terms of Use</a>
+        <span>|</span>
+        <a href="#">Privacy Policy</a>
+      </div>
+    </div>
+  </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/lenis@1/dist/lenis.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>

@@ -101,7 +101,7 @@ body {
   position: relative;
   width: 100%;
   height: 38vh;
-  margin-top: 65px; /* push below fixed header */
+  margin-top: 65px;
   overflow: hidden;
   background: #1a1410;
 }
@@ -113,26 +113,121 @@ body {
   object-fit: cover;
 }
 
-.intro-video-overlay {
+/* ── Alternating Rows Section ──────────────────────────────────────────────── */
+.alt-rows-section {
+  position: relative;
+  z-index: 10;
+  background: #f6f1e8;
+  padding: 4rem 0;
+}
+
+.alt-row {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  padding: 3rem 6vw;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.alt-row-reverse {
+  flex-direction: row-reverse;
+}
+
+.alt-text {
+  flex: 1;
+}
+
+.alt-heading {
+  font-family: 'Fredoka One', var(--font-display);
+  font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+  font-weight: 400;
+  color: #2a1f12;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 1.2rem;
+}
+
+.alt-body {
+  font-size: clamp(0.82rem, 1vw, 0.95rem);
+  color: #5a4a38;
+  line-height: 1.8;
+}
+
+.alt-video {
+  flex: 1;
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+  aspect-ratio: 16/9;
+  background: #1a1410;
+  cursor: pointer;
+}
+
+.alt-video video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.play-btn {
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(0,0,0,0.15) 0%,
-    rgba(0,0,0,0.05) 60%,
-    rgba(71,57,42,0.6) 100%   /* fades into hero brown */
-  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.25);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.play-btn:hover { background: rgba(0,0,0,0.4); }
+.play-btn svg {
+  width: 56px; height: 56px;
+  background: rgba(0,0,0,0.55);
+  border-radius: 50%;
+  padding: 14px;
 }
 
 /* ── Hero Standalone ───────────────────────────────────────────────────────── */
 .hero-standalone {
   position: relative; z-index: 10;
-  height: calc(100vh - 38vh - 65px);
+  height: calc(62vh - 65px);
+  min-height: 280px;
   background: #47392a;
-  display: flex; flex-direction: column;
-  align-items: flex-start; justify-content: center;
+  display: flex; flex-direction: row;
+  align-items: center;
   padding: 0 8vw;
   overflow: hidden;
+  gap: 4vw;
+}
+
+.hero-left {
+  flex: 0 0 48%;
+  display: flex; flex-direction: column;
+  justify-content: center;
+}
+
+.hero-right {
+  flex: 0 0 44%;
+  display: flex; flex-direction: column;
+  justify-content: center;
+  border-left: 1px solid rgba(255,255,255,0.12);
+  padding-left: 4vw;
+}
+
+.hero-sub-heading {
+  font-family: var(--font-display);
+  font-size: clamp(1.4rem, 2.8vw, 3rem);
+  font-weight: 700; line-height: 1.1;
+  color: var(--text-on-dark);
+  margin: 0.5rem 0 1rem;
+}
+
+.hero-sub-body {
+  font-size: clamp(0.78rem, 1vw, 0.95rem);
+  color: #a89880;
+  line-height: 1.7;
 }
 
 .hero-standalone .section-label {
@@ -323,6 +418,75 @@ body {
   background: var(--gold);
   color: var(--bg-dark);
 }
+
+/* ── Footer ────────────────────────────────────────────────────────────────── */
+.site-footer {
+  background: #47392a;
+  color: #c9b89a;
+  padding: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.footer-social {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  padding: 1.4rem 3rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+}
+
+.footer-social span {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #e8d5b0;
+  margin-right: 0.5rem;
+}
+
+.footer-social a {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #c9b89a;
+  text-decoration: none;
+  font-size: 0.75rem;
+  transition: color 0.2s;
+}
+.footer-social a:hover { color: #e8891e; }
+
+.footer-social svg {
+  width: 28px; height: 28px;
+  background: #1e1610;
+  border-radius: 50%;
+  padding: 6px;
+  flex-shrink: 0;
+}
+
+.footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 3rem;
+  font-size: 0.72rem;
+  color: #9a8870;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.footer-links a {
+  color: #9a8870;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-links a:hover { color: #e8891e; }
+.footer-links span { opacity: 0.4; }
 
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {

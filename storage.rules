@@ -23,7 +23,7 @@ service firebase.storage {
     }
 
     // Directory gallery is public (used on the Taste Polynesia page)
-    match /DirectoryGallery/{file} {
+    match /DirectoryGallery/{allPaths=**} {
       allow read: if true;
     }
 

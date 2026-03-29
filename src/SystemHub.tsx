@@ -425,6 +425,28 @@ export default function SystemHub({
                     </span>
                   </div>
                 </button>
+                {/* Apprentice Program */}
+                <button
+                  onClick={() => onNavigate('apprentice-program')}
+                  className="glass-card rounded-2xl sm:rounded-3xl p-3 sm:p-8 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                >
+                  <div className="absolute -bottom-6 -right-6 w-32 h-32 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#6366f1' }} />
+                  <div className="w-8 h-8 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mb-2 sm:mb-6 relative z-10 overflow-hidden" style={{ backgroundColor: '#6366f120', border: '1px solid #6366f140' }}>
+                    <span className="text-base sm:text-2xl">🎓</span>
+                  </div>
+                  <h3 className="text-xs sm:text-lg font-bold mb-1 sm:mb-2 relative z-10 leading-tight" style={{ color: '#6366f1' }}>
+                    Apprentice Program
+                  </h3>
+                  <p className="hidden sm:block text-sm text-slate-400 leading-relaxed relative z-10">
+                    Track and manage culinary apprentices through their training milestones.
+                  </p>
+                  <div className="mt-2 sm:mt-6 flex items-center gap-1 sm:gap-2 relative z-10">
+                    <span className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-600">
+                      — <span className="hidden sm:inline">Open</span>
+                    </span>
+                  </div>
+                </button>
+
                 {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').length === 0 && (
                   <div className="col-span-3 text-center py-20 text-slate-600 italic text-sm">
                     No systems available. Contact your IT Administrator.
