@@ -83,6 +83,24 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const [apprenticeUploading, setApprenticeUploading] = useState(false);
   const apprenticeInputRef = useRef<HTMLInputElement>(null);
 
+  // ── Page visibility state ─────────────────────────────────────
+  const [pageVisibility, setPageVisibility] = useState<Record<string, boolean>>({});
+  const [pageVisTogglingKey, setPageVisTogglingKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    getDoc(doc(db, 'settings', 'pageVisibility')).then(snap => {
+      if (snap.exists()) setPageVisibility(snap.data() as Record<string, boolean>);
+    });
+  }, []);
+
+  const togglePageVisibility = async (key: string, current: boolean) => {
+    setPageVisTogglingKey(key);
+    const next = !current;
+    await setDoc(doc(db, 'settings', 'pageVisibility'), { [key]: next }, { merge: true });
+    setPageVisibility(prev => ({ ...prev, [key]: next }));
+    setPageVisTogglingKey(null);
+  };
+
   // ── Directory Gallery state ────────────────────────────────────
   type DirGalleryItem = { id: string; storagePath: string; url: string; type: 'photo' | 'video'; name: string; row: 1 | 2 };
   const [dirGallery,    setDirGallery]    = useState<DirGalleryItem[]>([]);
@@ -790,75 +808,63 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
         <div className="space-y-4">
           <div>
             <h2 className="text-2xl font-bold" style={{ color: '#34d399' }}>Public Pages</h2>
-            <p className="text-sm text-slate-400 mt-1">These URLs are accessible without login. Anyone with the link can view them.</p>
+            <p className="text-sm text-slate-400 mt-1">Toggle each page between public (no login needed) and private (login required). Changes take effect immediately.</p>
           </div>
           <div className="glass-card rounded-2xl overflow-hidden border border-white/10 divide-y divide-white/5">
-            {[
-              {
-                emoji: '🌺',
-                label: 'Taste Polynesia',
-                desc: 'Scroll-driven directory page — public marketing site',
-                url: `${window.location.origin}/directory`,
-                status: 'public',
-              },
-              {
-                emoji: '🏅',
-                label: 'CCBL Certificate',
-                desc: 'Certified Culinary Business Leader credential landing page for QR code scans',
-                url: `${window.location.origin}/ccbl`,
-                status: 'public',
-              },
-              {
-                emoji: '✨',
-                label: 'Sample 01 — Frame Scroll',
-                desc: 'Animation sample page (internal use — not linked publicly)',
-                url: `${window.location.origin}/animations/samples/01/`,
-                status: 'internal',
-              },
-              {
-                emoji: '📖',
-                label: 'Animation Reference',
-                desc: 'Technique reference page (internal use — not linked publicly)',
-                url: `${window.location.origin}/animations/reference/`,
-                status: 'internal',
-              },
-            ].map(link => (
-              <div key={link.url} className="flex items-center justify-between px-5 py-4 gap-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-xl shrink-0">{link.emoji}</span>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-bold text-white">{link.label}</p>
-                      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border ${
-                        link.status === 'public'
-                          ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-400'
-                          : 'border-yellow-400/30 bg-yellow-500/10 text-yellow-400'
-                      }`}>
-                        {link.status === 'public' ? '🌐 Public' : '🔒 No login required but unlisted'}
-                      </span>
+            {([
+              { key: 'directory',           emoji: '🌺', label: 'Taste Polynesia',          desc: 'Scroll-driven directory page — public marketing site',                       url: `${window.location.origin}/directory`,              defaultPublic: true  },
+              { key: 'ccbl',                emoji: '🏅', label: 'CCBL Certificate',          desc: 'Credential landing page for QR code scans',                                 url: `${window.location.origin}/ccbl`,                   defaultPublic: true  },
+              { key: 'animations-sample-01',emoji: '✨', label: 'Sample 01 — Frame Scroll',  desc: 'Animation sample (frame-scroll technique)',                                  url: `${window.location.origin}/animations/samples/01/`, defaultPublic: false },
+              { key: 'animations-reference',emoji: '📖', label: 'Animation Reference',       desc: 'All 10 animation techniques with parameters',                               url: `${window.location.origin}/animations/reference/`,  defaultPublic: false },
+            ] as { key: string; emoji: string; label: string; desc: string; url: string; defaultPublic: boolean }[]).map(page => {
+              const isPublic = pageVisibility[page.key] ?? page.defaultPublic;
+              const isToggling = pageVisTogglingKey === page.key;
+              return (
+                <div key={page.key} className="flex items-center justify-between px-5 py-4 gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xl shrink-0">{page.emoji}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold text-white">{page.label}</p>
+                        <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border transition-all ${
+                          isPublic
+                            ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-400'
+                            : 'border-red-400/30 bg-red-500/10 text-red-400'
+                        }`}>
+                          {isPublic ? '🌐 Public' : '🔒 Private'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5 truncate">{page.desc}</p>
                     </div>
-                    <p className="text-xs text-slate-500 mt-0.5 truncate">{link.desc}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(page.url)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+                    >
+                      Copy
+                    </button>
+                    <a href={page.url} target="_blank" rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all">
+                      Open ↗
+                    </a>
+                    {/* Toggle */}
+                    <button
+                      onClick={() => togglePageVisibility(page.key, isPublic)}
+                      disabled={isToggling}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                        isPublic ? 'bg-emerald-500' : 'bg-white/10'
+                      }`}
+                      title={isPublic ? 'Set to Private' : 'Set to Public'}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${
+                        isPublic ? 'translate-x-6' : 'translate-x-1'
+                      }`} />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => navigator.clipboard.writeText(link.url)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
-                  >
-                    Copy
-                  </button>
-                  <a
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-all hover:opacity-80"
-                    style={{ backgroundColor: '#34d399' + 'cc' }}
-                  >
-                    Open ↗
-                  </a>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
