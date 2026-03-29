@@ -37,6 +37,7 @@ interface ChatMessage {
   senderPhoto: string;
   content: string;
   timestamp: string | null;
+  seenBy?: Record<string, string>; // userId → ISO timestamp
 }
 
 type View = 'list' | 'chat' | 'new-dm' | 'new-group';
@@ -171,6 +172,12 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
     return onSnapshot(q, snap => {
       const msgs = snap.docs.map(d => {
         const data = d.data();
+        const seenBy: Record<string, string> = {};
+        if (data.seenBy) {
+          for (const [uid, val] of Object.entries(data.seenBy)) {
+            seenBy[uid] = (val as any)?.toDate?.()?.toISOString() ?? String(val);
+          }
+        }
         return {
           id:          d.id,
           senderId:    data.senderId,
@@ -178,6 +185,7 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
           senderPhoto: data.senderPhoto ?? '',
           content:     data.content,
           timestamp:   data.timestamp?.toDate?.()?.toISOString() ?? null,
+          seenBy:      Object.keys(seenBy).length > 0 ? seenBy : undefined,
         };
       });
       msgs.sort((a, b) => {
@@ -204,6 +212,16 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
       });
     }
   }, [activeConv?.id, open]);
+
+  // ── Mark latest message as seen ───────────────────────────────────────────
+  useEffect(() => {
+    if (!activeConv || !open || messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.seenBy?.[currentUser.id]) return; // already marked
+    updateDoc(doc(db, 'conversations', activeConv.id, 'messages', lastMsg.id), {
+      [`seenBy.${currentUser.id}`]: serverTimestamp(),
+    }).catch(() => {}); // silently ignore
+  }, [messages, open, activeConv?.id]);
 
   // ── Close on outside click ────────────────────────────────────────────────
   useEffect(() => {
@@ -243,6 +261,7 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
         senderPhoto: currentUser.photo ?? '',
         content,
         timestamp:   serverTimestamp(),
+        seenBy:      { [currentUser.id]: serverTimestamp() },
       });
       const unreadUpdate: Record<string, ReturnType<typeof increment>> = {};
       activeConv.members.forEach(id => {
@@ -469,46 +488,78 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                     <p className="text-sm text-slate-600">No messages yet. Say hi! 👋</p>
                   </div>
                 )}
-                {messages.map((msg, i) => {
-                  const isMe       = msg.senderId === currentUser.id;
-                  const prev       = messages[i - 1];
-                  const next       = messages[i + 1];
-                  const showName   = !isMe && activeConv.type === 'group' && (!prev || prev.senderId !== msg.senderId);
-                  const showAvatar = !isMe && (!next || next.senderId !== msg.senderId);
-                  const isLastInGroup = !next || next.senderId !== msg.senderId;
-                  const timeLabel = (() => {
-                    if (!msg.timestamp) return null;
-                    const d = new Date(msg.timestamp);
-                    const isToday = d.toDateString() === new Date().toDateString();
-                    const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    if (isToday) return time;
-                    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ', ' + time;
-                  })();
-                  return (
-                    <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} items-end gap-1.5`}>
-                      {!isMe && (
-                        <div className="shrink-0 w-6" style={{ visibility: showAvatar ? 'visible' : 'hidden' }}>
-                          <Avatar photo={msg.senderPhoto} name={msg.senderName} size={24} />
+                {(() => {
+                  // Find the last "my" message index that has been seen by others
+                  const lastSeenMyIdx = messages.reduce((last, m, i) => {
+                    if (m.senderId !== currentUser.id) return last;
+                    const seenByOthers = Object.keys(m.seenBy ?? {}).filter(uid => uid !== currentUser.id);
+                    return seenByOthers.length > 0 ? i : last;
+                  }, -1);
+
+                  return messages.map((msg, i) => {
+                    const isMe          = msg.senderId === currentUser.id;
+                    const prev          = messages[i - 1];
+                    const next          = messages[i + 1];
+                    const showName      = !isMe && activeConv.type === 'group' && (!prev || prev.senderId !== msg.senderId);
+                    const showAvatar    = !isMe && (!next || next.senderId !== msg.senderId);
+                    const isLastInGroup = !next || next.senderId !== msg.senderId;
+                    const timeLabel     = (() => {
+                      if (!msg.timestamp) return null;
+                      const d       = new Date(msg.timestamp);
+                      const isToday = d.toDateString() === new Date().toDateString();
+                      const time    = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                      if (isToday) return time;
+                      return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ', ' + time;
+                    })();
+
+                    // Seen-by avatars: show only under the last "my" message seen by others
+                    const seenAvatars = (isMe && i === lastSeenMyIdx)
+                      ? Object.keys(msg.seenBy ?? {})
+                          .filter(uid => uid !== currentUser.id)
+                          .map(uid => ({
+                            uid,
+                            photo: activeConv.memberPhotos?.[uid],
+                            name:  activeConv.memberNames?.[uid] ?? uid,
+                          }))
+                      : [];
+
+                    return (
+                      <div key={msg.id}>
+                        <div className={`flex ${isMe ? 'justify-end' : 'justify-start'} items-end gap-1.5`}>
+                          {!isMe && (
+                            <div className="shrink-0 w-6" style={{ visibility: showAvatar ? 'visible' : 'hidden' }}>
+                              <Avatar photo={msg.senderPhoto} name={msg.senderName} size={24} />
+                            </div>
+                          )}
+                          <div className={`max-w-[85%] sm:max-w-[72%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                            {showName && (
+                              <p className="text-[10px] text-slate-500 mb-0.5 px-1">{msg.senderName}</p>
+                            )}
+                            <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
+                              isMe
+                                ? 'bg-[#38bdf8] text-white rounded-br-sm'
+                                : 'bg-white/[0.09] text-slate-200 rounded-bl-sm'
+                            }`}>
+                              {msg.content}
+                            </div>
+                            {isLastInGroup && timeLabel && (
+                              <p className="text-[10px] text-slate-600 mt-0.5 px-1">{timeLabel}</p>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      <div className={`max-w-[85%] sm:max-w-[72%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                        {showName && (
-                          <p className="text-[10px] text-slate-500 mb-0.5 px-1">{msg.senderName}</p>
-                        )}
-                        <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
-                          isMe
-                            ? 'bg-[#38bdf8] text-white rounded-br-sm'
-                            : 'bg-white/[0.09] text-slate-200 rounded-bl-sm'
-                        }`}>
-                          {msg.content}
-                        </div>
-                        {isLastInGroup && timeLabel && (
-                          <p className="text-[10px] text-slate-600 mt-0.5 px-1">{timeLabel}</p>
+                        {seenAvatars.length > 0 && (
+                          <div className="flex justify-end gap-0.5 mt-0.5 pr-1">
+                            {seenAvatars.map(({ uid, photo, name }) => (
+                              <div key={uid} title={`Seen by ${name}`}>
+                                <Avatar photo={photo} name={name} size={14} />
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
                 <div ref={messagesEnd} />
               </div>
 
