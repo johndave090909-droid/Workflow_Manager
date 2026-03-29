@@ -27,6 +27,11 @@ service firebase.storage {
       allow read: if true;
     }
 
+    // Motion samples source videos
+    match /Samples/{file} {
+      allow read: if true;
+    }
+
     // CCBL root-level files are public (videos used on Taste Polynesia page)
     match /CCBL/{file} {
       allow read: if true;

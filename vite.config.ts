@@ -25,7 +25,7 @@ function staticPagesPlugin(pages: string[]) {
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss(), staticPagesPlugin(['animations', 'directory', 'ccbl'])],
+    plugins: [react(), tailwindcss(), staticPagesPlugin(['animations', 'animations/reference', 'animations/samples/01', 'directory', 'ccbl'])],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },

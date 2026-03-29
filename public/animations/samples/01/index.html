@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sample 01 — Frame Scroll</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;500;600&display=swap" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080808;
+      --accent: #e8891e;
+    }
+
+    html, body { background: var(--bg); overflow-x: hidden; }
+
+    /* ── Loader ── */
+    #loader {
+      position: fixed; inset: 0; z-index: 9999;
+      background: var(--bg);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 1.5rem;
+    }
+    .loader-brand {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px; letter-spacing: 0.3em;
+      text-transform: uppercase; color: rgba(255,255,255,0.3);
+    }
+    #loader-bar-wrap {
+      width: 180px; height: 1px;
+      background: rgba(255,255,255,0.08);
+    }
+    #loader-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.1s linear; }
+    #loader-percent {
+      font-family: 'Syne', sans-serif;
+      font-size: 11px; letter-spacing: 0.15em;
+      color: rgba(255,255,255,0.25);
+    }
+
+    /* ── Back link ── */
+    #back {
+      position: fixed; top: 1.5rem; left: 1.5rem; z-index: 100;
+      font-family: 'Inter', sans-serif; font-size: 11px;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: rgba(255,255,255,0.25); text-decoration: none;
+      transition: color 0.2s;
+    }
+    #back:hover { color: rgba(255,255,255,0.7); }
+
+    /* ── Hero ── */
+    .hero-standalone {
+      position: relative; z-index: 2;
+      height: 100vh;
+      background: #0d0d0d;
+      display: flex; align-items: center;
+      padding: 0 8vw;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .hero-inner { max-width: 700px; }
+    .hero-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 10px; letter-spacing: 0.25em;
+      text-transform: uppercase; color: var(--accent);
+      margin-bottom: 1.5rem; display: block;
+      opacity: 0;
+    }
+    .hero-heading {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(4rem, 10vw, 9rem);
+      font-weight: 800; line-height: 0.88;
+      letter-spacing: -0.03em;
+      color: #fff;
+      margin-bottom: 2rem;
+    }
+    .hero-heading .word { display: inline-block; overflow: hidden; }
+    .hero-heading .word-inner { display: inline-block; transform: translateY(110%); }
+    .hero-sub {
+      font-family: 'Inter', sans-serif;
+      font-size: clamp(0.85rem, 1.5vw, 1rem);
+      line-height: 1.7; color: rgba(255,255,255,0.35);
+      max-width: 420px; opacity: 0;
+    }
+    .scroll-ind {
+      position: absolute; bottom: 2.5rem; left: 8vw;
+      font-family: 'Inter', sans-serif;
+      font-size: 10px; letter-spacing: 0.2em;
+      text-transform: uppercase; color: rgba(255,255,255,0.2);
+      opacity: 0;
+    }
+
+    /* ── Canvas ── */
+    .canvas-wrap {
+      position: fixed; inset: 0; z-index: 1;
+      clip-path: circle(0% at 50% 50%);
+    }
+    #canvas { width: 100%; height: 100%; display: block; }
+
+    /* ── Dark overlay ── */
+    #dark-overlay {
+      position: fixed; inset: 0; z-index: 3;
+      background: #000; opacity: 0; pointer-events: none;
+    }
+
+    /* ── Scroll container ── */
+    #scroll-container {
+      position: relative; z-index: 4;
+      height: 900vh;
+    }
+
+    /* ── Sections ── */
+    .scroll-section {
+      position: absolute; width: 100%;
+      display: flex; align-items: center;
+      pointer-events: none; opacity: 0;
+    }
+    .align-left  { padding-left: 5vw; padding-right: 55vw; }
+    .align-right { padding-left: 55vw; padding-right: 5vw; }
+    .section-inner { max-width: 38vw; }
+
+    .section-label {
+      display: block;
+      font-family: 'Inter', sans-serif;
+      font-size: 10px; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--accent);
+      margin-bottom: 1rem;
+    }
+    .section-heading {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      font-weight: 800; line-height: 1;
+      letter-spacing: -0.02em; color: #fff;
+      margin-bottom: 1rem;
+    }
+    .section-body {
+      font-family: 'Inter', sans-serif;
+      font-size: clamp(0.8rem, 1.3vw, 0.95rem);
+      line-height: 1.75; color: rgba(255,255,255,0.45);
+    }
+
+    /* ── Stats section ── */
+    .section-stats {
+      position: absolute; width: 100%;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+    }
+    .stats-grid {
+      display: flex; gap: 5vw; flex-wrap: wrap;
+      justify-content: center;
+    }
+    .stat { display: flex; flex-direction: column; align-items: center; }
+    .stat-number {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(3.5rem, 8vw, 7rem);
+      font-weight: 800; line-height: 1;
+      color: #fff; letter-spacing: -0.03em;
+    }
+    .stat-suffix {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(1.5rem, 3vw, 2.5rem);
+      color: var(--accent); font-weight: 700;
+    }
+    .stat-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 10px; letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+      margin-top: 0.5rem;
+    }
+
+    /* ── Marquee ── */
+    .marquee-wrap {
+      position: fixed; z-index: 5;
+      width: 100%; overflow: hidden;
+      pointer-events: none; opacity: 0;
+    }
+    .marquee-text {
+      white-space: nowrap;
+      font-family: 'Syne', sans-serif;
+      font-size: 14vw; font-weight: 800;
+      letter-spacing: -0.03em;
+      color: rgba(255,255,255,0.04);
+      will-change: transform;
+    }
+
+    /* ── CTA ── */
+    .section-cta {
+      position: absolute; width: 100%;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 1.5rem;
+      opacity: 0; text-align: center;
+    }
+    .cta-heading {
+      font-family: 'Syne', sans-serif;
+      font-size: clamp(3rem, 7vw, 6rem);
+      font-weight: 800; line-height: 0.9;
+      color: #fff; letter-spacing: -0.03em;
+    }
+    .cta-sub {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem; color: rgba(255,255,255,0.3);
+      letter-spacing: 0.05em;
+    }
+    .cta-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); display: inline-block;
+    }
+
+    @media (max-width: 768px) {
+      .align-left, .align-right {
+        padding: 0 6vw; align-items: flex-end; padding-bottom: 12vh;
+      }
+      .section-inner { max-width: 100%; }
+      .section-heading { font-size: clamp(1.6rem, 7vw, 2.5rem); }
+      #scroll-container { height: 600vh; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loader -->
+  <div id="loader">
+    <span class="loader-brand">Loading frames</span>
+    <div id="loader-bar-wrap"><div id="loader-bar"></div></div>
+    <span id="loader-percent">0%</span>
+  </div>
+
+  <!-- Back -->
+  <a href="/animations" id="back">← Samples</a>
+
+  <!-- Hero -->
+  <div class="hero-standalone" id="hero">
+    <div class="hero-inner">
+      <span class="hero-label">Sample 01 · Frame Scroll</span>
+      <h1 class="hero-heading">
+        <span class="word"><span class="word-inner">Frame</span></span><br>
+        <span class="word"><span class="word-inner">Driven</span></span>
+      </h1>
+      <p class="hero-sub">Scroll to scrub through video frames rendered on canvas — the same technique powering the Taste Polynesia animation.</p>
+    </div>
+    <span class="scroll-ind">Scroll to begin ↓</span>
+  </div>
+
+  <!-- Canvas -->
+  <div class="canvas-wrap" id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <!-- Dark overlay (for stats) -->
+  <div id="dark-overlay"></div>
+
+  <!-- Marquee -->
+  <div class="marquee-wrap" id="marquee" style="top: 42vh;">
+    <div class="marquee-text" id="marquee-text">FRAME BY FRAME &nbsp;·&nbsp; FRAME BY FRAME &nbsp;·&nbsp; FRAME BY FRAME &nbsp;·&nbsp;</div>
+  </div>
+
+  <!-- Scroll container -->
+  <div id="scroll-container">
+
+    <!-- S1: slide-left (12–28%) -->
+    <section class="scroll-section align-left" style="top: 20%;"
+             data-enter="12" data-leave="28" data-animation="slide-left">
+      <div class="section-inner">
+        <span class="section-label">001 · Technique</span>
+        <h2 class="section-heading">Canvas<br>Rendering</h2>
+        <p class="section-body">Each scroll position maps to a video frame. GSAP's scrub binding drives the canvas — no video element, no jank.</p>
+      </div>
+    </section>
+
+    <!-- S2: slide-right (30–46%) -->
+    <section class="scroll-section align-right" style="top: 38%;"
+             data-enter="30" data-leave="46" data-animation="slide-right">
+      <div class="section-inner">
+        <span class="section-label">002 · Precision</span>
+        <h2 class="section-heading">Frame<br>Perfect</h2>
+        <p class="section-body">121 WebP frames at 1280px wide, preloaded in two phases. First 10 frames load immediately for a fast first paint.</p>
+      </div>
+    </section>
+
+    <!-- Stats (54–70%) -->
+    <section class="section-stats" style="top: 62%;"
+             data-enter="54" data-leave="70" data-animation="stagger-up">
+      <div class="stats-grid">
+        <div class="stat">
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <span class="stat-number" data-value="121" data-decimals="0">0</span>
+          </div>
+          <span class="stat-label">Frames</span>
+        </div>
+        <div class="stat">
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <span class="stat-number" data-value="5" data-decimals="0">0</span>
+            <span class="stat-suffix">sec</span>
+          </div>
+          <span class="stat-label">Source Video</span>
+        </div>
+        <div class="stat">
+          <div style="display:flex;align-items:baseline;gap:4px">
+            <span class="stat-number" data-value="1280" data-decimals="0">0</span>
+            <span class="stat-suffix">px</span>
+          </div>
+          <span class="stat-label">Resolution</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- S3: fade-up (74–88%) -->
+    <section class="scroll-section align-left" style="top: 81%;"
+             data-enter="74" data-leave="90" data-animation="fade-up">
+      <div class="section-inner">
+        <span class="section-label">003 · Stack</span>
+        <h2 class="section-heading">GSAP +<br>Lenis</h2>
+        <p class="section-body">Lenis smooth scroll feeds into ScrollTrigger. The frame index updates on every scrub tick via requestAnimationFrame.</p>
+      </div>
+    </section>
+
+    <!-- CTA (92–100%) -->
+    <section class="section-cta" style="top: 94%;"
+             data-enter="92" data-leave="100" data-animation="scale-up" data-persist="true">
+      <h2 class="cta-heading">Ready to<br>build.</h2>
+      <p class="cta-sub"><span class="cta-dot"></span> &nbsp; Copy the pattern. Drop in your frames.</p>
+    </section>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/lenis@1/dist/lenis.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/ScrollTrigger.min.js"></script>
+  <script>
+    gsap.registerPlugin(ScrollTrigger);
+
+    // ── Config ───────────────────────────────────────────
+    const FRAME_COUNT  = 121;
+    const FRAME_SPEED  = 2.0;
+    const IMAGE_SCALE  = 0.86;
+    const frames       = new Array(FRAME_COUNT);
+    let loaded         = 0;
+    let currentFrame   = 0;
+    let bgColor        = '#080808';
+
+    const canvas    = document.getElementById('canvas');
+    const ctx       = canvas.getContext('2d');
+    const canvasWrap = document.getElementById('canvas-wrap');
+    const loaderEl  = document.getElementById('loader');
+    const loaderBar = document.getElementById('loader-bar');
+    const loaderPct = document.getElementById('loader-percent');
+    const scrollCont = document.getElementById('scroll-container');
+    const hero      = document.getElementById('hero');
+    const overlay   = document.getElementById('dark-overlay');
+    const marqueeEl = document.getElementById('marquee');
+    const marqueeTxt = document.getElementById('marquee-text');
+
+    // ── Canvas resize ────────────────────────────────────
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width  = window.innerWidth  * dpr;
+      canvas.height = window.innerHeight * dpr;
+      canvas.style.width  = window.innerWidth  + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.scale(dpr, dpr);
+      drawFrame(currentFrame);
+    }
+    window.addEventListener('resize', () => { resizeCanvas(); ScrollTrigger.refresh(); });
+
+    // ── Sample bg color from frame edges ────────────────
+    function sampleBgColor(img) {
+      const tmp = document.createElement('canvas');
+      tmp.width = 10; tmp.height = 10;
+      const tc = tmp.getContext('2d');
+      tc.drawImage(img, 0, 0, 10, 10);
+      const d = tc.getImageData(0, 0, 1, 1).data;
+      bgColor = `rgb(${d[0]},${d[1]},${d[2]})`;
+    }
+
+    // ── Draw frame ───────────────────────────────────────
+    function drawFrame(index) {
+      const img = frames[index];
+      if (!img) return;
+      const cw = window.innerWidth, ch = window.innerHeight;
+      const iw = img.naturalWidth,  ih = img.naturalHeight;
+      const scale = Math.max(cw / iw, ch / ih) * IMAGE_SCALE;
+      const dw = iw * scale, dh = ih * scale;
+      const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(img, dx, dy, dw, dh);
+    }
+
+    // ── Frame loader ─────────────────────────────────────
+    function loadFrame(i) {
+      return new Promise(resolve => {
+        const img = new Image();
+        const n   = String(i + 1).padStart(4, '0');
+        img.src   = `frames/frame_${n}.webp`;
+        img.onload = () => {
+          frames[i] = img;
+          loaded++;
+          if (i % 20 === 0) sampleBgColor(img);
+          const pct = Math.round((loaded / FRAME_COUNT) * 100);
+          loaderBar.style.width = pct + '%';
+          loaderPct.textContent = pct + '%';
+          resolve();
+        };
+        img.onerror = resolve;
+      });
+    }
+
+    async function preload() {
+      resizeCanvas();
+      // Phase 1: first 10 frames
+      const phase1 = Array.from({ length: 10 }, (_, i) => loadFrame(i));
+      await Promise.all(phase1);
+      drawFrame(0);
+      // Phase 2: rest
+      const phase2 = Array.from({ length: FRAME_COUNT - 10 }, (_, i) => loadFrame(i + 10));
+      await Promise.all(phase2);
+      // Hide loader
+      gsap.to(loaderEl, { opacity: 0, duration: 0.5, onComplete: () => loaderEl.style.display = 'none' });
+      init();
+    }
+
+    // ── Lenis ────────────────────────────────────────────
+    let lenis;
+    function initLenis() {
+      lenis = new Lenis({
+        duration: 1.2,
+        easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+        smoothWheel: true,
+      });
+      lenis.on('scroll', ScrollTrigger.update);
+      gsap.ticker.add(time => lenis.raf(time * 1000));
+      gsap.ticker.lagSmoothing(0);
+    }
+
+    // ── Hero entrance ────────────────────────────────────
+    function initHeroEntrance() {
+      const tl = gsap.timeline({ delay: 0.3 });
+      tl.to('.word-inner', { y: '0%', duration: 1.1, stagger: 0.08, ease: 'power4.out' })
+        .to('.hero-label',  { opacity: 1, y: 0, duration: 0.7, ease: 'power3.out' }, '-=0.6')
+        .to('.hero-sub',    { opacity: 1, y: 0, duration: 0.7, ease: 'power3.out' }, '-=0.5')
+        .to('.scroll-ind',  { opacity: 1, duration: 0.5 }, '-=0.2');
+    }
+
+    // ── Hero → canvas transition ─────────────────────────
+    function initHeroTransition() {
+      ScrollTrigger.create({
+        trigger: scrollCont,
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: true,
+        onUpdate: self => {
+          const p = self.progress;
+          // Hero fades out
+          hero.style.opacity = Math.max(0, 1 - Math.max(0, p - 0.03) * 25);
+          // Canvas circle wipe
+          const wipe = Math.min(1, Math.max(0, (p - 0.02) / 0.07));
+          const radius = wipe * 80;
+          canvasWrap.style.clipPath = `circle(${radius}% at 50% 50%)`;
+        },
+      });
+    }
+
+    // ── Frame scroll ─────────────────────────────────────
+    function initFrameScroll() {
+      ScrollTrigger.create({
+        trigger: scrollCont,
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: true,
+        onUpdate: self => {
+          const acc   = Math.min(self.progress * FRAME_SPEED, 1);
+          const index = Math.min(Math.floor(acc * FRAME_COUNT), FRAME_COUNT - 1);
+          if (index !== currentFrame) {
+            currentFrame = index;
+            requestAnimationFrame(() => drawFrame(currentFrame));
+          }
+        },
+      });
+    }
+
+    // ── Dark overlay (stats section) ─────────────────────
+    function initDarkOverlay(enter, leave) {
+      const fade = 0.04;
+      ScrollTrigger.create({
+        trigger: scrollCont,
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: true,
+        onUpdate: self => {
+          const p = self.progress;
+          let op = 0;
+          if      (p >= enter - fade && p <= enter) op = (p - (enter - fade)) / fade;
+          else if (p > enter && p < leave)           op = 0.9;
+          else if (p >= leave && p <= leave + fade)  op = 0.9 * (1 - (p - leave) / fade);
+          overlay.style.opacity = op;
+        },
+      });
+    }
+
+    // ── Marquee ──────────────────────────────────────────
+    function initMarquee() {
+      const enterPct = 0.42, leavePct = 0.70;
+      const fade = 0.04;
+
+      gsap.to(marqueeTxt, {
+        xPercent: -20, ease: 'none',
+        scrollTrigger: { trigger: scrollCont, start: 'top top', end: 'bottom bottom', scrub: true },
+      });
+
+      ScrollTrigger.create({
+        trigger: scrollCont,
+        start: 'top top',
+        end: 'bottom bottom',
+        scrub: true,
+        onUpdate: self => {
+          const p = self.progress;
+          let op = 0;
+          if      (p >= enterPct - fade && p <= enterPct) op = (p - (enterPct - fade)) / fade;
+          else if (p > enterPct && p < leavePct)          op = 0.9;
+          else if (p >= leavePct && p <= leavePct + fade) op = 0.9 * (1 - (p - leavePct) / fade);
+          marqueeEl.style.opacity = op;
+        },
+      });
+    }
+
+    // ── Content sections ─────────────────────────────────
+    function positionSections() {
+      document.querySelectorAll('.scroll-section, .section-stats, .section-cta').forEach(sec => {
+        const enter = parseFloat(sec.dataset.enter ?? sec.style.top);
+        const leave = parseFloat(sec.dataset.leave ?? '100');
+        const mid   = (enter + leave) / 2;
+        sec.style.top       = mid + '%';
+        sec.style.transform = 'translateY(-50%)';
+      });
+    }
+
+    function initSections() {
+      const allSections = document.querySelectorAll('.scroll-section, .section-stats, .section-cta');
+
+      allSections.forEach(sec => {
+        const type    = sec.dataset.animation;
+        const enter   = parseFloat(sec.dataset.enter) / 100;
+        const leave   = parseFloat(sec.dataset.leave) / 100;
+        const persist = sec.dataset.persist === 'true';
+
+        const children = sec.querySelectorAll(
+          '.section-label, .section-heading, .section-body, .stat, .cta-heading, .cta-sub'
+        );
+
+        const tl = gsap.timeline({ paused: true });
+
+        switch (type) {
+          case 'fade-up':
+            tl.from(children, { y: 50, opacity: 0, stagger: 0.12, duration: 0.9, ease: 'power3.out' });
+            break;
+          case 'slide-left':
+            tl.from(children, { x: -70, opacity: 0, stagger: 0.14, duration: 0.9, ease: 'power3.out' });
+            break;
+          case 'slide-right':
+            tl.from(children, { x: 70, opacity: 0, stagger: 0.14, duration: 0.9, ease: 'power3.out' });
+            break;
+          case 'stagger-up':
+            tl.from(children, { y: 60, opacity: 0, stagger: 0.15, duration: 0.8, ease: 'power3.out' });
+            break;
+          case 'scale-up':
+            tl.from(children, { scale: 0.85, opacity: 0, stagger: 0.12, duration: 1.0, ease: 'power2.out' });
+            break;
+        }
+
+        ScrollTrigger.create({
+          trigger: scrollCont,
+          start: 'top top',
+          end: 'bottom bottom',
+          scrub: false,
+          onUpdate: self => {
+            const p = self.progress;
+            if (p >= enter && p <= leave) {
+              if (sec.style.opacity !== '1') {
+                sec.style.opacity = '1';
+                tl.play();
+              }
+            } else {
+              if (!persist && sec.style.opacity !== '0') {
+                sec.style.opacity = '0';
+                tl.reverse();
+              }
+            }
+          },
+        });
+      });
+    }
+
+    // ── Counters ─────────────────────────────────────────
+    function initCounters() {
+      document.querySelectorAll('.stat-number').forEach(el => {
+        const target   = parseFloat(el.dataset.value);
+        const decimals = parseInt(el.dataset.decimals || '0');
+        const snap     = decimals === 0 ? 1 : Math.pow(10, -decimals);
+        let triggered  = false;
+
+        ScrollTrigger.create({
+          trigger: scrollCont,
+          start: 'top top',
+          end: 'bottom bottom',
+          onUpdate: self => {
+            const p = self.progress;
+            const enter = 0.54, leave = 0.70;
+            if (p >= enter && p <= leave && !triggered) {
+              triggered = true;
+              gsap.fromTo(el,
+                { textContent: 0 },
+                { textContent: target, duration: 1.8, ease: 'power1.out',
+                  snap: { textContent: snap },
+                  onUpdate() { el.textContent = parseFloat(el.textContent).toFixed(decimals); }
+                }
+              );
+            } else if (p < enter || p > leave) {
+              triggered = false;
+              el.textContent = '0';
+            }
+          },
+        });
+      });
+    }
+
+    // ── Main init ────────────────────────────────────────
+    function init() {
+      initLenis();
+      positionSections();
+      initHeroEntrance();
+      initHeroTransition();
+      initFrameScroll();
+      initDarkOverlay(0.54, 0.70);
+      initMarquee();
+      initSections();
+      initCounters();
+      ScrollTrigger.refresh();
+    }
+
+    preload();
+  </script>
+</body>
+</html>

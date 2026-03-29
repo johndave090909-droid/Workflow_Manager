@@ -56,8 +56,12 @@
         "destination": "/animations/index.html"
       },
       {
-        "source": "/animations/**",
-        "destination": "/animations/index.html"
+        "source": "/animations/reference",
+        "destination": "/animations/reference/index.html"
+      },
+      {
+        "source": "/animations/samples/01",
+        "destination": "/animations/samples/01/index.html"
       },
       {
         "source": "**",
