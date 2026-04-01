@@ -250,10 +250,13 @@ export default function SystemHub({
     <div className="min-h-screen bg-[#0a0510] text-white flex flex-col">
 
       {/* ── Header ── */}
-      <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20">W</div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)]">PCC Culinary Command Center</h1>
+      <header className="h-12 sm:h-16 border-b border-white/10 px-3 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
+        <div className="flex items-center gap-2 sm:gap-4">
+          <div className="w-7 h-7 sm:w-10 sm:h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold text-sm sm:text-base shadow-lg shadow-pink-500/20 shrink-0">W</div>
+          <h1 className="font-display font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] text-[13px] leading-[1.2] sm:text-2xl sm:leading-none">
+            <span className="sm:hidden">PCC Culinary<br/>Command Center</span>
+            <span className="hidden sm:inline">PCC Culinary Command Center</span>
+          </h1>
         </div>
         <div className="flex items-center gap-4">
           <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10">

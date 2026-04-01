@@ -606,7 +606,7 @@ export default function App() {
     <div className="min-h-screen bg-[#0a0510] text-white font-sans selection:bg-[#ff00ff]/30 pb-nav md:pb-0">
       <ViewOnlyToast show={showViewOnlyToast} onClose={() => setShowViewOnlyToast(false)} />
       <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
-      <header className="h-16 border-b border-white/10 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
+      <header className="h-12 sm:h-16 border-b border-white/10 px-3 sm:px-8 flex items-center justify-between sticky top-0 z-50 bg-[#0a0510]/80 backdrop-blur-md">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           {/* Hub link — hidden on mobile (use bottom nav instead) */}
           <button
@@ -615,8 +615,11 @@ export default function App() {
           >
             ← Hub
           </button>
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold shadow-lg shadow-pink-500/20 shrink-0">W</div>
-          <h1 className="font-display text-lg sm:text-2xl font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] truncate">PCC Culinary Command Center</h1>
+          <div className="w-7 h-7 sm:w-10 sm:h-10 bg-[#ff00ff] rounded-xl flex items-center justify-center text-white font-bold text-sm sm:text-base shadow-lg shadow-pink-500/20 shrink-0">W</div>
+          <h1 className="font-display font-bold tracking-tight text-[#ff00ff] drop-shadow-[0_0_8px_rgba(255,0,255,0.4)] text-[13px] leading-[1.2] sm:text-2xl sm:leading-none">
+            <span className="sm:hidden">PCC Culinary<br/>Command Center</span>
+            <span className="hidden sm:inline">PCC Culinary Command Center</span>
+          </h1>
 
           {/* View scope toggle — shown for non-Directors, text hidden on very small screens */}
           {!perms.view_all_projects && (
