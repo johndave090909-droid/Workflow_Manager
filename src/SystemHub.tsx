@@ -109,6 +109,9 @@ export default function SystemHub({
   const [progressionNameMap,   setProgressionNameMap]   = useState<Record<string, string>>({});
   // key: lowercase progression fullName → lowercase directory entry name (saved to Firestore)
   const [profileUser,     setProfileUser]     = useState<User | null>(hubReturnTarget?.user ?? null);
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const [navCanScrollLeft,  setNavCanScrollLeft]  = useState(false);
+  const [navCanScrollRight, setNavCanScrollRight] = useState(true);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
@@ -285,21 +288,51 @@ export default function SystemHub({
       </header>
 
       {/* ── Mobile section tabs (visible only on mobile) ── */}
-      <div className="md:hidden flex border-b border-white/10 bg-[#0a0510]/80 backdrop-blur-md sticky top-16 z-40">
-        {NAV_ITEMS.map(item => {
-          const active = activeSection === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveSection(item.id)}
-              className="flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors touch-target"
-              style={{ color: active ? roleColor : '#64748b', borderBottom: active ? `2px solid ${roleColor}` : '2px solid transparent' }}
-            >
-              <span className="text-base leading-none">{item.emoji}</span>
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+      <div className="md:hidden border-b border-white/10 bg-[#0a0510]/80 backdrop-blur-md sticky top-12 z-40 flex items-stretch">
+        {/* Left arrow */}
+        {navCanScrollLeft && (
+          <button
+            className="shrink-0 flex items-center justify-center w-6 bg-[#0a0510]/90 border-r border-white/10 z-10"
+            onClick={() => navScrollRef.current?.scrollBy({ left: -128, behavior: 'smooth' })}
+          >
+            <span className="text-slate-400 text-[11px] leading-none">‹</span>
+          </button>
+        )}
+        <div
+          ref={navScrollRef}
+          className="flex-1 overflow-x-auto scrollbar-none"
+          onScroll={e => {
+            const el = e.currentTarget;
+            setNavCanScrollLeft(el.scrollLeft > 4);
+            setNavCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4);
+          }}
+        >
+          <div className="flex w-max min-w-full">
+            {NAV_ITEMS.map(item => {
+              const active = activeSection === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveSection(item.id)}
+                  className="flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors touch-target shrink-0"
+                  style={{ width: '16.666vw', minWidth: 64, color: active ? roleColor : '#64748b', borderBottom: active ? `2px solid ${roleColor}` : '2px solid transparent' }}
+                >
+                  <span className="text-base leading-none">{item.emoji}</span>
+                  <span className="leading-tight text-center px-1">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {/* Right arrow */}
+        {navCanScrollRight && (
+          <button
+            className="shrink-0 flex items-center justify-center w-6 bg-[#0a0510]/90 border-l border-white/10 z-10"
+            onClick={() => navScrollRef.current?.scrollBy({ left: 128, behavior: 'smooth' })}
+          >
+            <span className="text-slate-400 text-[11px] leading-none">›</span>
+          </button>
+        )}
       </div>
 
       {/* ── Body: sidebar + content ── */}
@@ -307,7 +340,7 @@ export default function SystemHub({
 
         {/* Sidebar */}
         <aside
-          className="hidden md:flex w-60 shrink-0 border-r border-white/8 sticky top-16 h-[calc(100vh-4rem)] flex-col overflow-y-auto"
+          className="hidden md:flex w-60 shrink-0 border-r border-white/8 sticky top-16 h-[calc(100vh-4rem)] flex-col overflow-y-auto md:top-16"
           style={{ background: 'rgba(6,3,11,0.98)' }}
         >
           {/* User block */}
@@ -846,47 +879,76 @@ function classifyRole(role: string): 'leadership' | 'team-leaders' | 'workers' {
 interface EmployeeCardProps { u: DirectoryEntry; isMe: boolean; onClick: () => void; isAdmin?: boolean; onEdit?: (e: React.MouseEvent) => void; }
 function EmployeeCard({ u, isMe, onClick, isAdmin, onEdit }: EmployeeCardProps) {
   const rc = getRoleColor(u.role);
+  const workerId = (u as DirectoryEntry & { workerId?: string }).workerId;
   return (
-    <div
-      onClick={onClick}
-      className="relative flex flex-col items-center text-center rounded-2xl border p-3 sm:p-4 transition-all hover:scale-[1.02] cursor-pointer"
-      style={{
-        background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
-        borderColor: isMe ? `${rc}50` : 'rgba(255,255,255,0.08)',
-        boxShadow: isMe ? `0 0 18px ${rc}20` : 'none',
-      }}
-    >
-      {isMe && (
-        <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
-          style={{ background: `${rc}25`, color: rc }}>You</span>
-      )}
-      {u.isWorkerRecord && !isMe && !isAdmin && (
-        <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-600">No account</span>
-      )}
-      {isAdmin && u.isWorkerRecord && onEdit && (
-        <button
-          onClick={onEdit}
-          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-white/20 bg-white/5 text-slate-400 hover:border-[#a855f7]/50 hover:text-[#a855f7] hover:bg-[#a855f7]/10 transition-all"
-        >Edit</button>
-      )}
-      <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden mb-2 sm:mb-2.5 shrink-0"
-        style={{ border: `2px solid ${rc}60` }}>
-        <img src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`} alt={u.name}
-          className="w-full h-full object-cover" />
+    <>
+      {/* ── Mobile: list row ── */}
+      <div
+        onClick={onClick}
+        className="sm:hidden flex items-center gap-3 px-3 py-2.5 rounded-xl border cursor-pointer transition-all active:scale-[0.99]"
+        style={{
+          background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
+          borderColor: isMe ? `${rc}40` : 'rgba(255,255,255,0.06)',
+        }}
+      >
+        <div className="w-8 h-8 rounded-full overflow-hidden shrink-0" style={{ border: `1.5px solid ${rc}60` }}>
+          <img src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`} alt={u.name} className="w-full h-full object-cover" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-xs font-bold text-white leading-tight truncate">{u.name}</p>
+            {isMe && <span className="text-[7px] font-black uppercase tracking-widest px-1 py-0.5 rounded-full shrink-0" style={{ background: `${rc}25`, color: rc }}>You</span>}
+          </div>
+          <span className="text-[8px] font-black uppercase tracking-widest" style={{ color: rc }}>{u.role}</span>
+          {u.email && <p className="text-[8px] text-slate-600 truncate">{u.email}</p>}
+          {workerId && <p className="text-[8px] text-slate-700 truncate">ID: {workerId}</p>}
+        </div>
+        {isAdmin && u.isWorkerRecord && onEdit && (
+          <button
+            onClick={onEdit}
+            className="shrink-0 px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest border border-white/15 bg-white/5 text-slate-500 hover:border-[#a855f7]/50 hover:text-[#a855f7] hover:bg-[#a855f7]/10 transition-all"
+          >Edit</button>
+        )}
       </div>
-      <p className="text-xs sm:text-sm font-bold text-white leading-snug">{u.name}</p>
-      <span className="mt-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
-        style={{ background: `${rc}20`, color: rc }}>
-        {u.role}
-      </span>
-      {u.email && (
-        <a href={`mailto:${u.email}`}
-          className="mt-1 text-[9px] text-slate-600 hover:text-slate-400 transition-colors truncate max-w-full"
-          onClick={e => e.stopPropagation()}>
-          {u.email}
-        </a>
-      )}
-    </div>
+
+      {/* ── Desktop: card ── */}
+      <div
+        onClick={onClick}
+        className="hidden sm:flex relative flex-col items-center text-center rounded-2xl border p-3 sm:p-4 transition-all hover:scale-[1.02] cursor-pointer"
+        style={{
+          background: isMe ? `${rc}10` : 'rgba(255,255,255,0.02)',
+          borderColor: isMe ? `${rc}50` : 'rgba(255,255,255,0.08)',
+          boxShadow: isMe ? `0 0 18px ${rc}20` : 'none',
+        }}
+      >
+        {isMe && (
+          <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
+            style={{ background: `${rc}25`, color: rc }}>You</span>
+        )}
+        {u.isWorkerRecord && !isMe && !isAdmin && (
+          <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-600">No account</span>
+        )}
+        {isAdmin && u.isWorkerRecord && onEdit && (
+          <button
+            onClick={onEdit}
+            className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-white/20 bg-white/5 text-slate-400 hover:border-[#a855f7]/50 hover:text-[#a855f7] hover:bg-[#a855f7]/10 transition-all"
+          >Edit</button>
+        )}
+        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden mb-2 sm:mb-2.5 shrink-0"
+          style={{ border: `2px solid ${rc}60` }}>
+          <img src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`} alt={u.name} className="w-full h-full object-cover" />
+        </div>
+        <p className="text-xs sm:text-sm font-bold text-white leading-snug">{u.name}</p>
+        <span className="mt-1.5 text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+          style={{ background: `${rc}20`, color: rc }}>{u.role}</span>
+        {u.email && (
+          <a href={`mailto:${u.email}`}
+            className="mt-1 text-[9px] text-slate-600 hover:text-slate-400 transition-colors truncate max-w-full"
+            onClick={e => e.stopPropagation()}>{u.email}</a>
+        )}
+        {workerId && <p className="mt-0.5 text-[8px] text-slate-700">ID: {workerId}</p>}
+      </div>
+    </>
   );
 }
 
@@ -3153,7 +3215,7 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
       </button>
       {open && (
         <div className="px-4 sm:px-6 pb-4 sm:pb-6 border-t border-white/8">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 pt-4">
             {users.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => onSelect(u)} isAdmin={isAdmin} onEdit={isAdmin && u.isWorkerRecord ? (e) => { e.stopPropagation(); onEdit?.(u); } : undefined} />)}
           </div>
         </div>
@@ -3427,7 +3489,7 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
             users={workers} currentUserId={currentUserId} defaultOpen onSelect={setSelected} isAdmin={isAdmin} onEdit={openEdit} />
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-4">
           {allFiltered.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => setSelected(u)} isAdmin={isAdmin} onEdit={isAdmin && u.isWorkerRecord ? (e) => { e.stopPropagation(); openEdit(u); } : undefined} />)}
         </div>
       )}
