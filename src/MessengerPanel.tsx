@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageCircle, ArrowLeft, Plus, Users, Send, Search, X, Check } from 'lucide-react';
+import { MessageCircle, ArrowLeft, Plus, Users, Send, Search, X, Check, ImageIcon } from 'lucide-react';
 import {
   collection, query, where, limit,
   onSnapshot, addDoc, updateDoc, doc, getDocs,
   serverTimestamp, increment,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, storage } from './firebase';
+import { ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,8 @@ interface ChatMessage {
   content: string;
   timestamp: string | null;
   seenBy?: Record<string, string>; // userId → ISO timestamp
+  mediaUrl?: string;
+  mediaType?: 'image' | 'video';
 }
 
 type View = 'list' | 'chat' | 'new-dm' | 'new-group';
@@ -105,6 +108,10 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
   const [messages,      setMessages]      = useState<ChatMessage[]>([]);
   const [newMsg,        setNewMsg]        = useState('');
   const [sending,       setSending]       = useState(false);
+  const [mediaFile,     setMediaFile]     = useState<File | null>(null);
+  const [mediaPreview,  setMediaPreview]  = useState<string | null>(null);
+  const [mediaType,     setMediaType]     = useState<'image' | 'video' | null>(null);
+  const [uploadPct,     setUploadPct]     = useState<number | null>(null);
   const [allUsers,      setAllUsers]      = useState<AppUser[]>([]);
   const [searchQuery,   setSearchQuery]   = useState('');
   const [selectedUsers, setSelectedUsers] = useState<AppUser[]>([]);
@@ -114,6 +121,7 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
   const portalRef     = useRef<HTMLDivElement>(null);
   const messagesEnd   = useRef<HTMLDivElement>(null);
   const inputRef      = useRef<HTMLInputElement>(null);
+  const fileInputRef  = useRef<HTMLInputElement>(null);
 
   // Allow bottom nav Chat button to open the panel
   useEffect(() => {
@@ -249,34 +257,77 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
 
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCounts?.[currentUser.id] ?? 0), 0);
 
+  // ── Handle file selection ─────────────────────────────────────────────────
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isImage && !isVideo) return;
+    setMediaFile(file);
+    setMediaType(isVideo ? 'video' : 'image');
+    setMediaPreview(URL.createObjectURL(file));
+    e.target.value = '';
+  };
+
+  const clearMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMediaType(null);
+    setUploadPct(null);
+  };
+
   // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = async () => {
     const content = newMsg.trim();
-    if (!content || sending || !activeConv) return;
+    if ((!content && !mediaFile) || sending || !activeConv) return;
     setSending(true);
     try {
+      let uploadedUrl: string | undefined;
+      let uploadedType: 'image' | 'video' | undefined;
+
+      if (mediaFile && mediaType) {
+        const path = `chat-media/${activeConv.id}/${Date.now()}-${mediaFile.name}`;
+        const sRef = storageRef(storage, path);
+        await new Promise<void>((resolve, reject) => {
+          const task = uploadBytesResumable(sRef, mediaFile);
+          task.on('state_changed',
+            snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
+            reject,
+            async () => { uploadedUrl = await getDownloadURL(task.snapshot.ref); resolve(); }
+          );
+        });
+        uploadedType = mediaType;
+      }
+
+      const lastPreview = uploadedType === 'image' ? '📷 Photo' : uploadedType === 'video' ? '🎥 Video' : content;
+
       await addDoc(collection(db, 'conversations', activeConv.id, 'messages'), {
         senderId:    currentUser.id,
         senderName:  currentUser.name,
         senderPhoto: currentUser.photo ?? '',
-        content,
+        content:     content || '',
         timestamp:   serverTimestamp(),
         seenBy:      { [currentUser.id]: serverTimestamp() },
+        ...(uploadedUrl  ? { mediaUrl: uploadedUrl }   : {}),
+        ...(uploadedType ? { mediaType: uploadedType } : {}),
       });
       const unreadUpdate: Record<string, ReturnType<typeof increment>> = {};
       activeConv.members.forEach(id => {
         if (id !== currentUser.id) unreadUpdate[`unreadCounts.${id}`] = increment(1);
       });
       await updateDoc(doc(db, 'conversations', activeConv.id), {
-        lastMessage:         content,
+        lastMessage:         lastPreview,
         lastMessageAt:       serverTimestamp(),
         lastMessageSenderId: currentUser.id,
         ...unreadUpdate,
       });
       setNewMsg('');
+      clearMedia();
       inputRef.current?.focus();
     } finally {
       setSending(false);
+      setUploadPct(null);
     }
   };
 
@@ -535,12 +586,32 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                             {showName && (
                               <p className="text-[10px] text-slate-500 mb-0.5 px-1">{msg.senderName}</p>
                             )}
-                            <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed break-words ${
+                            <div className={`rounded-2xl text-sm leading-relaxed break-words overflow-hidden ${
                               isMe
                                 ? 'bg-[#38bdf8] text-white rounded-br-sm'
                                 : 'bg-white/[0.09] text-slate-200 rounded-bl-sm'
-                            }`}>
-                              {msg.content}
+                            } ${msg.mediaUrl ? 'p-0' : 'px-3 py-2'}`}>
+                              {msg.mediaUrl && msg.mediaType === 'image' && (
+                                <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer">
+                                  <img
+                                    src={msg.mediaUrl}
+                                    alt="shared"
+                                    className="max-w-[220px] max-h-[280px] object-cover rounded-2xl"
+                                    style={{ display: 'block' }}
+                                  />
+                                </a>
+                              )}
+                              {msg.mediaUrl && msg.mediaType === 'video' && (
+                                <video
+                                  src={msg.mediaUrl}
+                                  controls
+                                  className="max-w-[220px] rounded-2xl"
+                                  style={{ display: 'block' }}
+                                />
+                              )}
+                              {msg.content && (
+                                <span className={msg.mediaUrl ? 'block px-3 py-2' : ''}>{msg.content}</span>
+                              )}
                             </div>
                             {isLastInGroup && timeLabel && (
                               <p className="text-[10px] text-slate-600 mt-0.5 px-1">{timeLabel}</p>
@@ -565,7 +636,43 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
 
               {/* Input */}
               <div className="px-3 pb-3 flex-shrink-0">
+                {/* Media preview */}
+                {mediaPreview && (
+                  <div className="mb-2 relative inline-block">
+                    {mediaType === 'image' ? (
+                      <img src={mediaPreview} alt="preview" className="max-h-32 rounded-xl object-cover border border-white/10" />
+                    ) : (
+                      <video src={mediaPreview} className="max-h-32 rounded-xl border border-white/10" />
+                    )}
+                    <button
+                      onClick={clearMedia}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 border border-white/20 flex items-center justify-center text-slate-300 hover:text-white"
+                    >
+                      <X size={10} />
+                    </button>
+                    {uploadPct !== null && (
+                      <div className="absolute inset-0 rounded-xl bg-black/50 flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">{uploadPct}%</span>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center gap-2 bg-white/[0.06] rounded-2xl px-3 py-2 border border-white/[0.08] focus-within:border-[#38bdf8]/30 transition-colors">
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-1 text-slate-500 hover:text-[#38bdf8] transition-colors shrink-0"
+                    title="Attach image or video"
+                  >
+                    <ImageIcon size={16} />
+                  </button>
                   <input
                     ref={inputRef}
                     value={newMsg}
@@ -576,7 +683,7 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                   />
                   <button
                     onClick={sendMessage}
-                    disabled={!newMsg.trim() || sending}
+                    disabled={(!newMsg.trim() && !mediaFile) || sending}
                     className="p-2 min-h-[44px] min-w-[44px] rounded-xl bg-[#38bdf8] text-white disabled:opacity-30 transition-all hover:bg-[#0ea5e9] shrink-0 flex items-center justify-center"
                   >
                     <Send size={13} />
