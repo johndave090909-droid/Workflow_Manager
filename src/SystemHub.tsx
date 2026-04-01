@@ -3,7 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { format } from 'date-fns';
 import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
-import { db, storage, guardianDb } from './firebase';
+import { db, storage, guardianDb, progressionDb } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { notifyDirectors } from './notifications';
 import NotificationBell from './NotificationBell';
@@ -102,6 +102,12 @@ export default function SystemHub({
   const [directoryUsers,  setDirectoryUsers]  = useState<User[]>([]);
   const [directoryWorkers, setDirectoryWorkers] = useState<{id:string;name:string;role:string;workerId?:string;email?:string;phone?:string;notes?:string;gender?:string;dob?:string;identityCode?:string;hometown?:string;nationality?:string;religion?:string;languages?:string;maritalStatus?:string;permanentAddress?:string;currentAddress?:string}[]>([]);
   const [dirLoading,      setDirLoading]      = useState(false);
+  const [shiftLeadRoles,       setShiftLeadRoles]       = useState<Record<string, string>>({});
+  // key: lowercase worker name → Progression app position name for leaders (e.g. "Prep Lead")
+  const [progressionStudentRoles, setProgressionStudentRoles] = useState<Record<string, string>>({});
+  // key: lowercase worker name → Progression app position name for students
+  const [progressionNameMap,   setProgressionNameMap]   = useState<Record<string, string>>({});
+  // key: lowercase progression fullName → lowercase directory entry name (saved to Firestore)
   const [profileUser,     setProfileUser]     = useState<User | null>(hubReturnTarget?.user ?? null);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
@@ -173,19 +179,44 @@ export default function SystemHub({
   useEffect(() => {
     if (directoryUsers.length > 0) return;
     setDirLoading(true);
+    // Critical fetch: users + workers — directory depends entirely on these
     Promise.all([
       getDocs(collection(db, 'users')),
       getDocs(collection(db, 'workers')),
     ]).then(([usersSnap, workersSnap]) => {
-      const users = usersSnap.docs.map(d => ({ ...d.data(), id: d.id } as User)); // id last so Firestore doc ID always wins
+      const users = usersSnap.docs.map(d => ({ ...d.data(), id: d.id } as User));
       users.sort((a, b) => a.name.localeCompare(b.name));
       setDirectoryUsers(users);
       const workers = workersSnap.docs.map(d => ({ id: d.id, ...d.data() } as {id:string;name:string;role:string;email?:string;phone?:string;notes?:string}));
       workers.sort((a, b) => a.name.localeCompare(b.name));
       setDirectoryWorkers(workers);
       setDirLoading(false);
+
+      // Non-critical: Progression app sync — fetch all users and split by role
+      getDocs(collection(progressionDb, 'users'))
+        .then(snap => {
+          const leadMap: Record<string, string> = {};
+          const studentMap: Record<string, string> = {};
+          snap.docs.forEach(d => {
+            const data = d.data() as { fullName?: string; positionName?: string; role?: string };
+            const name = (data.fullName ?? '').trim();
+            const pos  = (data.positionName ?? '').trim();
+            if (!name || !pos) return;
+            if (data.role === 'leader')  leadMap[name.toLowerCase()]    = pos;
+            else if (data.role === 'student') studentMap[name.toLowerCase()] = pos;
+          });
+          setShiftLeadRoles(leadMap);
+          setProgressionStudentRoles(studentMap);
+        }).catch((err) => { console.warn('[Progression sync]', err); });
     }).catch(() => setDirLoading(false));
   }, [activeSection]);
+
+  // Load saved progression name map (persists manual name links across sessions)
+  useEffect(() => {
+    getDoc(doc(db, 'settings', 'progressionNameMap'))
+      .then(snap => { if (snap.exists()) setProgressionNameMap(snap.data() as Record<string, string>); })
+      .catch(() => {});
+  }, []);
 
   // Director toggle: share/unshare a deliverable with all accounts
   const handleToggleShared = async (deliv: DeliverableWithProject) => {
@@ -400,7 +431,7 @@ export default function SystemHub({
                 </h2>
                 <p className="hidden sm:block text-sm text-slate-400">Select a system to get started.</p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 max-w-6xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-4 max-w-5xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
                 {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').map(card => (
                   <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
                 ))}
@@ -503,12 +534,24 @@ export default function SystemHub({
 
           {/* ORG CHART */}
           {activeSection === 'org-chart' && (
-            <OrgChartView roleColor={roleColor} />
+            <OrgChartView roleColor={roleColor} canEdit={!!(permissions.edit_org_chart || permissions.access_it_admin)} />
           )}
 
           {/* DIRECTORY */}
           {activeSection === 'directory' && (
-            <DirectoryView users={directoryUsers} workers={directoryWorkers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} isAdmin={permissions.manage_policies ?? (permissions.access_it_admin || permissions.view_all_projects)} />
+            <DirectoryView users={directoryUsers} workers={directoryWorkers} loading={dirLoading} roleColor={roleColor} currentUserId={currentUser.id} isAdmin={!!(permissions.edit_directory || permissions.manage_policies || permissions.access_it_admin || permissions.view_all_projects)} shiftLeadRoles={shiftLeadRoles} progressionStudentRoles={progressionStudentRoles} progressionNameMap={progressionNameMap}
+              onProgressionMap={(map) => {
+                setProgressionNameMap(map);
+                setDoc(doc(db, 'settings', 'progressionNameMap'), map).catch(console.error);
+              }}
+              onWorkersChanged={() => {
+                getDocs(collection(db, 'workers')).then(snap => {
+                  const workers = snap.docs.map(d => ({ id: d.id, ...d.data() } as {id:string;name:string;role:string;email?:string;workerId?:string;phone?:string;notes?:string}));
+                  workers.sort((a, b) => a.name.localeCompare(b.name));
+                  setDirectoryWorkers(workers);
+                });
+              }}
+            />
           )}
 
           {/* MEMBER PROFILE */}
@@ -630,6 +673,7 @@ interface OrgCardItem {
   tone: OrgCardTone;
   x: number;
   y: number;
+  isNew?: boolean;
 }
 
 const ORG_TONE_STYLES: Record<OrgCardTone, { border: string; bg: string; glow: string }> = {
@@ -757,17 +801,23 @@ function buildOrgChartDefaults(): OrgCardItem[] {
 interface DirectoryEntry extends Omit<User, 'id'> {
   id: string;
   isWorkerRecord?: boolean;
+  workerId?: string;
   phone?: string;
   notes?: string;
 }
 
 interface DirectoryViewProps {
   users: User[];
-  workers: { id: string; name: string; role: string; email?: string }[];
+  workers: { id: string; name: string; role: string; email?: string; workerId?: string; phone?: string; notes?: string }[];
   loading: boolean;
   roleColor: string;
   currentUserId: string;
   isAdmin: boolean;
+  onWorkersChanged?: () => void;
+  shiftLeadRoles?: Record<string, string>;
+  progressionStudentRoles?: Record<string, string>;
+  progressionNameMap?: Record<string, string>;
+  onProgressionMap?: (map: Record<string, string>) => void;
 }
 
 const ROLE_PALETTE: Record<string, string> = {
@@ -790,8 +840,8 @@ function classifyRole(role: string): 'leadership' | 'team-leaders' | 'workers' {
   return 'workers';
 }
 
-interface EmployeeCardProps { u: DirectoryEntry; isMe: boolean; onClick: () => void; }
-function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
+interface EmployeeCardProps { u: DirectoryEntry; isMe: boolean; onClick: () => void; isAdmin?: boolean; onEdit?: (e: React.MouseEvent) => void; }
+function EmployeeCard({ u, isMe, onClick, isAdmin, onEdit }: EmployeeCardProps) {
   const rc = getRoleColor(u.role);
   return (
     <div
@@ -807,8 +857,14 @@ function EmployeeCard({ u, isMe, onClick }: EmployeeCardProps) {
         <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
           style={{ background: `${rc}25`, color: rc }}>You</span>
       )}
-      {u.isWorkerRecord && !isMe && (
+      {u.isWorkerRecord && !isMe && !isAdmin && (
         <span className="absolute top-2 right-2 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-600">No account</span>
+      )}
+      {isAdmin && u.isWorkerRecord && onEdit && (
+        <button
+          onClick={onEdit}
+          className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-white/20 bg-white/5 text-slate-400 hover:border-[#a855f7]/50 hover:text-[#a855f7] hover:bg-[#a855f7]/10 transition-all"
+        >Edit</button>
       )}
       <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full overflow-hidden mb-2 sm:mb-2.5 shrink-0"
         style={{ border: `2px solid ${rc}60` }}>
@@ -3075,8 +3131,9 @@ interface DirectorySectionProps {
   title: string; icon: string; accentColor: string;
   users: DirectoryEntry[]; currentUserId: string; defaultOpen?: boolean;
   onSelect: (u: DirectoryEntry) => void;
+  isAdmin?: boolean; onEdit?: (u: DirectoryEntry) => void;
 }
-function DirectorySection({ title, icon, accentColor, users, currentUserId, defaultOpen = true, onSelect }: DirectorySectionProps) {
+function DirectorySection({ title, icon, accentColor, users, currentUserId, defaultOpen = true, onSelect, isAdmin, onEdit }: DirectorySectionProps) {
   const [open, setOpen] = React.useState(defaultOpen);
   if (!users.length) return null;
   return (
@@ -3094,7 +3151,7 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
       {open && (
         <div className="px-4 sm:px-6 pb-4 sm:pb-6 border-t border-white/8">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-4">
-            {users.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => onSelect(u)} />)}
+            {users.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => onSelect(u)} isAdmin={isAdmin} onEdit={isAdmin && u.isWorkerRecord ? (e) => { e.stopPropagation(); onEdit?.(u); } : undefined} />)}
           </div>
         </div>
       )}
@@ -3102,15 +3159,126 @@ function DirectorySection({ title, icon, accentColor, users, currentUserId, defa
   );
 }
 
-function DirectoryView({ users, workers: workerRecords, loading, roleColor, currentUserId, isAdmin }: DirectoryViewProps) {
+function DirectoryView({ users, workers: workerRecords, loading, roleColor, currentUserId, isAdmin, onWorkersChanged, shiftLeadRoles = {}, progressionStudentRoles = {}, progressionNameMap = {}, onProgressionMap }: DirectoryViewProps) {
   const [search, setSearch] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'sections' | 'all'>('sections');
   const [selected, setSelected] = React.useState<DirectoryEntry | null>(null);
 
-  // Merge users and worker records into a unified list
+  // Worker add/edit form
+  const [showForm, setShowForm] = React.useState(false);
+  const [editingEntry, setEditingEntry] = React.useState<DirectoryEntry | null>(null);
+  const [form, setForm] = React.useState({ workerId: '', name: '', role: '', email: '' });
+  const [formError, setFormError] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [orgPositions, setOrgPositions] = React.useState<{ category: string; positions: string[] }[]>([]);
+  const [roleSearch, setRoleSearch] = React.useState('');
+  const [showRoleDropdown, setShowRoleDropdown] = React.useState(false);
+
+  const TONE_CAT: Record<string, string> = { blue: 'Leadership', red: 'Kitchen', green: 'Pantry', purple: 'Student' };
+  const TONE_ORD = ['blue', 'red', 'green', 'purple'];
+
+  React.useEffect(() => {
+    getDoc(doc(db, 'org_chart', 'layout')).then(snap => {
+      if (!snap.exists()) return;
+      const cards = (snap.data().cards ?? []) as { name: string; tone: string }[];
+      const grouped: Record<string, string[]> = {};
+      cards.forEach(c => {
+        const cat = TONE_CAT[c.tone] ?? c.tone;
+        if (!grouped[cat]) grouped[cat] = [];
+        if (!grouped[cat].includes(c.name)) grouped[cat].push(c.name);
+      });
+      setOrgPositions(TONE_ORD.filter(t => grouped[TONE_CAT[t]]).map(t => ({ category: TONE_CAT[t], positions: grouped[TONE_CAT[t]] })));
+    }).catch(() => {});
+  }, []);
+
+  const openAdd = () => {
+    setEditingEntry(null);
+    setForm({ workerId: '', name: '', role: '', email: '' });
+    setFormError(''); setRoleSearch(''); setShowRoleDropdown(false); setShowForm(true);
+  };
+  const openEdit = (entry: DirectoryEntry) => {
+    setEditingEntry(entry);
+    setForm({ workerId: entry.workerId ?? '', name: entry.name, role: entry.role, email: entry.email ?? '' });
+    setFormError(''); setRoleSearch(''); setShowRoleDropdown(false); setShowForm(true);
+  };
+  const handleSubmit = async () => {
+    if (!form.workerId.trim()) { setFormError('Worker ID is required.'); return; }
+    if (!form.name.trim()) { setFormError('Name is required.'); return; }
+    if (!form.role.trim()) { setFormError('Role is required.'); return; }
+    setSubmitting(true); setFormError('');
+    try {
+      const data = { workerId: form.workerId.trim(), name: form.name.trim(), role: form.role.trim(), email: form.email.trim() || null };
+      if (editingEntry) {
+        await updateDoc(doc(db, 'workers', editingEntry.id), data);
+      } else {
+        await addDoc(collection(db, 'workers'), { ...data, createdAt: new Date().toISOString() });
+        // Auto-add to org chart if no card for this role exists yet
+        try {
+          const orgSnap = await getDoc(doc(db, 'org_chart', 'layout'));
+          const existing = (orgSnap.exists() ? (orgSnap.data().cards ?? []) : []) as OrgCardItem[];
+          if (!existing.some(c => c.name === data.role)) {
+            const newCard: OrgCardItem = {
+              id: `org-card-${Date.now()}`,
+              name: data.role,
+              personName: data.name,
+              tone: 'blue',
+              x: 20,
+              y: 20,
+              isNew: true,
+            };
+            await setDoc(doc(db, 'org_chart', 'layout'), { cards: [...existing, newCard] });
+          }
+        } catch { /* org chart update is non-critical */ }
+      }
+      onWorkersChanged?.();
+      setShowForm(false);
+    } catch { setFormError('Failed to save. Please try again.'); }
+    finally { setSubmitting(false); }
+  };
+
+  // Resolve progression names using the saved name map (handles mismatches between progression fullName and directory name)
+  const toTitleCase = (s: string) => s.replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+
+  const resolvedLeadRoles: Record<string, string> = {};
+  Object.entries(shiftLeadRoles).forEach(([progNorm, pos]) => {
+    const mappedNorm = (progressionNameMap[progNorm] ?? progNorm).toLowerCase();
+    resolvedLeadRoles[mappedNorm] = pos;
+  });
+
+  const resolvedStudentRoles: Record<string, string> = {};
+  Object.entries(progressionStudentRoles).forEach(([progNorm, pos]) => {
+    const mappedNorm = (progressionNameMap[progNorm] ?? progNorm).toLowerCase();
+    resolvedStudentRoles[mappedNorm] = pos;
+  });
+
+  const isMatched = (norm: string) =>
+    users.some(u => u.name.toLowerCase() === norm) || workerRecords.some(w => w.name.toLowerCase() === norm);
+
+  const unmatchedLeads = Object.entries(shiftLeadRoles).filter(([progNorm]) =>
+    !isMatched((progressionNameMap[progNorm] ?? progNorm).toLowerCase())
+  );
+  const unmatchedStudents = Object.entries(progressionStudentRoles).filter(([progNorm]) =>
+    !isMatched((progressionNameMap[progNorm] ?? progNorm).toLowerCase())
+  );
+
+  // Set of directory names already claimed — either auto-matched by name or manually linked
+  const claimedDirNames = new Set([
+    ...Object.keys(resolvedLeadRoles),
+    ...Object.keys(resolvedStudentRoles),
+  ]);
+
+  // Merge users and worker records into a unified list, applying Progression overrides
   const allEntries: DirectoryEntry[] = [
-    ...users,
-    ...workerRecords.map(w => ({ ...w, photo: '', isWorkerRecord: true as const, phone: w.phone, notes: w.notes })),
+    ...users.map(u => {
+      const key = u.name.toLowerCase();
+      const override = resolvedLeadRoles[key] ?? resolvedStudentRoles[key];
+      return override ? { ...u, role: override } : u;
+    }),
+    ...workerRecords.map(w => {
+      const key = w.name.toLowerCase();
+      const override = resolvedLeadRoles[key] ?? resolvedStudentRoles[key];
+      return { ...w, role: override ?? w.role, email: w.email ?? '', photo: '', isWorkerRecord: true as const, phone: w.phone, notes: w.notes };
+    }),
   ];
 
   const q = search.toLowerCase();
@@ -3138,6 +3306,13 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
           <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">Directory</h2>
           <p className="text-xs sm:text-sm text-slate-400">All employees in the department · <span className="font-bold text-slate-300">{allEntries.length}</span> total</p>
         </div>
+        <div className="flex items-center gap-2">
+        {isAdmin && (
+          <button
+            onClick={openAdd}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-[#a855f7]/40 bg-[#a855f7]/10 text-[#a855f7] hover:bg-[#a855f7]/20 transition-all"
+          >+ Add Worker</button>
+        )}
         {/* View toggle */}
         <div className="flex gap-1 p-1 rounded-xl border border-white/10 bg-white/[0.03]">
           {(['sections', 'all'] as const).map(t => (
@@ -3150,7 +3325,80 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
             </button>
           ))}
         </div>
+        </div>
       </div>
+
+      {/* Unmatched Progression leaders */}
+      {unmatchedLeads.length > 0 && (
+        <details className="mb-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5">
+          <summary className="px-4 py-2.5 text-xs font-bold text-yellow-400 cursor-pointer list-none flex items-center gap-2">
+            ⚠ {unmatchedLeads.length} leader{unmatchedLeads.length > 1 ? 's' : ''} from Progression not matched in directory
+            <span className="ml-auto text-yellow-600 text-[10px]">▾</span>
+          </summary>
+          <div className="px-4 pb-3 space-y-2 pt-2">
+            <p className="text-[10px] text-slate-500 italic">These leaders exist in the Progression app but their name doesn't match any directory entry. Use the dropdown to link them.</p>
+            {unmatchedLeads.map(([progNorm, pos]) => (
+              <div key={progNorm} className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <span className="text-slate-300 text-xs capitalize">{toTitleCase(progNorm)}</span>
+                  <span className="ml-2 text-[10px] font-black uppercase tracking-widest text-yellow-500/70">{pos}</span>
+                </div>
+                <select
+                  className="border border-white/10 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-yellow-500/40 shrink-0 max-w-[200px]"
+                  style={{ background: '#1e293b', color: '#f1f5f9' }}
+                  value={progressionNameMap[progNorm] ?? ''}
+                  onChange={e => { onProgressionMap?.({ ...progressionNameMap, [progNorm]: e.target.value }); }}
+                >
+                  <option value="">— link to person —</option>
+                  {[...users, ...workerRecords].sort((a, b) => a.name.localeCompare(b.name))
+                    .filter(e => {
+                      const norm = e.name.toLowerCase();
+                      const currentVal = progressionNameMap[progNorm] ?? '';
+                      return norm === currentVal || !claimedDirNames.has(norm);
+                    })
+                    .map(e => <option key={e.id} value={e.name.toLowerCase()}>{e.name}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {/* Unmatched Progression students */}
+      {unmatchedStudents.length > 0 && (
+        <details className="mb-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+          <summary className="px-4 py-2.5 text-xs font-bold text-blue-400 cursor-pointer list-none flex items-center gap-2">
+            ⚠ {unmatchedStudents.length} student{unmatchedStudents.length > 1 ? 's' : ''} from Progression not matched in directory
+            <span className="ml-auto text-blue-600 text-[10px]">▾</span>
+          </summary>
+          <div className="px-4 pb-3 space-y-2 pt-2">
+            <p className="text-[10px] text-slate-500 italic">These students exist in the Progression app but their name doesn't match any directory entry. Use the dropdown to link them.</p>
+            {unmatchedStudents.map(([progNorm, pos]) => (
+              <div key={progNorm} className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <span className="text-slate-300 text-xs capitalize">{toTitleCase(progNorm)}</span>
+                  <span className="ml-2 text-[10px] font-black uppercase tracking-widest text-blue-500/70">{pos}</span>
+                </div>
+                <select
+                  className="border border-white/10 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500/40 shrink-0 max-w-[200px]"
+                  style={{ background: '#1e293b', color: '#f1f5f9' }}
+                  value={progressionNameMap[progNorm] ?? ''}
+                  onChange={e => { onProgressionMap?.({ ...progressionNameMap, [progNorm]: e.target.value }); }}
+                >
+                  <option value="">— link to person —</option>
+                  {[...users, ...workerRecords].sort((a, b) => a.name.localeCompare(b.name))
+                    .filter(e => {
+                      const norm = e.name.toLowerCase();
+                      const currentVal = progressionNameMap[progNorm] ?? '';
+                      return norm === currentVal || !claimedDirNames.has(norm);
+                    })
+                    .map(e => <option key={e.id} value={e.name.toLowerCase()}>{e.name}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {/* Search */}
       <div className="mb-5">
@@ -3169,15 +3417,15 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
       ) : activeTab === 'sections' ? (
         <div className="flex flex-col gap-4">
           <DirectorySection title="Leadership" icon="⭐" accentColor="#ff00ff"
-            users={leadership} currentUserId={currentUserId} defaultOpen onSelect={setSelected} />
+            users={leadership} currentUserId={currentUserId} defaultOpen onSelect={setSelected} isAdmin={isAdmin} onEdit={openEdit} />
           <DirectorySection title="Team Leaders" icon="🎯" accentColor="#ffd700"
-            users={teamLeaders} currentUserId={currentUserId} defaultOpen onSelect={setSelected} />
+            users={teamLeaders} currentUserId={currentUserId} defaultOpen onSelect={setSelected} isAdmin={isAdmin} onEdit={openEdit} />
           <DirectorySection title="Workers" icon="👷" accentColor="#22c55e"
-            users={workers} currentUserId={currentUserId} defaultOpen onSelect={setSelected} />
+            users={workers} currentUserId={currentUserId} defaultOpen onSelect={setSelected} isAdmin={isAdmin} onEdit={openEdit} />
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-          {allFiltered.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => setSelected(u)} />)}
+          {allFiltered.map(u => <EmployeeCard key={u.id} u={u} isMe={u.id === currentUserId} onClick={() => setSelected(u)} isAdmin={isAdmin} onEdit={isAdmin && u.isWorkerRecord ? (e) => { e.stopPropagation(); openEdit(u); } : undefined} />)}
         </div>
       )}
 
@@ -3192,6 +3440,70 @@ function DirectoryView({ users, workers: workerRecords, loading, roleColor, curr
             setSelected(updated);
           }}
         />
+      )}
+
+      {/* ── Add / Edit Worker Modal ── */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => setShowForm(false)}>
+          <div className="bg-[#12091e] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl" style={{ boxShadow: '0 0 60px rgba(168,85,247,0.15)' }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-5 border-b border-white/5">
+              <h3 className="text-lg font-bold text-white">{editingEntry ? 'Edit Worker' : 'Add Worker'}</h3>
+              <button onClick={() => setShowForm(false)} className="p-1.5 text-slate-500 hover:text-white transition-colors">✕</button>
+            </div>
+            <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Worker ID <span className="text-[#ff4d4d]">*</span></label>
+                <input type="text" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all" placeholder="e.g. W-001" value={form.workerId} onChange={e => setForm(f => ({ ...f, workerId: e.target.value }))} />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Full Name <span className="text-[#ff4d4d]">*</span></label>
+                <input type="text" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all" placeholder="e.g. Jane Smith" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div className="relative">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Role / Position <span className="text-[#ff4d4d]">*</span></label>
+                <input
+                  type="text"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                  placeholder="Search position..."
+                  value={roleSearch || form.role}
+                  onFocus={() => { setRoleSearch(form.role); setShowRoleDropdown(true); }}
+                  onChange={e => { setRoleSearch(e.target.value); setForm(f => ({ ...f, role: e.target.value })); setShowRoleDropdown(true); }}
+                  onBlur={() => setTimeout(() => setShowRoleDropdown(false), 150)}
+                  autoComplete="off"
+                />
+                {showRoleDropdown && (() => {
+                  const q = (roleSearch || form.role).toLowerCase();
+                  const filtered = orgPositions.map(g => ({ category: g.category, positions: g.positions.filter(p => p.toLowerCase().includes(q)) })).filter(g => g.positions.length > 0);
+                  return filtered.length > 0 ? (
+                    <div className="absolute z-50 left-0 right-0 mt-1 bg-[#1a0f2e] border border-white/10 rounded-xl shadow-2xl max-h-56 overflow-y-auto">
+                      {filtered.map(g => (
+                        <div key={g.category}>
+                          <p className="px-3 pt-2 pb-0.5 text-[9px] font-black uppercase tracking-widest text-purple-400">{g.category}</p>
+                          {g.positions.map(p => (
+                            <button key={p} type="button" className="w-full text-left px-4 py-1.5 text-sm text-slate-200 hover:bg-white/10 transition-colors"
+                              onMouseDown={() => { setForm(f => ({ ...f, role: p })); setRoleSearch(''); setShowRoleDropdown(false); }}
+                            >{p}</button>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Email (optional)</label>
+                <input type="email" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all" placeholder="email@company.com" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+              </div>
+              {formError && <p className="text-[11px] text-[#ff4d4d] font-semibold">{formError}</p>}
+            </div>
+            <div className="flex gap-3 px-6 py-4 border-t border-white/5">
+              <button onClick={() => setShowForm(false)} className="flex-1 py-2.5 rounded-xl border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all text-sm font-bold">Cancel</button>
+              <button onClick={handleSubmit} disabled={submitting} className="flex-1 py-2.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2" style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}>
+                {submitting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin block" /> : editingEntry ? 'Save Changes' : 'Add Worker'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -3385,25 +3697,26 @@ interface DailyGuestCounts {
 }
 
 function LiveGuestCountView({ roleColor }: { roleColor: string }) {
-  const [counts, setCounts] = useState<{ ohana: number | null; aloha: number | null; gateway: number | null; savedAt?: string } | null>(null);
+  const [counts, setCounts] = useState<{ ohana: number | null; aloha: number | null; gateway: number | null; lunch: number | null; savedAt?: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'food_prep_state', 'latest'), snap => {
       const d = snap.data();
-      setCounts(d ? { aloha: d.aloha, ohana: d.ohana, gateway: d.gateway, savedAt: d.savedAt } : null);
+      setCounts(d ? { aloha: d.aloha, ohana: d.ohana, gateway: d.gateway, lunch: d.lunch ?? null, savedAt: d.savedAt } : null);
       setLoading(false);
     });
     return unsub;
   }, []);
 
   const venues = [
-    { key: 'aloha',   label: 'Aloha Luau',      color: '#f59e0b', highThreshold: 345 },
-    { key: 'ohana',   label: 'Hale Ohana Luau', color: '#10b981', highThreshold: 200 },
-    { key: 'gateway', label: 'Gateway Buffet',  color: '#6366f1', highThreshold: 800 },
+    { key: 'aloha',   label: 'Aloha Luau',             color: '#f59e0b', highThreshold: 345 },
+    { key: 'ohana',   label: 'Hale Ohana Luau',         color: '#10b981', highThreshold: 200 },
+    { key: 'gateway', label: 'Gateway Buffet (Evening)', color: '#6366f1', highThreshold: 800 },
+    { key: 'lunch',   label: 'Lunch at Gateway',         color: '#ec4899', highThreshold: 100 },
   ] as const;
 
-  const total = (counts?.aloha ?? 0) + (counts?.ohana ?? 0) + (counts?.gateway ?? 0);
+  const total = (counts?.aloha ?? 0) + (counts?.ohana ?? 0) + (counts?.gateway ?? 0) + (counts?.lunch ?? 0);
   const updatedAt = counts?.savedAt ? new Date(counts.savedAt).toLocaleTimeString() : null;
   const [copied, setCopied] = useState(false);
   const publicUrl = `${window.location.origin}/guest-count`;
@@ -4620,7 +4933,7 @@ function DeliverableGroups({ deliverables, loading, isDirector, onToggleShared, 
 
 // ── SystemCardTile ─────────────────────────────────────────────────────────────
 
-function OrgChartView({ roleColor }: { roleColor: string }) {
+function OrgChartView({ roleColor, canEdit }: { roleColor: string; canEdit?: boolean }) {
   const canvasRef = React.useRef<HTMLDivElement | null>(null);
   const dragRef = React.useRef<{
     ids: string[];
@@ -4634,6 +4947,7 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
   const [cards, setCards] = useState<OrgCardItem[]>(buildOrgChartDefaults);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [workersByRole, setWorkersByRole] = useState<Record<string, string[]>>({});
+  const [newCardNotices, setNewCardNotices] = useState<OrgCardItem[]>([]);
 
   // Load workers and build role → names map
   useEffect(() => {
@@ -4657,10 +4971,13 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
         if (snap.exists()) {
           const parsed = (snap.data().cards ?? []) as (OrgCardItem & { role?: string })[];
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setCards(parsed.map(card => ({
+            const loaded = parsed.map(card => ({
               ...card,
               personName: card.personName ?? card.role ?? '',
-            })));
+            }));
+            setCards(loaded);
+            const notices = loaded.filter(c => c.isNew);
+            if (notices.length > 0) setNewCardNotices(notices);
           }
         }
       })
@@ -4802,6 +5119,7 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
           <p className="text-[10px] sm:text-xs font-black tracking-[0.28em] uppercase text-slate-400">Culinary Department</p>
           <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
             <h2 className="text-2xl sm:text-4xl font-display font-bold text-white">Organizational Chart</h2>
+            {canEdit && (
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setIsEditing(v => !v)}
@@ -4827,6 +5145,7 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
                 Reset
               </button>
             </div>
+            )}
           </div>
         </div>
 
@@ -4976,6 +5295,43 @@ function OrgChartView({ roleColor }: { roleColor: string }) {
           </div>
         )}
       </div>
+
+      {/* ── New Staff Notification Popup ── */}
+      {newCardNotices.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[#12091e] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl"
+            style={{ boxShadow: '0 0 60px rgba(250,204,21,0.12)' }}>
+            <div className="px-6 py-5 border-b border-white/5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-yellow-400 mb-1">New Staff Added</p>
+              <h3 className="text-base font-bold text-white">Needs placement in the chart</h3>
+            </div>
+            <div className="px-6 py-4 space-y-2">
+              {newCardNotices.map(c => (
+                <div key={c.id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
+                  <div className="w-2 h-2 rounded-full bg-yellow-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold text-white leading-none">{c.personName || '—'}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{c.name}</p>
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-slate-500 pt-1">
+                {newCardNotices.length === 1 ? 'This card has' : 'These cards have'} been added at the top-left corner of the chart. Drag {newCardNotices.length === 1 ? 'it' : 'them'} to the correct position.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-white/5">
+              <button
+                onClick={() => {
+                  setCards(prev => prev.map(c => c.isNew ? { ...c, isNew: false } : c));
+                  setNewCardNotices([]);
+                }}
+                className="w-full py-2.5 rounded-xl text-sm font-bold text-white hover:opacity-90 transition-all"
+                style={{ backgroundColor: '#a855f7', boxShadow: '0 0 20px rgba(168,85,247,0.3)' }}
+              >Got it, I'll place them</button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -5504,12 +5860,12 @@ function OfficeSchedulesView({
 
 // ── Live guest count widget (used inside Ticketing card) ──────────────────────
 function LiveGuestCount() {
-  const [counts, setCounts] = React.useState<{ aloha: number | null; ohana: number | null; gateway: number | null } | null>(null);
+  const [counts, setCounts] = React.useState<{ aloha: number | null; ohana: number | null; gateway: number | null; lunch: number | null } | null>(null);
 
   React.useEffect(() => {
     return onSnapshot(doc(db, 'food_prep_state', 'latest'), snap => {
       const d = snap.data();
-      setCounts(d ? { aloha: d.aloha ?? null, ohana: d.ohana ?? null, gateway: d.gateway ?? null } : null);
+      setCounts(d ? { aloha: d.aloha ?? null, ohana: d.ohana ?? null, gateway: d.gateway ?? null, lunch: d.lunch ?? null } : null);
     });
   }, []);
 
@@ -5519,6 +5875,7 @@ function LiveGuestCount() {
     { label: 'A', value: counts.aloha,   color: '#f59e0b', highThreshold: 300 },
     { label: 'O', value: counts.ohana,   color: '#10b981', highThreshold: 180 },
     { label: 'G', value: counts.gateway, color: '#6366f1', highThreshold: 650 },
+    { label: 'L', value: counts.lunch,   color: '#ec4899', highThreshold: 100 },
   ];
 
   return (
@@ -5598,7 +5955,7 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
   return (
     <button
       onClick={handleClick}
-      className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+      className="glass-card rounded-2xl p-4 sm:p-5 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
     >
       <div
         className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300"
@@ -5607,15 +5964,15 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
       {isTicketing && <LiveGuestCount />}
       {isGuardian  && <GuardianCheckStats />}
       <div
-        className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden"
+        className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mb-3 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}
       >
         {card.icon.startsWith('http') || card.icon.startsWith('data:')
-          ? <img src={card.icon} className="w-5 h-5 sm:w-6 sm:h-6 object-contain" alt={card.title} />
-          : <span className="text-base sm:text-lg">{card.icon}</span>
+          ? <img src={card.icon} className="w-6 h-6 sm:w-7 sm:h-7 object-contain" alt={card.title} />
+          : <span className="text-lg sm:text-xl">{card.icon}</span>
         }
       </div>
-      <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 transition-opacity group-hover:opacity-90 leading-tight" style={{ color: card.color_accent }}>
+      <h3 className="text-sm sm:text-base font-bold mb-1 relative z-10 transition-opacity group-hover:opacity-90 leading-tight" style={{ color: card.color_accent }}>
         {card.title}
       </h3>
       <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">{card.description}</p>

@@ -362,7 +362,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     saveTimeoutRef.current = setTimeout(() => {
       const assignments: Record<string, { departmentId: string; positionId: string; unavailability: Staff['unavailability']; needsReview?: boolean; scheduleImageUrl?: string }> = {};
       staff.forEach(s => {
-        assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, scheduleImageUrl: s.scheduleImageUrl };
+        assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, ...(s.scheduleImageUrl !== undefined ? { scheduleImageUrl: s.scheduleImageUrl } : {}) };
       });
       setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, pinnedAssignments, ...(weekSchedule && Object.keys(weekSchedule).length > 0 ? { weekSchedule } : { weekSchedule: null }) }, { merge: true }).catch(console.error);
     }, 1500);

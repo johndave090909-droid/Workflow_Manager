@@ -25,7 +25,7 @@ interface SystemAdminPanelProps {
 const DEFAULT_PERMISSIONS: RolePermissions = {
   access_tracker: false, access_it_admin: false, view_all_projects: false,
   create_projects: false, edit_projects: false, view_workload: false, is_assignable: false,
-  manage_policies: false,
+  manage_policies: false, edit_directory: false, edit_org_chart: false,
 };
 
 const PERMISSION_LABELS: { key: keyof RolePermissions; label: string; desc: string }[] = [
@@ -37,6 +37,8 @@ const PERMISSION_LABELS: { key: keyof RolePermissions; label: string; desc: stri
   { key: 'view_workload',     label: 'View Workload',     desc: 'Sees the workload chart by assignee' },
   { key: 'is_assignable',     label: 'Assignable',        desc: 'Appears in assignment dropdown & workload chart' },
   { key: 'manage_policies',   label: 'Manage Policies',   desc: 'Can create, edit, and delete policy documents' },
+  { key: 'edit_directory',    label: 'Edit Directory',    desc: 'Can edit staff entries in the Directory' },
+  { key: 'edit_org_chart',    label: 'Edit Org Chart',    desc: 'Can edit and rearrange the Organizational Chart' },
 ];
 
 const EMPTY_CARD_FORM = {

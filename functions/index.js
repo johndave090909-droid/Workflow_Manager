@@ -292,10 +292,15 @@ async function extractDailyCounts(fileId) {
     const ohanaM = text.match(/Ohana[\s\n]+Luau[\s\n]+(\d{2,4})/i);
     if (ohanaM) ohana = ohanaM[1];
 
-    // Gateway Buffet — Daily Attendance Summary row sits at the top of the text
+    // Gateway Buffet evening — match "Gateway Buffet 4:30" to avoid Lunch row
     let gateway = null;
-    const gatewayM = text.match(/(?:\d+,\d{3}|\d{5,})\n(\d{3,4})\n\d{3,4}\n\d{3,4}\nDate/i);
+    const gatewayM = text.match(/Gateway\s+Buffet\s+4:30[^\n]*?(\d+)\s*(?:\n|$)/i);
     if (gatewayM) gateway = gatewayM[1];
+
+    // Lunch at Gateway Buffet
+    let lunch = null;
+    const lunchM = text.match(/Lunch\s+at\s+Gateway\s+Buffet[^\n]*?(\d+)\s*(?:\n|$)/i);
+    if (lunchM) lunch = lunchM[1];
 
     // Aloha Luau — Super Amb. and Aloha values are concatenated, last 3 digits = Aloha count
     let aloha = null;
@@ -305,12 +310,13 @@ async function extractDailyCounts(fileId) {
       aloha = raw.length <= 3 ? raw : String(parseInt(raw.slice(-3)));
     }
 
-    if (!aloha && !ohana && !gateway) return null;
+    if (!aloha && !ohana && !gateway && !lunch) return null;
 
     const lines = [];
     if (aloha)   lines.push(`Aloha: ${aloha}`);
     if (ohana)   lines.push(`Ohana: ${ohana}`);
     if (gateway) lines.push(`Gateway: ${gateway}`);
+    if (lunch)   lines.push(`Lunch: ${lunch}`);
     console.log(`extractDailyCounts (${fileId}): ${lines.join(", ")}`);
     return lines.join("\n");
   } catch (err) {
@@ -338,7 +344,7 @@ async function buildFacebookPdfMessages(header, files) {
         const dateKey = (f.discoveredAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
         const counts = {};
         for (const line of summary.split('\n')) {
-          const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+          const m = line.match(/^(Aloha|Ohana|Gateway|Lunch):\s*(\d+)/i);
           if (m) counts[m[1].toLowerCase()] = parseInt(m[2]);
         }
         if (Object.keys(counts).length) {
@@ -574,12 +580,15 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
       const ohanaM = text.match(/Ohana[\s\n]+Luau[\s\n]+(\d{2,4})/i);
       if (ohanaM) ohana = ohanaM[1];
 
-      // Gateway Buffet — Daily Attendance Summary data row sits at the very top
-      // of the text, before any section headers. Layout observed:
-      //   (big comma-total or 5+ digit concat)\n[GATEWAY]\n[val]\n[val]\nDate...
+      // Gateway Buffet evening — match "Gateway Buffet 4:30" to avoid Lunch row
       let gateway = null;
-      const gatewayM = text.match(/(?:\d+,\d{3}|\d{5,})\n(\d{3,4})\n\d{3,4}\n\d{3,4}\nDate/i);
+      const gatewayM = text.match(/Gateway\s+Buffet\s+4:30[^\n]*?(\d+)\s*(?:\n|$)/i);
       if (gatewayM) gateway = gatewayM[1];
+
+      // Lunch at Gateway Buffet
+      let lunch = null;
+      const lunchM = text.match(/Lunch\s+at\s+Gateway\s+Buffet[^\n]*?(\d+)\s*(?:\n|$)/i);
+      if (lunchM) lunch = lunchM[1];
 
       // Aloha Luau — Super Amb. and Aloha values are concatenated (no space)
       // just before the luau column headers, e.g. "107348\n548\nDate\nTotal\nLuau PAX"
@@ -591,7 +600,7 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
         aloha = raw.length <= 3 ? raw : String(parseInt(raw.slice(-3)));
       }
 
-      if (!aloha && !ohana && !gateway) {
+      if (!aloha && !ohana && !gateway && !lunch) {
         // Nothing found — return raw text to help diagnose the PDF layout
         return sendJson(res, 200, { summary: null, rawText: text.slice(0, 2000) });
       }
@@ -600,6 +609,7 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
       if (aloha)   lines.push(`Aloha: ${aloha}`);
       if (ohana)   lines.push(`Ohana: ${ohana}`);
       if (gateway) lines.push(`Gateway: ${gateway}`);
+      if (lunch)   lines.push(`Lunch: ${lunch}`);
 
       // Persist guest counts so Guest Experience tab can display ratios
       const dateKey = (dateParam || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
@@ -607,13 +617,14 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
       if (aloha)   counts.aloha   = parseInt(aloha);
       if (ohana)   counts.ohana   = parseInt(ohana);
       if (gateway) counts.gateway = parseInt(gateway);
+      if (lunch)   counts.lunch   = parseInt(lunch);
       if (Object.keys(counts).length) {
         await db.collection('daily_guest_counts').doc(dateKey).set(
           { ...counts, savedAt: new Date().toISOString(), sourceFileId: fileId }, { merge: true }
         );
       }
 
-      return sendJson(res, 200, { summary: lines.join("\n"), aloha, ohana, gateway, rawText: text.slice(0, 400) });
+      return sendJson(res, 200, { summary: lines.join("\n"), aloha, ohana, gateway, lunch, rawText: text.slice(0, 400) });
     }
 
     // POST /backfill-guest-counts — run all Daily Counts PDFs through extraction
@@ -633,7 +644,7 @@ exports.googleDriveApi = onRequest({ region: "us-central1", cors: true }, async 
             );
             const counts = {};
             for (const line of summary.split('\n')) {
-              const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+              const m = line.match(/^(Aloha|Ohana|Gateway|Lunch):\s*(\d+)/i);
               if (m) counts[m[1].toLowerCase()] = parseInt(m[2]);
             }
             if (Object.keys(counts).length) {
@@ -929,7 +940,7 @@ exports.driveWatcherScheduled = onSchedule(
             const dateKey = (f.discoveredAt || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
             const counts = {};
             for (const line of summary.split("\n")) {
-              const m = line.match(/^(Aloha|Ohana|Gateway):\s*(\d+)/i);
+              const m = line.match(/^(Aloha|Ohana|Gateway|Lunch):\s*(\d+)/i);
               if (m) counts[m[1].toLowerCase()] = parseInt(m[2]);
             }
             if (Object.keys(counts).length) {
@@ -1056,11 +1067,12 @@ exports.foodPrepWatcherScheduled = onSchedule(
 
             const ohana   = extractPax("Luau at Hale Ohana");
             const aloha   = extractPax("Luau at Hale Aloha");
-            const gateway = extractPax("Gateway Buffet");
+            const gateway = extractPax("Gateway Buffet 4:30");  // evening only — avoids matching Lunch at Gateway Buffet
+            const lunch   = extractPax("Lunch at Gateway Buffet");
 
-            if (ohana !== null || aloha !== null || gateway !== null) {
-              guestCounts = { ohana, aloha, gateway, total: (ohana||0) + (aloha||0) + (gateway||0) };
-              console.log(`Food Prep: extracted counts — Ohana:${ohana} Aloha:${aloha} Gateway:${gateway}`);
+            if (ohana !== null || aloha !== null || gateway !== null || lunch !== null) {
+              guestCounts = { ohana, aloha, gateway, lunch, total: (ohana||0) + (aloha||0) + (gateway||0) + (lunch||0) };
+              console.log(`Food Prep: extracted counts — Ohana:${ohana} Aloha:${aloha} Gateway:${gateway} Lunch:${lunch}`);
             } else {
               console.log("Food Prep: PDF parsed but no guest counts found in text");
             }

@@ -120,6 +120,7 @@ function GuestCountPublicPage() {
 const DEFAULT_PERMISSIONS: RolePermissions = {
   access_tracker: false, access_it_admin: false, view_all_projects: false,
   create_projects: false, edit_projects: false, view_workload: false, is_assignable: false,
+  manage_policies: false, edit_directory: false, edit_org_chart: false,
 };
 
 // Fallback when /roles collection is empty (backwards compat with seeded data)
