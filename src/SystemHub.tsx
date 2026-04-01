@@ -3,12 +3,12 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { format } from 'date-fns';
 import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
-import { db, storage, guardianDb, progressionDb } from './firebase';
+import { db, storage, guardianDb, progressionDb, kdsDb } from './firebase';
 import ComplaintsView from './ComplaintsView';
 import { notifyDirectors } from './notifications';
 import NotificationBell from './NotificationBell';
 import MessengerPanel from './MessengerPanel';
-import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp, increment } from 'firebase/firestore';
+import { collection, collectionGroup, getDocs, getDoc, orderBy, query, where, updateDoc, doc, addDoc, deleteDoc, setDoc, onSnapshot, serverTimestamp, Timestamp, increment, limit } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
 import { renderAsync as docxRenderAsync } from 'docx-preview';
 
@@ -3818,9 +3818,19 @@ interface DailyGuestCounts {
   savedAt?: string;
 }
 
+interface KdsStats {
+  remainingGuests: number | null;
+  totalGuests: number | null;
+  totalSpent: number | null;
+  costGoal: number | null;
+  updatedAt?: string;
+  showwareUpdatedAt?: string;
+}
+
 function LiveGuestCountView({ roleColor }: { roleColor: string }) {
   const [counts, setCounts] = useState<{ ohana: number | null; aloha: number | null; gateway: number | null; lunch: number | null; savedAt?: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [kdsStats, setKdsStats] = useState<KdsStats | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'food_prep_state', 'latest'), snap => {
@@ -3829,6 +3839,66 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
       setLoading(false);
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    // Subscribe to latest KDS venue snapshot (Gateway)
+    const snapshotUnsub = onSnapshot(
+      query(collection(kdsDb, 'venueSnapshots'), orderBy('timestamp', 'desc'), limit(1)),
+      snap => {
+        if (!snap.empty) {
+          const d = snap.docs[0].data();
+          setKdsStats(prev => ({
+            remainingGuests: null,
+            totalGuests: d.guestCount ?? null,
+            totalSpent: d.totalCost ?? null,
+            costGoal: d.costPerGuest ?? prev?.costGoal ?? null,
+            updatedAt: d.timestamp?.toDate?.()?.toLocaleTimeString() ?? undefined,
+          }));
+        }
+      },
+      () => { /* ignore permission errors for KDS */ }
+    );
+
+    // Subscribe to cost goal document
+    const goalUnsub = onSnapshot(
+      doc(kdsDb, 'costGoals', 'current'),
+      snap => {
+        if (snap.exists()) {
+          const d = snap.data();
+          setKdsStats(prev => prev
+            ? { ...prev, costGoal: d.goal ?? d.costGoal ?? null }
+            : { remainingGuests: null, totalGuests: null, totalSpent: null, costGoal: d.goal ?? d.costGoal ?? null }
+          );
+        }
+      },
+      () => { /* ignore permission errors for KDS */ }
+    );
+
+    // Subscribe to showwareEvents for remaining guests (total - scanned)
+    const toNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const findField = (d: Record<string, unknown>, keys: string[]) => {
+      const pools = [d, d?.raw, (d?.raw as Record<string,unknown>)?.data, d?.payload, d?.data].filter(Boolean) as Record<string, unknown>[];
+      for (const pool of pools) for (const k of keys) if (pool[k] != null) return toNum(pool[k]);
+      return 0;
+    };
+    const showwareUnsub = onSnapshot(
+      query(collection(kdsDb, 'showwareEvents'), orderBy('receivedAt', 'desc'), limit(1)),
+      snap => {
+        if (snap.empty) return;
+        const d = snap.docs[0].data() as Record<string, unknown>;
+        const total   = findField(d, ['gatewayTotal', 'gatewayCount', 'gateway', 'gateway_total', 'GatewayTotal', 'GatewayCount']);
+        const scanned = findField(d, ['gatewayScanned', 'gatewayScan', 'gateway_scanned', 'GatewayScanned', 'GatewayScan']);
+        const remaining = Math.max(0, total - scanned);
+        setKdsStats(prev => prev
+          ? { ...prev, remainingGuests: remaining }
+          : { remainingGuests: remaining, totalGuests: null, totalSpent: null, costGoal: null }
+        );
+      },
+      () => { /* ignore permission errors */ }
+    );
+
+    return () => { snapshotUnsub(); goalUnsub(); showwareUnsub(); };
   }, []);
 
   const venues = [
@@ -3910,6 +3980,34 @@ function LiveGuestCountView({ roleColor }: { roleColor: string }) {
               );
             })}
           </div>
+
+          {/* KDS Live Stats */}
+          {kdsStats && (
+            <div className="mt-6 rounded-2xl border border-indigo-500/20 bg-indigo-500/[0.04] p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-2 h-2 rounded-full bg-indigo-400" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Gateway KDS — Live Stats</p>
+                {kdsStats.updatedAt && (
+                  <span className="ml-auto text-[10px] text-slate-600">Updated {kdsStats.updatedAt}</span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {[
+                  { label: 'Remaining Guests', value: kdsStats.remainingGuests != null ? kdsStats.remainingGuests.toLocaleString() : null, color: '#f59e0b' },
+                  { label: 'Total Guests',     value: kdsStats.totalGuests != null     ? kdsStats.totalGuests.toLocaleString() : null, color: '#10b981' },
+                  { label: 'Total Spent',      value: kdsStats.totalSpent != null      ? `$${kdsStats.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null, color: '#6366f1' },
+                  { label: 'Cost / Guest',     value: kdsStats.costGoal != null        ? `$${kdsStats.costGoal.toLocaleString(undefined,   { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null, color: '#ec4899' },
+                ].map(stat => (
+                  <div key={stat.label} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+                    <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: stat.color }}>{stat.label}</p>
+                    <p className="text-2xl font-black text-white">
+                      {stat.value != null ? stat.value : '—'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -6022,6 +6120,67 @@ function LiveGuestCount() {
   );
 }
 
+function KdsCardWidget() {
+  const [rg, setRg] = React.useState<number | null>(null);
+  const [cg, setCg] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    const toNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const findInPools = (d: Record<string, unknown>, keys: string[]) => {
+      const pools = [d, d?.raw, (d?.raw as Record<string,unknown>)?.data, d?.payload, d?.data].filter(Boolean) as Record<string, unknown>[];
+      for (const pool of pools) for (const k of keys) if (pool[k] != null) return toNum(pool[k]);
+      return 0;
+    };
+
+    const swUnsub = onSnapshot(
+      query(collection(kdsDb, 'showwareEvents'), orderBy('receivedAt', 'desc'), limit(1)),
+      snap => {
+        if (snap.empty) return;
+        const d = snap.docs[0].data() as Record<string, unknown>;
+        const total   = findInPools(d, ['gatewayTotal', 'gatewayCount', 'gateway', 'gateway_total', 'GatewayTotal', 'GatewayCount']);
+        const scanned = findInPools(d, ['gatewayScanned', 'gatewayScan', 'gateway_scanned', 'GatewayScanned', 'GatewayScan']);
+        setRg(Math.max(0, total - scanned));
+      },
+      () => {}
+    );
+
+    const vsUnsub = onSnapshot(
+      query(collection(kdsDb, 'venueSnapshots'), orderBy('timestamp', 'desc'), limit(1)),
+      snap => {
+        if (snap.empty) return;
+        const d = snap.docs[0].data();
+        setCg(d.costPerGuest ?? null);
+      },
+      () => {}
+    );
+
+    return () => { swUnsub(); vsUnsub(); };
+  }, []);
+
+  if (rg === null && cg === null) return null;
+
+  return (
+    <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 bg-black/40 backdrop-blur-sm rounded-xl px-2 py-1.5 sm:px-3 sm:py-2 border border-white/10 flex flex-col gap-0.5">
+      {rg !== null && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-orange-400">RG:</span>
+          <span className="text-[10px] sm:text-xs font-black text-white tabular-nums">{rg.toLocaleString()}</span>
+        </div>
+      )}
+      {cg !== null && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-indigo-400">C/G:</span>
+          <span className="text-[10px] sm:text-xs font-black text-white tabular-nums">${cg.toFixed(2)}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-1 mt-0.5 pt-0.5 border-t border-white/10">
+        <span className="w-1 h-1 rounded-full bg-green-400 animate-pulse" />
+        <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">Live · every 15 mins</span>
+      </div>
+    </div>
+  );
+}
+
 function GuardianCheckStats() {
   const [stats, setStats] = React.useState<{ hr: number; at: number; rt: number } | null>(null);
 
@@ -6073,6 +6232,7 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
 
   const isTicketing = card.title.toLowerCase() === 'ticketing';
   const isGuardian  = card.title.toLowerCase() === 'safetycheck' || card.title.toLowerCase() === 'guardiancheck';
+  const isKds       = card.title.toLowerCase() === 'pcc kds';
 
   return (
     <button
@@ -6085,6 +6245,7 @@ function SystemCardTile({ card, onNavigate }: { card: SystemCard; onNavigate: (v
       />
       {isTicketing && <LiveGuestCount />}
       {isGuardian  && <GuardianCheckStats />}
+      {isKds       && <KdsCardWidget />}
       <div
         className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mb-3 relative z-10 overflow-hidden"
         style={{ backgroundColor: card.color_accent + '20', border: `1px solid ${card.color_accent}40` }}

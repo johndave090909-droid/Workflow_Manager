@@ -44,3 +44,15 @@ const progressionApp = initializeApp({
 }, 'progression');
 
 export const progressionDb = getFirestore(progressionApp);
+
+// ── PCC KDS (pcc-kds-5bee6) ───────────────────────────────────────────────────
+const kdsApp = initializeApp({
+  apiKey: "AIzaSyCkDeNR98GOSi3D0Co5kGcrdruGaBw31vc",
+  authDomain: "pcc-kds-5bee6.firebaseapp.com",
+  projectId: "pcc-kds-5bee6",
+  storageBucket: "pcc-kds-5bee6.firebasestorage.app",
+  messagingSenderId: "672801653224",
+  appId: "1:672801653224:web:08b0536720e188298d645d",
+}, 'kds');
+
+export const kdsDb = getFirestore(kdsApp);
