@@ -194,6 +194,8 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
           content:     data.content,
           timestamp:   data.timestamp?.toDate?.()?.toISOString() ?? null,
           seenBy:      Object.keys(seenBy).length > 0 ? seenBy : undefined,
+          mediaUrl:    data.mediaUrl  ?? undefined,
+          mediaType:   data.mediaType ?? undefined,
         };
       });
       msgs.sort((a, b) => {
