@@ -14,6 +14,7 @@ import { User, Project, ProjectStatus, Department, AppView, SystemCard, Role, Ro
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import LoginScreen from './LoginScreen';
+import LoadingScreen from './LoadingScreen';
 import CreateProjectModal from './CreateProjectModal';
 import ProjectDetailModal from './ProjectDetailModal';
 import NotificationBell from './NotificationBell';
@@ -465,7 +466,7 @@ export default function App() {
 
   // Auth-required standalone pages
   if (window.location.pathname === '/chat') {
-    if (authLoading) return <div className="flex items-center justify-center h-screen bg-[#0a0510]"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#38bdf8]" /></div>;
+    if (authLoading) return <LoadingScreen />;
     if (!currentUser) return <LoginScreen />;
     return (
       <div className="h-screen w-screen bg-[#0a0510] flex flex-col">
@@ -484,11 +485,7 @@ export default function App() {
     );
   }
 
-  if (authLoading) return (
-    <div className="flex items-center justify-center h-screen bg-[#0a0510]">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ff00ff]" />
-    </div>
-  );
+  if (authLoading) return <LoadingScreen />;
 
   if (!currentUser) return <LoginScreen />;
 
