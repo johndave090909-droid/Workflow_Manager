@@ -46,7 +46,7 @@ function formatBytes(bytes: number): string {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'live-guest-count' | 'office-schedules';
+type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'live-guest-count' | 'office-schedules' | 'members';
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -213,6 +213,13 @@ export default function SystemHub({
         }).catch((err) => { console.warn('[Progression sync]', err); });
     }).catch(() => setDirLoading(false));
   }, [activeSection]);
+
+  // Listen for hub-section events (e.g. from mobile bottom nav Members button)
+  useEffect(() => {
+    const handler = (e: Event) => setActiveSection((e as CustomEvent).detail as HubSection);
+    window.addEventListener('hub-section', handler);
+    return () => window.removeEventListener('hub-section', handler);
+  }, []);
 
   // Load saved progression name map (persists manual name links across sessions)
   useEffect(() => {
@@ -543,6 +550,56 @@ export default function SystemHub({
                 )}
               </div>
             </>
+          )}
+
+          {/* MEMBERS — mobile-only sidebar members list */}
+          {activeSection === 'members' && (
+            <div className="p-4 max-w-lg mx-auto w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-white">Members</h2>
+                {permissions.access_it_admin && (
+                  <button
+                    onClick={() => onNavigate('it-admin')}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-black text-slate-400 hover:text-white hover:bg-white/10 transition-all border border-white/10"
+                  >+</button>
+                )}
+              </div>
+              {dirLoading ? (
+                <div className="flex justify-center py-10">
+                  <div className="w-5 h-5 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {directoryUsers.map(u => {
+                    const rc = ROLE_PALETTE[u.role] ?? '#64748b';
+                    return (
+                      <button
+                        key={u.id}
+                        onClick={() => { setProfileUser(u); setActiveSection('member-profile'); }}
+                        className="flex items-center gap-3 w-full text-left rounded-xl px-3 py-2.5 hover:bg-white/5 transition-colors border border-transparent hover:border-white/8"
+                      >
+                        <div className="relative shrink-0">
+                          <img
+                            src={u.photo || `https://picsum.photos/seed/${u.id}/100/100`}
+                            className="w-9 h-9 rounded-full object-cover"
+                            style={{ border: `2px solid ${rc}60` }}
+                            alt={u.name}
+                          />
+                          <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-[#06030b]" style={{ backgroundColor: rc }} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-slate-200 truncate leading-tight">{u.name}</p>
+                          <p className="text-[10px] text-slate-500 truncate">{u.role}</p>
+                        </div>
+                        {u.id === currentUser.id && (
+                          <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full shrink-0" style={{ background: `${rc}25`, color: rc }}>You</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
 
           {/* COMPLAINTS */}

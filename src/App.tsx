@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ClipboardList, AlertCircle, CheckCircle2, Clock, Calendar,
   ArrowUpRight, Target, Zap, Search, Plus, LogOut, GripVertical, X, EyeOff,
-  Home, Settings2 as SettingsIcon, Menu, MessageCircle
+  Home, Settings2 as SettingsIcon, Menu, MessageCircle, Users
 } from 'lucide-react';
 import { Draggable } from '@fullcalendar/interaction';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1099,6 +1099,17 @@ function BottomNav({ current, onNavigate, perms, roleColor, systemCards }: {
             </button>
           );
         })}
+        {/* Members button — navigates hub to directory section */}
+        <button
+          onClick={() => {
+            onNavigate('hub');
+            setTimeout(() => window.dispatchEvent(new CustomEvent('hub-section', { detail: 'members' })), 50);
+          }}
+          className="flex-1 flex flex-col items-center justify-center gap-1 py-2 transition-all min-h-[56px]"
+          style={{ color: 'rgba(148,163,184,.6)' }}>
+          <Users size={20} />
+          <span className="text-[10px] font-black uppercase tracking-wider">Members</span>
+        </button>
         {/* Chat button — opens MessengerPanel overlay */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('open-messenger'))}
