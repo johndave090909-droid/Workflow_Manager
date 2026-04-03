@@ -162,10 +162,11 @@
     controls.minDistance = 1.6;
     controls.maxDistance = 5.5;
 
+    const MODEL_URL = '/animations/samples/02/fish.glb';
     const loader = new GLTFLoader();
     let model;
 
-    loader.load('./fish.glb', gltf => {
+    loader.load(MODEL_URL, gltf => {
       model = gltf.scene;
       model.traverse(obj => {
         if (obj.isMesh) {
@@ -187,10 +188,15 @@
 
       scene.add(model);
       loaderEl.style.display = 'none';
-    }, undefined, err => {
+    }, progress => {
+      if (progress && progress.total) {
+        const pct = Math.round((progress.loaded / progress.total) * 100);
+        loaderEl.querySelector('.loader-sub').textContent = `Loading ${pct}%`;
+      }
+    }, err => {
       console.error(err);
       loaderEl.querySelector('.loader-title').textContent = 'Failed to load model';
-      loaderEl.querySelector('.loader-sub').textContent = 'Check console for details.';
+      loaderEl.querySelector('.loader-sub').textContent = 'The file may be missing or blocked.';
     });
 
     window.addEventListener('dblclick', () => {
@@ -215,4 +221,5 @@
   </script>
 </body>
 </html>
+
 
