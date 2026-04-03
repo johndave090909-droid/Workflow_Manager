@@ -371,6 +371,74 @@ body {
   overflow: hidden;
 }
 
+.section-fish {
+  gap: 2.2rem;
+  padding: 0 6vw;
+}
+
+.fish-content {
+  text-align: center;
+  max-width: 820px;
+}
+
+.section-fish .section-heading {
+  color: #f4eee3;
+}
+
+.section-fish .section-body {
+  color: #c9b89a;
+  max-width: 46ch;
+  margin: 0 auto;
+}
+
+.fish-viewer {
+  width: min(1200px, 92vw);
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 35%, #243043 0%, #121925 55%, #0b1119 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    0 18px 55px rgba(0,0,0,0.45),
+    inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+#fish-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fish-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #d9c7a8;
+  background: rgba(9, 12, 18, 0.75);
+  z-index: 2;
+}
+
+.fish-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(231, 214, 190, 0.8);
+  background: rgba(10, 14, 20, 0.55);
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.08);
+  z-index: 2;
+}
+
 .gallery-rows {
   width: 100%;
   display: flex;
@@ -518,4 +586,13 @@ body {
   .stat-number { font-size: clamp(3.5rem, 15vw, 6rem); }
 
   .marquee-text { font-size: 16vw; }
+
+  .section-fish {
+    gap: 1.5rem;
+    padding: 0 1.5rem;
+  }
+
+  .fish-viewer {
+    aspect-ratio: 4 / 3;
+  }
 }
