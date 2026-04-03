@@ -1,0 +1,218 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sample 02 — Interactive Model</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Inter:wght@400;500;600&display=swap" />
+  <!-- Auth guard: hide page until visibility + auth check completes -->
+  <style> body { visibility: hidden; } </style>
+  <script>
+    (async function() {
+      const PAGE_KEY = 'animations-sample-02';
+      const cfg = {
+        apiKey: "AIzaSyAgNSwj4LTeMbuVMTSbFRmbI6eKRYUsRXg",
+        authDomain: "systems-hub.firebaseapp.com",
+        projectId: "systems-hub",
+      };
+      await Promise.all([
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js'; s.onload = r; document.head.appendChild(s); }),
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js'; s.onload = r; document.head.appendChild(s); }),
+        new Promise(r => { const s = document.createElement('script'); s.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js'; s.onload = r; document.head.appendChild(s); }),
+      ]);
+      if (!firebase.apps.length) firebase.initializeApp(cfg);
+      const db = firebase.firestore();
+      const snap = await db.collection('settings').doc('pageVisibility').get().catch(() => null);
+      const isPublic = snap && snap.exists ? (snap.data()[PAGE_KEY] ?? false) : false;
+      const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if (isLocal) { document.body.style.visibility = 'visible'; return; }
+      if (isPublic) { document.body.style.visibility = 'visible'; return; }
+      // Private — check auth
+      await new Promise(resolve => firebase.auth().onAuthStateChanged(resolve));
+      const user = firebase.auth().currentUser;
+      if (user) { document.body.style.visibility = 'visible'; }
+      else { window.location.replace('/?private=1'); }
+    })();
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #07090c;
+      --panel: rgba(13, 16, 22, 0.85);
+      --accent: #48d1c8;
+      --text: #f2f6f9;
+      --muted: rgba(242, 246, 249, 0.45);
+    }
+
+    html, body { width: 100%; height: 100%; background: var(--bg); overflow: hidden; }
+    body { font-family: 'Inter', sans-serif; color: var(--text); }
+
+    #back {
+      position: fixed; top: 1.5rem; left: 1.5rem; z-index: 10;
+      font-family: 'Inter', sans-serif; font-size: 11px;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: rgba(255,255,255,0.25); text-decoration: none;
+      transition: color 0.2s;
+    }
+    #back:hover { color: rgba(255,255,255,0.7); }
+
+    .ui-panel {
+      position: fixed; right: 2rem; top: 2rem; z-index: 10;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 1.25rem 1.5rem;
+      border-radius: 12px;
+      max-width: 320px;
+      backdrop-filter: blur(12px);
+    }
+    .panel-label {
+      font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 0.75rem;
+    }
+    .panel-title {
+      font-family: 'Syne', sans-serif;
+      font-size: 2rem; line-height: 0.95; letter-spacing: -0.02em;
+      margin-bottom: 0.75rem;
+    }
+    .panel-desc {
+      color: var(--muted); line-height: 1.6; font-size: 0.85rem;
+    }
+    .panel-hint {
+      margin-top: 1rem; font-size: 0.75rem; letter-spacing: 0.08em;
+      text-transform: uppercase; color: rgba(255,255,255,0.35);
+    }
+    .panel-dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent); margin-right: 6px; transform: translateY(-1px);
+    }
+
+    #canvas { display: block; width: 100%; height: 100%; }
+
+    #loader {
+      position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+      background: radial-gradient(circle at 30% 20%, rgba(72,209,200,0.16), transparent 60%), var(--bg);
+    }
+    .loader-inner { text-align: center; }
+    .loader-title {
+      font-family: 'Syne', sans-serif; font-size: 1.5rem; letter-spacing: 0.08em;
+      margin-bottom: 0.6rem;
+    }
+    .loader-sub { color: rgba(255,255,255,0.4); font-size: 0.85rem; }
+
+    @media (max-width: 900px) {
+      .ui-panel { right: 1.5rem; left: 1.5rem; top: auto; bottom: 1.5rem; max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loader">
+    <div class="loader-inner">
+      <div class="loader-title">Loading Model</div>
+      <div class="loader-sub">Interactive tuna fish • drag to orbit</div>
+    </div>
+  </div>
+
+  <a href="/animations" id="back">? Samples</a>
+
+  <div class="ui-panel">
+    <div class="panel-label">Sample 02 · Interactive</div>
+    <div class="panel-title">3D Fish</div>
+    <div class="panel-desc">Orbit the model with your mouse or trackpad. Scroll to zoom, double click to reset the view.</div>
+    <div class="panel-hint"><span class="panel-dot"></span>Click + drag to rotate</div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.164.1/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.164.1/examples/jsm/loaders/GLTFLoader.js';
+
+    const canvas = document.getElementById('canvas');
+    const loaderEl = document.getElementById('loader');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x07090c);
+
+    const camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 0.2, 3.2);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const hemi = new THREE.HemisphereLight(0xd8f0ff, 0x0a0f16, 1.0);
+    scene.add(hemi);
+
+    const key = new THREE.DirectionalLight(0xffffff, 1.4);
+    key.position.set(3, 4, 5);
+    scene.add(key);
+
+    const rim = new THREE.DirectionalLight(0x48d1c8, 0.8);
+    rim.position.set(-4, 2, -2);
+    scene.add(rim);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enablePan = false;
+    controls.minDistance = 1.6;
+    controls.maxDistance = 5.5;
+
+    const loader = new GLTFLoader();
+    let model;
+
+    loader.load('./fish.glb', gltf => {
+      model = gltf.scene;
+      model.traverse(obj => {
+        if (obj.isMesh) {
+          obj.castShadow = false;
+          obj.receiveShadow = false;
+        }
+      });
+
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+
+      model.position.sub(center);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const scale = 1.6 / maxDim;
+      model.scale.setScalar(scale);
+
+      scene.add(model);
+      loaderEl.style.display = 'none';
+    }, undefined, err => {
+      console.error(err);
+      loaderEl.querySelector('.loader-title').textContent = 'Failed to load model';
+      loaderEl.querySelector('.loader-sub').textContent = 'Check console for details.';
+    });
+
+    window.addEventListener('dblclick', () => {
+      controls.reset();
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (model) {
+        model.rotation.y += 0.0012;
+      }
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
+

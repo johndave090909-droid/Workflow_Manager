@@ -816,7 +816,8 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
             {([
               { key: 'directory',           emoji: '🌺', label: 'Taste Polynesia',          desc: 'Scroll-driven directory page — public marketing site',                       url: `${window.location.origin}/directory`,              defaultPublic: true  },
               { key: 'ccbl',                emoji: '🏅', label: 'CCBL Certificate',          desc: 'Credential landing page for QR code scans',                                 url: `${window.location.origin}/ccbl`,                   defaultPublic: true  },
-              { key: 'animations-sample-01',emoji: '✨', label: 'Sample 01 — Frame Scroll',  desc: 'Animation sample (frame-scroll technique)',                                  url: `${window.location.origin}/animations/samples/01/`, defaultPublic: false },
+              { key: 'animations-sample-01',emoji: '✨', label: 'Sample 01 — Frame Scroll',  desc: 'Animation sample (frame-scroll technique)',                                  url: `${window.location.origin}/animations/samples/01/index.html`, defaultPublic: false },
+              { key: 'animations-sample-02',emoji: '🐟', label: 'Sample 02 — 3D Model',      desc: 'Interactive 3D model (GLB viewer with orbit controls)',                     url: `${window.location.origin}/animations/samples/02/index.html`, defaultPublic: false },
               { key: 'animations-reference',emoji: '📖', label: 'Animation Reference',       desc: 'All 10 animation techniques with parameters',                               url: `${window.location.origin}/animations/reference/`,  defaultPublic: false },
             ] as { key: string; emoji: string; label: string; desc: string; url: string; defaultPublic: boolean }[]).map(page => {
               const isPublic = pageVisibility[page.key] ?? page.defaultPublic;

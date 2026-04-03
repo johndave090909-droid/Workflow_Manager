@@ -301,7 +301,7 @@
       <div class="section-inner">
         <span class="section-label">002 · Precision</span>
         <h2 class="section-heading">Frame<br>Perfect</h2>
-        <p class="section-body">121 WebP frames at 1280px wide, preloaded in two phases. First 10 frames load immediately for a fast first paint.</p>
+        <p class="section-body">61 WebP frames sampled every 2nd frame, preloaded in two phases. First 10 frames load immediately for a fast first paint.</p>
       </div>
     </section>
 
@@ -311,7 +311,7 @@
       <div class="stats-grid">
         <div class="stat">
           <div style="display:flex;align-items:baseline;gap:4px">
-            <span class="stat-number" data-value="121" data-decimals="0">0</span>
+            <span class="stat-number" data-value="61" data-decimals="0">0</span>
           </div>
           <span class="stat-label">Frames</span>
         </div>
@@ -358,9 +358,11 @@
     gsap.registerPlugin(ScrollTrigger);
 
     // ── Config ───────────────────────────────────────────
-    const FRAME_COUNT  = 121;
+    const FRAME_TOTAL  = 121;
+    const FRAME_STEP   = 2; // lower FPS by sampling every Nth frame
+    const FRAME_COUNT  = Math.ceil(FRAME_TOTAL / FRAME_STEP);
     const FRAME_SPEED  = 2.0;
-    const IMAGE_SCALE  = 0.86;
+    const IMAGE_SCALE  = 1.0;
     const frames       = new Array(FRAME_COUNT);
     let loaded         = 0;
     let currentFrame   = 0;
@@ -385,7 +387,10 @@
       canvas.height = window.innerHeight * dpr;
       canvas.style.width  = window.innerWidth  + 'px';
       canvas.style.height = window.innerHeight + 'px';
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       drawFrame(currentFrame);
     }
     window.addEventListener('resize', () => { resizeCanvas(); ScrollTrigger.refresh(); });
@@ -418,7 +423,8 @@
     function loadFrame(i) {
       return new Promise(resolve => {
         const img = new Image();
-        const n   = String(i + 1).padStart(4, '0');
+        const realIndex = i * FRAME_STEP;
+        const n   = String(realIndex + 1).padStart(4, '0');
         img.src   = `frames/frame_${n}.webp`;
         img.onload = () => {
           frames[i] = img;
@@ -436,11 +442,12 @@
     async function preload() {
       resizeCanvas();
       // Phase 1: first 10 frames
-      const phase1 = Array.from({ length: 10 }, (_, i) => loadFrame(i));
+      const firstBatch = Math.min(10, FRAME_COUNT);
+      const phase1 = Array.from({ length: firstBatch }, (_, i) => loadFrame(i));
       await Promise.all(phase1);
       drawFrame(0);
       // Phase 2: rest
-      const phase2 = Array.from({ length: FRAME_COUNT - 10 }, (_, i) => loadFrame(i + 10));
+      const phase2 = Array.from({ length: FRAME_COUNT - firstBatch }, (_, i) => loadFrame(i + firstBatch));
       await Promise.all(phase2);
       // Hide loader
       gsap.to(loaderEl, { opacity: 0, duration: 0.5, onComplete: () => loaderEl.style.display = 'none' });
