@@ -170,46 +170,52 @@
         <p class="section-body">Beyond cooking — our CCBL program develops the business acumen, leadership mindset, and professional excellence that defines a lasting culinary career.</p>
       </div>
     </section>
+  </div><!-- #scroll-container -->
+  <!-- Gallery Images (static, after scroll animation) -->
+  <section class="gallery-static">
+    <div class="gallery-rows">
+      <!-- Row 1: slides right -->
+      <div class="gallery-row" data-dir="right">
+        <div class="gallery-track">
+          <img src="/frames/frame_0008.webp" alt="">
+          <img src="/frames/frame_0025.webp" alt="">
+          <img src="/frames/frame_0045.webp" alt="">
+          <img src="/frames/frame_0065.webp" alt="">
+          <img src="/frames/frame_0085.webp" alt="">
+          <img src="/frames/frame_0105.webp" alt="">
+        </div>
+      </div>
+      <!-- Row 2: slides left -->
+      <div class="gallery-row" data-dir="left">
+        <div class="gallery-track">
+          <img src="/frames/frame_0120.webp" alt="">
+          <img src="/frames/frame_0135.webp" alt="">
+          <img src="/frames/frame_0150.webp" alt="">
+          <img src="/frames/frame_0162.webp" alt="">
+          <img src="/frames/frame_0175.webp" alt="">
+          <img src="/frames/frame_0188.webp" alt="">
+        </div>
+      </div>
+    </div>
+  </section>
 
-    <!-- Section 4: 3D Tuna Fish (dark overlay) -->
-    <section class="scroll-section section-gallery section-fish"
-             data-enter="56" data-leave="72" data-animation="stagger-up">
-      <div class="fish-content">
-        <span class="section-label">004 / Signature</span>
-        <h2 class="section-heading">The Tuna, In 3D</h2>
-        <p class="section-body">Drag to orbit the model. Scroll to continue the story.</p>
+  <!-- CTA + 3D Tuna Fish (static) -->
+  <section class="cta-fish">
+    <div class="cta-fish-inner">
+      <div class="cta-copy">
+        <span class="section-label">004 / Begin</span>
+        <h2 class="section-heading">Your Journey<br>Starts Here</h2>
+        <p class="section-body">The CCBL certification awaits. Join the next generation of culinary business leaders at the Polynesian Cultural Center in Laie, Hawai&lsquo;i.</p>
+        <a href="/" class="cta-button">Return to Hub</a>
       </div>
       <div class="fish-viewer" id="fish-viewer">
         <div class="fish-loading" id="fish-loading">Loading 3D model...</div>
         <canvas id="fish-canvas"></canvas>
         <div class="fish-hint">Drag to rotate - Scroll to continue</div>
       </div>
-    </section>
-
-    <!-- Section 5: Heritage -->
-    <section class="scroll-section section-content align-left"
-             data-enter="74" data-leave="86" data-animation="rotate-in">
-      <div class="section-inner">
-        <span class="section-label">005 / Heritage</span>
-        <h2 class="section-heading">Rooted in<br>Polynesian Culture</h2>
-        <p class="section-body">Laie, Hawai&lsquo;i provides a singular backdrop — where Pacific culinary traditions merge with world-class technique to create something wholly original and deeply meaningful.</p>
-      </div>
-    </section>
-
-    <!-- Section 6: CTA (persists) -->
-    <section class="scroll-section section-cta align-left"
-             data-enter="88" data-leave="100" data-animation="clip-reveal" data-persist="true">
-      <div class="section-inner">
-        <span class="section-label">006 / Begin</span>
-        <h2 class="section-heading">Your Journey<br>Starts Here</h2>
-        <p class="section-body">The CCBL certification awaits. Join the next generation of culinary business leaders at the Polynesian Cultural Center in Laie, Hawai&lsquo;i.</p>
-        <a href="/" class="cta-button">Return to Hub</a>
-      </div>
-    </section>
-
-  </div><!-- #scroll-container -->
-
-  <!-- ── Footer ────────────────────────────────────────────────────────────── -->
+    </div>
+  </section>
+<!-- ── Footer ────────────────────────────────────────────────────────────── -->
   <footer class="site-footer">
     <div class="footer-social">
       <span>FOLLOW US:</span>
@@ -245,3 +251,4 @@
   <script src="js/app.js"></script>
 </body>
 </html>
+

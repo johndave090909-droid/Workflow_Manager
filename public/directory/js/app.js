@@ -449,6 +449,16 @@ function initDarkOverlay() {
   });
 }
 
+/* ── 6j. End of scroll animation ───────────────────────────────────────────── */
+function initScrollEnd() {
+  ScrollTrigger.create({
+    trigger: scrollContainer,
+    start: 'bottom bottom',
+    onEnter: () => document.body.classList.add('scroll-complete'),
+    onLeaveBack: () => document.body.classList.remove('scroll-complete'),
+  });
+}
+
 /* ── Init sequence (runs after all frames are loaded) ───────────────────── */
 async function init() {
   gsap.registerPlugin(ScrollTrigger);
@@ -468,6 +478,7 @@ async function init() {
   initGallerySlider();
   initMarquees();
   initDarkOverlay();
+  initScrollEnd();
 }
 
 /* ── Play/pause toggle for alt-row videos ────────────────────────────────── */
