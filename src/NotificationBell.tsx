@@ -112,12 +112,18 @@ export default function NotificationBell({ userId }: Props) {
       {/* Panel */}
       {open && (
         <div
-          className="absolute right-0 top-full mt-3 bg-[#12091e] border border-white/10 rounded-2xl shadow-2xl shadow-black/80 z-[60] overflow-hidden flex flex-col"
-          style={{ width: 'min(400px, calc(100vw - 24px))' }}
+          className="fixed inset-0 bg-[#12091e] border border-white/10 rounded-none shadow-2xl shadow-black/80 z-[60] overflow-hidden flex flex-col w-screen h-[100dvh] sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-3 sm:rounded-2xl sm:w-[min(400px,calc(100vw-24px))] sm:h-auto"
         >
           {/* ── Header ── */}
           <div className="px-5 pt-5 pb-3 flex-shrink-0">
             <div className="flex items-center justify-between mb-4">
+              <button
+                onClick={() => setOpen(false)}
+                className="sm:hidden mr-2 -ml-1 px-2 py-1 text-sm font-bold text-slate-300 hover:text-white transition-colors rounded-lg hover:bg-white/5"
+                aria-label="Close notifications"
+              >
+                Back
+              </button>
               <h2 className="text-xl font-black text-white tracking-tight">Notifications</h2>
               {unreadCount > 0 && (
                 <button
@@ -153,7 +159,7 @@ export default function NotificationBell({ userId }: Props) {
           </div>
 
           {/* ── List ── */}
-          <div className="overflow-y-auto flex-1" style={{ maxHeight: 'min(480px, calc(100vh - 80px))' }}>
+          <div className="overflow-y-auto flex-1 max-h-[calc(100dvh-140px)] sm:max-h-[min(480px,calc(100vh-80px))]">
             {displayed.length === 0 && (
               <div className="py-14 text-center">
                 <p className="text-4xl mb-3">🔔</p>
