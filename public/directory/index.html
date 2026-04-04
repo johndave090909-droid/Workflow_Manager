@@ -6,7 +6,7 @@
   <title>Taste Polynesia — The Craft</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600&family=Fredoka+One&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -55,9 +55,7 @@
     <nav>
       <a href="/" class="nav-logo">TASTE POLYNESIA</a>
       <div class="nav-links">
-        <a href="#craft">The Craft</a>
-        <a href="#program">Program</a>
-        <a href="#ccbl">CCBL</a>
+        <a href="/ccbl">CCBL</a>
       </div>
     </nav>
   </header>
@@ -103,24 +101,18 @@
         <p class="alt-body">Ground ovens are traditional throughout the Polynesian Islands. In the early morning hours at the Center a Hawaiian ground oven, or imu, is built and used to dry age and steam a whole roasted pig for 10 hours to ensure the most tender and delicious meat. This practice has been passed down through the generations — honoring the long-standing traditions of Polynesian cooking.</p>
       </div>
       <div class="alt-video">
-        <video muted loop playsinline id="vid1">
+        <video controls playsinline id="vid1" preload="metadata" poster="/directory/posters/ground-oven.jpg">
           <source src="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/DirectoryGallery%2Fvideos%2F3191697714.mp4?alt=media" type="video/mp4">
         </video>
-        <button class="play-btn" onclick="toggleVid('vid1', this)">
-          <svg viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-        </button>
       </div>
     </div>
 
     <!-- Row 2: video left, text right -->
-    <div class="alt-row alt-row-reverse">
+    <div class="alt-row">
       <div class="alt-video">
-        <video muted loop playsinline id="vid2">
+        <video controls playsinline id="vid2" preload="metadata" poster="/directory/posters/hot-rocks.jpg">
           <source src="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/DirectoryGallery%2Fvideos%2F3209454685.mp4?alt=media" type="video/mp4">
         </video>
-        <button class="play-btn" onclick="toggleVid('vid2', this)">
-          <svg viewBox="0 0 24 24" fill="white"><polygon points="5,3 19,12 5,21"/></svg>
-        </button>
       </div>
       <div class="alt-text">
         <h2 class="alt-heading">Cooking on Hot Rocks</h2>
@@ -215,9 +207,9 @@
              data-enter="88" data-leave="100" data-animation="clip-reveal" data-persist="true">
       <div class="section-inner">
         <span class="section-label">005 / Begin</span>
-        <h2 class="section-heading">Your Journey<br>Starts Here</h2>
-        <p class="section-body">The CCBL certification awaits. Join the next generation of culinary business leaders at the Polynesian Cultural Center in Laie, Hawai&lsquo;i.</p>
-        <a href="/" class="cta-button">Return to Hub</a>
+        <h2 class="section-heading">Certified Culinary<br>Business Leader</h2>
+        <p class="section-body">Earn a credential focused on culinary finance, operations, leadership, and guest experience. Build the skills that move you from great cook to confident business leader.</p>
+        <a href="/ccbl" class="cta-button">Link to Certified Culinary Business Leader</a>
       </div>
     </section>
 
@@ -237,9 +229,9 @@
     <div class="footer-bottom">
       <span>Polynesian Cultural Center, All Rights Reserved, &copy; 2026</span>
       <div class="footer-links">
-        <a href="#">Terms of Use</a>
+        <a href="/terms/index.html">Terms of Use</a>
         <span>|</span>
-        <a href="#">Privacy Policy</a>
+        <a href="/privacy/index.html">Privacy Policy</a>
       </div>
     </div>
   </footer>
