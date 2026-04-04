@@ -1,8 +1,8 @@
 ﻿/* â”€â”€ app.js â€” PCC Culinary scroll-driven page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-const FRAME_TOTAL  = 121;
-const FRAME_STEP   = 2;
+const FRAME_TOTAL  = 200;
+const FRAME_STEP   = 1;
 const FRAME_COUNT  = Math.ceil(FRAME_TOTAL / FRAME_STEP);
 const FRAME_SPEED  = 2.0;
 const IMAGE_SCALE  = 1.0;
