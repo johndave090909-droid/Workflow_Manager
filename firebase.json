@@ -64,8 +64,28 @@
         "destination": "/animations/samples/02/index.html"
       },
       {
+        "source": "/taste-polynesia",
+        "destination": "/directory/index.html"
+      },
+      {
+        "source": "/taste-polynesia/**",
+        "destination": "/directory/index.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
+      }
+    ],
+    "redirects": [
+      {
+        "source": "/directory",
+        "destination": "/taste-polynesia",
+        "type": 301
+      },
+      {
+        "source": "/directory/",
+        "destination": "/taste-polynesia",
+        "type": 301
       }
     ]
   }

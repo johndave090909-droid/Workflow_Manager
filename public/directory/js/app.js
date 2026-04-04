@@ -1,12 +1,14 @@
-/* ── app.js — PCC Culinary scroll-driven page ──────────────────────────── */
+﻿/* â”€â”€ app.js â€” PCC Culinary scroll-driven page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/* ── Constants ──────────────────────────────────────────────────────────── */
-const FRAME_COUNT  = 192;
+/* â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+const FRAME_TOTAL  = 200;
+const FRAME_STEP   = 1;
+const FRAME_COUNT  = Math.ceil(FRAME_TOTAL / FRAME_STEP);
 const FRAME_SPEED  = 2.0;
-const IMAGE_SCALE  = 0.87;
-const FRAME_PATH   = '/frames/frame_';
+const IMAGE_SCALE  = 1.0;
+const FRAME_PATH   = '/animations/samples/01/frames/frame_';
 
-/* ── Element refs ───────────────────────────────────────────────────────── */
+/* â”€â”€ Element refs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const loader          = document.getElementById('loader');
 const loaderBar       = document.getElementById('loader-bar');
 const loaderPercent   = document.getElementById('loader-percent');
@@ -17,19 +19,19 @@ const darkOverlay     = document.getElementById('dark-overlay');
 const heroSection     = document.getElementById('hero');
 const scrollContainer = document.getElementById('scroll-container');
 
-/* ── State ──────────────────────────────────────────────────────────────── */
+/* â”€â”€ State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const frames = new Array(FRAME_COUNT).fill(null);
 let currentFrame = 0;
 let bgColor      = '#f8f5f0';
 
-/* ── Utility: zero-padded frame index ───────────────────────────────────── */
+/* â”€â”€ Utility: zero-padded frame index â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function padIdx(i) { return String(i + 1).padStart(4, '0'); }
 
-/* ── Canvas sizing with devicePixelRatio ────────────────────────────────── */
+/* â”€â”€ Canvas sizing with devicePixelRatio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function resizeCanvas() {
   const dpr = window.devicePixelRatio || 1;
-  const cw  = canvasWrap.clientWidth  || window.innerWidth  * 0.5;
-  const ch  = canvasWrap.clientHeight || window.innerHeight;
+  const cw  = window.innerWidth;
+  const ch  = window.innerHeight;
   canvas.width        = cw * dpr;
   canvas.height       = ch * dpr;
   canvas.style.width  = cw + 'px';
@@ -43,27 +45,33 @@ window.addEventListener('resize', () => {
   if (typeof ScrollTrigger !== 'undefined') ScrollTrigger.refresh();
 });
 
-/* ── Background color sampler (no longer used — CSS controls body bg) ───── */
-function sampleBgColor(_img) { /* no-op */ }
+/* â”€â”€ Background color sampler â”€â”€â”€â”€â”€ */
+function sampleBgColor(img) {
+  const tmp = document.createElement('canvas');
+  tmp.width = 10; tmp.height = 10;
+  const tc = tmp.getContext('2d');
+  if (!tc) return;
+  tc.drawImage(img, 0, 0, 10, 10);
+  const d = tc.getImageData(0, 0, 1, 1).data;
+  bgColor = `rgb(${d[0]},${d[1]},${d[2]})`;
+}
 
-/* ── Draw a single frame ─────────────────────────────────────────────────── */
+/* â”€â”€ Draw a single frame â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function drawFrame(index) {
   const img = frames[index];
   if (!img) return;
-  const cw = canvas.clientWidth  || canvasWrap.clientWidth  || window.innerWidth  * 0.5;
-  const ch = canvas.clientHeight || canvasWrap.clientHeight || window.innerHeight;
+  const cw = canvas.clientWidth  || window.innerWidth;
+  const ch = canvas.clientHeight || window.innerHeight;
   const iw = img.naturalWidth, ih = img.naturalHeight;
-  const scale = Math.min(cw / iw, ch / ih) * 0.82;
+  const scale = Math.max(cw / iw, ch / ih) * IMAGE_SCALE;
   const dw = iw * scale, dh = ih * scale;
   const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
-  ctx.clearRect(0, 0, cw, ch);  // transparent — body background shows through border
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, cw, ch);
   ctx.drawImage(img, dx, dy, dw, dh);
-  // Cover the white watermark area in the bottom-right corner of the frame
-  ctx.fillStyle = '#f7f5f0';
-  ctx.fillRect(dx + dw * 0.82, dy + dh * 0.79, dw * 0.18, dh * 0.21);
 }
 
-/* ── Frame preloader — two-phase ────────────────────────────────────────── */
+/* â”€â”€ Frame preloader â€” two-phase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function loadFrames(onComplete) {
   let loaded = 0;
 
@@ -96,7 +104,8 @@ function loadFrames(onComplete) {
       if (phase1Done === phase1) loadPhase2();
       if (loaded === FRAME_COUNT) onComplete();
     };
-    img.src = FRAME_PATH + padIdx(i) + '.webp';
+    const realIndex = idx * FRAME_STEP;
+    img.src = FRAME_PATH + padIdx(realIndex) + '.webp';
   }
 
   // Phase 2: remaining frames
@@ -109,12 +118,13 @@ function loadFrames(onComplete) {
         loaded++;
         if (loaded === FRAME_COUNT) onComplete();
       };
-      img.src = FRAME_PATH + padIdx(i) + '.webp';
+      const realIndex = idx * FRAME_STEP;
+      img.src = FRAME_PATH + padIdx(realIndex) + '.webp';
     }
   }
 }
 
-/* ── Hide loader ─────────────────────────────────────────────────────────── */
+/* â”€â”€ Hide loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function hideLoader() {
   gsap.to(loader, {
     opacity: 0, duration: 0.7, ease: 'power2.out',
@@ -122,7 +132,7 @@ function hideLoader() {
   });
 }
 
-/* ── 6a. Lenis smooth scroll ────────────────────────────────────────────── */
+/* â”€â”€ 6a. Lenis smooth scroll â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initLenis() {
   const lenis = new Lenis({
     duration: 1.2,
@@ -134,7 +144,7 @@ function initLenis() {
   gsap.ticker.lagSmoothing(0);
 }
 
-/* ── Hero word entrance ─────────────────────────────────────────────────── */
+/* â”€â”€ Hero word entrance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initHeroEntrance() {
   const words    = heroSection.querySelectorAll('.word');
   const labels   = heroSection.querySelectorAll('.section-label');
@@ -153,7 +163,7 @@ function initHeroEntrance() {
   });
 }
 
-/* ── 6i. Circle-wipe hero reveal ────────────────────────────────────────── */
+/* â”€â”€ 6i. Circle-wipe hero reveal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initHeroTransition() {
   ScrollTrigger.create({
     trigger: scrollContainer,
@@ -162,17 +172,17 @@ function initHeroTransition() {
     scrub: true,
     onUpdate(self) {
       const p = self.progress;
-      // Hero fades out only after 8% scroll so entrance animation always completes
-      heroSection.style.opacity = Math.max(0, 1 - Math.max(0, p - 0.08) * 20);
-      // Canvas expands via circle clip-path (150% covers full half-panel)
-      const wipeProgress = Math.min(1, Math.max(0, (p - 0.01) / 0.06));
-      const radius = wipeProgress * 150;
+      // Hero fades out
+      heroSection.style.opacity = Math.max(0, 1 - Math.max(0, p - 0.03) * 25);
+      // Canvas circle wipe
+      const wipeProgress = Math.min(1, Math.max(0, (p - 0.02) / 0.07));
+      const radius = wipeProgress * 80;
       canvasWrap.style.clipPath = `circle(${radius}% at 50% 50%)`;
     }
   });
 }
 
-/* ── 6d. Frame-to-scroll binding ────────────────────────────────────────── */
+/* â”€â”€ 6d. Frame-to-scroll binding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initFrameScroll() {
   ScrollTrigger.create({
     trigger: scrollContainer,
@@ -190,7 +200,7 @@ function initFrameScroll() {
   });
 }
 
-/* ── Section positioning ────────────────────────────────────────────────── */
+/* â”€â”€ Section positioning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function positionSections() {
   document.querySelectorAll('.scroll-section').forEach(section => {
     const enter = parseFloat(section.dataset.enter);
@@ -201,7 +211,7 @@ function positionSections() {
   });
 }
 
-/* ── 6e. Section animation system ───────────────────────────────────────── */
+/* â”€â”€ 6e. Section animation system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initSections() {
   const items = [];
 
@@ -272,7 +282,7 @@ function initSections() {
   });
 }
 
-/* ── Populate gallery from Firestore ────────────────────────────────────── */
+/* â”€â”€ Populate gallery from Firestore â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function populateGalleryTracks(items) {
   const rows = { 1: document.querySelectorAll('.gallery-row')[0], 2: document.querySelectorAll('.gallery-row')[1] };
   [1, 2].forEach(rowNum => {
@@ -321,7 +331,7 @@ async function loadGalleryFromFirestore() {
   } catch (_) { /* fall back to hardcoded frames */ }
 }
 
-/* ── Gallery slider ─────────────────────────────────────────────────────── */
+/* â”€â”€ Gallery slider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initGallerySlider() {
   document.querySelectorAll('.gallery-row').forEach(row => {
     const track = row.querySelector('.gallery-track');
@@ -331,7 +341,7 @@ function initGallerySlider() {
     const origImgs = [...track.querySelectorAll('img')];
     const n = origImgs.length;
 
-    // Triple the images: [set1, set2, set3] — start in the middle (set2)
+    // Triple the images: [set1, set2, set3] â€” start in the middle (set2)
     origImgs.forEach(img => track.appendChild(img.cloneNode(true)));
     origImgs.forEach(img => track.appendChild(img.cloneNode(true)));
 
@@ -376,9 +386,9 @@ function initGallerySlider() {
   });
 }
 
-/* ── 6g. Marquee ────────────────────────────────────────────────────────── */
+/* â”€â”€ 6g. Marquee â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initMarquees() {
-  // Horizontal slide — alternate directions
+  // Horizontal slide â€” alternate directions
   document.querySelectorAll('.marquee-wrap').forEach((wrap, i) => {
     const speed = i === 0 ? -22 : -14;
     gsap.to(wrap.querySelector('.marquee-text'), {
@@ -412,7 +422,7 @@ function initMarquees() {
   });
 }
 
-/* ── 6h. Dark overlay + canvas hide ─────────────────────────────────────── */
+/* â”€â”€ 6h. Dark overlay + canvas hide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initDarkOverlay() {
   const enter = 0.56, leave = 0.72;
   const fadeRange = 0.04;
@@ -481,20 +491,9 @@ async function init() {
   initScrollEnd();
 }
 
-/* ── Play/pause toggle for alt-row videos ────────────────────────────────── */
-function toggleVid(id, btn) {
-  const vid = document.getElementById(id);
-  if (vid.paused) {
-    vid.play();
-    btn.style.opacity = '0';
-  } else {
-    vid.pause();
-    btn.style.opacity = '1';
-  }
-}
-
-/* ── Boot ────────────────────────────────────────────────────────────────── */
+/* â”€â”€ Boot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 loadFrames(() => {
   hideLoader();
   init();
 });
+
