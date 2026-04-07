@@ -590,11 +590,15 @@ function initCanvas2() {
 
 /* ── Boot ──────────────────────────────────────────────────────────────────── */
 
-// Force intro video to play on mobile (browsers may ignore autoplay attribute)
+// Force intro video autoplay on iOS Safari (requires muted as property + play() call)
 const introVideo = document.querySelector('.intro-video');
 if (introVideo) {
+  introVideo.muted = true;
+  introVideo.playsInline = true;
   const tryPlay = () => introVideo.play().catch(() => {});
-  tryPlay();
+  introVideo.addEventListener('canplay', tryPlay, { once: true });
+  introVideo.addEventListener('loadeddata', tryPlay, { once: true });
+  introVideo.load();
   document.addEventListener('touchstart', tryPlay, { once: true });
 }
 
