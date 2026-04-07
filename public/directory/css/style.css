@@ -851,7 +851,7 @@ body.scroll-complete .marquee-wrap {
 
 /* ── Ocean Overlay (animation 1 end frames) ────────────────────────────────── */
 .section-ocean-overlay {
-  padding: 28vh 5vw 0;
+  padding: 50vh 5vw 0;
   justify-content: center;
 }
 
@@ -997,12 +997,24 @@ body.scroll-complete .marquee-wrap {
 
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  #scroll-container { height: 320vh; }
+  #scroll-container   { height: 700vh; }
+  #scroll-container-2 { height: 400vh; }
+
+  .section-ocean-overlay { padding: 8vh 1.5rem 0; }
+  .section-ocean-overlay .section-inner.oo-panel { grid-template-columns: 1fr; }
+  .oo-left::after { display: none; }
+  .oo-right { border-left: none; border-top: 1px solid rgba(208,178,90,0.18); }
+  .oo-heading { font-size: clamp(2.8rem, 12vw, 4rem); }
+
+  .system-behind-section { padding: 4rem 1.5rem; min-height: 0; align-items: flex-start; }
+  .system-behind-inner { max-width: 100%; gap: 1rem; }
+  .system-behind-inner .section-heading { font-size: clamp(2rem, 11vw, 3.5rem); }
+  .system-behind-inner .cta-button { font-size: 0.6rem; padding: 0.8rem 1.2rem; white-space: normal; }
 
   .site-header { padding: 0.9rem 1.5rem; }
   .nav-links { display: none; }
 
-  .hero-heading { font-size: clamp(4rem, 18vw, 8rem); }
+  .hero-heading { font-size: clamp(2.6rem, 12vw, 4rem); word-break: break-word; }
 
   .align-left, .align-right {
     padding: 3rem 1.5rem;
@@ -1044,4 +1056,7 @@ body.scroll-complete .marquee-wrap {
   .alt-text, .alt-video { flex: 0 0 auto; width: 100%; height: auto; }
   .alt-video { aspect-ratio: 16 / 10; }
   .alt-video video { height: 100%; }
+  /* Always show text before video regardless of desktop order */
+  .alt-row .alt-text  { order: 1; }
+  .alt-row .alt-video { order: 2; }
 }
