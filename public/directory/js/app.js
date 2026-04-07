@@ -589,6 +589,15 @@ function initCanvas2() {
 }
 
 /* ── Boot ──────────────────────────────────────────────────────────────────── */
+
+// Force intro video to play on mobile (browsers may ignore autoplay attribute)
+const introVideo = document.querySelector('.intro-video');
+if (introVideo) {
+  const tryPlay = () => introVideo.play().catch(() => {});
+  tryPlay();
+  document.addEventListener('touchstart', tryPlay, { once: true });
+}
+
 loadFrames(() => {
   hideLoader();
   init();
