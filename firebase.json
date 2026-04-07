@@ -60,6 +60,10 @@
         "destination": "/animations/samples/01/index.html"
       },
       {
+        "source": "/animations/samples/02",
+        "destination": "/animations/samples/02/index.html"
+      },
+      {
         "source": "/taste-polynesia",
         "destination": "/directory/index.html"
       },

@@ -362,7 +362,7 @@ body {
 /* ── Scroll Container ──────────────────────────────────────────────────────── */
 #scroll-container {
   position: relative;
-  height: 500vh;
+  height: 420vh;
   z-index: 5;
 }
 
@@ -589,6 +589,89 @@ body {
   overflow: hidden;
 }
 
+.gallery-static {
+  background: #1a1410;
+  padding: 4.5rem 0 5rem;
+}
+
+.cta-fish {
+  background: var(--bg-light);
+  padding: 4.5rem 6vw 6rem;
+}
+
+.cta-fish-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 3rem;
+  align-items: center;
+}
+
+.cta-copy .section-heading {
+  color: #1e1a14;
+}
+
+.cta-copy .section-body {
+  color: #5a5248;
+  max-width: 42ch;
+}
+
+.fish-viewer {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 35%, #243043 0%, #121925 55%, #0b1119 100%);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow:
+    0 18px 55px rgba(0,0,0,0.45),
+    inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+#fish-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.fish-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #d9c7a8;
+  background: rgba(9, 12, 18, 0.75);
+  z-index: 2;
+}
+
+.fish-hint {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  font-size: 0.65rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(231, 214, 190, 0.8);
+  background: rgba(10, 14, 20, 0.55);
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.08);
+  z-index: 2;
+}
+
+body.scroll-complete .canvas-wrap,
+body.scroll-complete #dark-overlay,
+body.scroll-complete .marquee-wrap {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
 .gallery-rows {
   width: 100%;
   display: flex;
@@ -768,7 +851,7 @@ body {
 
 /* ── Ocean Overlay (animation 1 end frames) ────────────────────────────────── */
 .section-ocean-overlay {
-  padding: 0 5vw;
+  padding: 28vh 5vw 0;
   justify-content: center;
 }
 
@@ -914,11 +997,7 @@ body {
 
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  .ocean-section { padding: 5rem 1.5rem; }
-  .ocean-content { grid-template-columns: 1fr; gap: 3rem; }
-  .ocean-left { position: static; }
-
-  #scroll-container { height: 500vh; }
+  #scroll-container { height: 320vh; }
 
   .site-header { padding: 0.9rem 1.5rem; }
   .nav-links { display: none; }
@@ -947,16 +1026,19 @@ body {
 
   .marquee-text { font-size: 16vw; }
 
-  .section-ocean-overlay { padding: 0 1.5rem; }
-  .section-ocean-overlay .section-inner.oo-panel {
+  .cta-fish {
+    padding: 3.5rem 1.5rem 4.5rem;
+  }
+
+  .cta-fish-inner {
     grid-template-columns: 1fr;
   }
-  .oo-left::after { display: none; }
-  .oo-right { border-top: none; border-left: 1px solid rgba(208,178,90,0.18); }
-  .oo-heading { font-size: clamp(2.8rem, 12vw, 4rem); }
-}
 
-@media (max-width: 768px) {
+  .fish-viewer {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+  }
+
   .alt-rows-section { height: auto; }
   .alt-row { flex-direction: column; height: auto; }
   .alt-text, .alt-video { flex: 0 0 auto; width: 100%; height: auto; }
