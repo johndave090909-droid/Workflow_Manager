@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600&family=Fredoka+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/directory/css/style.css?v=20260404" />
+  <link rel="stylesheet" href="/directory/css/style.css?v=20260405" />
 </head>
 <body>
 
@@ -95,7 +95,7 @@
   <section class="alt-rows-section">
 
     <!-- Row 1: text left, video right -->
-    <div class="alt-row">
+      <div class="alt-row">
       <div class="alt-text">
         <h2 class="alt-heading">The Ground Oven</h2>
         <p class="alt-body">Ground ovens are traditional throughout the Polynesian Islands. In the early morning hours at the Center a Hawaiian ground oven, or imu, is built and used to dry age and steam a whole roasted pig for 10 hours to ensure the most tender and delicious meat. This practice has been passed down through the generations — honoring the long-standing traditions of Polynesian cooking.</p>
@@ -111,7 +111,7 @@
     <div class="alt-row">
       <div class="alt-video">
         <video controls playsinline id="vid2" preload="metadata" poster="/directory/posters/hot-rocks.jpg">
-          <source src="https://firebasestorage.googleapis.com/v0/b/systems-hub.firebasestorage.app/o/DirectoryGallery%2Fvideos%2F3209454685.mp4?alt=media" type="video/mp4">
+          <source src="/directory/video2.mp4" type="video/mp4">
         </video>
       </div>
       <div class="alt-text">
@@ -122,7 +122,8 @@
 
   </section>
 
-  <!-- ── Canvas (fixed, full viewport, circle-wipe reveal) ─────────────── -->
+  <!-- ── Ocean to Plate ─────────────────────────────────────────────────────── -->
+<!-- ── Canvas (fixed, full viewport, circle-wipe reveal) ─────────────── -->
   <div class="canvas-wrap" id="canvas-wrap">
     <canvas id="canvas"></canvas>
   </div>
@@ -153,19 +154,19 @@
       </div>
     </section>
 
-    <!-- Section 3: Leadership -->
-    <section class="scroll-section section-content align-left"
-             data-enter="26" data-leave="40" data-animation="scale-up">
-      <div class="section-inner">
-        <span class="section-label">003 / Leadership</span>
-        <h2 class="section-heading">Building Culinary<br>Business Leaders</h2>
-        <p class="section-body">Beyond cooking — our CCBL program develops the business acumen, leadership mindset, and professional excellence that defines a lasting culinary career.</p>
-      </div>
+
+    <!-- Felix Tai Quote -->
+    <section class="scroll-section section-quote"
+             data-enter="48" data-leave="66" data-animation="fade-up">
+      <blockquote class="sq-quote">
+        <p>Food is love&mdash;<br>expressed through discipline, respect, and a commitment to excellence.<br>It is not just meant to be tasted,<br>but felt, remembered, and shared.</p>
+        <cite>— Felix Tai</cite>
+      </blockquote>
     </section>
 
     <!-- Section 4: Gallery Slider (dark overlay) -->
     <section class="scroll-section section-gallery"
-             data-enter="56" data-leave="72" data-animation="stagger-up">
+             data-enter="66" data-leave="84" data-animation="stagger-up">
       <div class="gallery-rows">
         <!-- Row 1: slides right -->
         <div class="gallery-row" data-dir="right">
@@ -192,9 +193,44 @@
       </div>
     </section>
 
-    <!-- Section 5: Heritage -->
+    <!-- Section: Ocean to Plate — editorial overlay on animation 1 end frames -->
+    <section class="scroll-section section-ocean-overlay"
+             data-enter="84" data-leave="100">
+      <div class="section-inner oo-panel">
+        <div class="oo-left">
+          <span class="oo-eyebrow">001 / Origin</span>
+          <h2 class="oo-heading">From<br>Ocean<br>to Plate</h2>
+          <p class="oo-sub">Ahi, As It Was Meant to Be</p>
+        </div>
+        <div class="oo-right">
+          <p class="oo-body">Each day, we source whole ahi directly from the Honolulu fish auction — bringing in the fish in its entirety and breaking it down in-house. Served as sashimi in its purest form, this is not altered, masked, or overworked.</p>
+          <blockquote class="oo-creed">No manipulation. No excess. No compromise.<br>Unadulterated. Untouched. True to the ingredient.</blockquote>
+          <div class="oo-list">
+            <span class="oo-list-label">This practice reflects respect:</span>
+            <ul>
+              <li>for the ingredient</li>
+              <li>for the process</li>
+              <li>for the culture</li>
+            </ul>
+          </div>
+          <p class="oo-close">From ocean to plate, this is Hawai&lsquo;i.</p>
+        </div>
+      </div>
+    </section>
+
+  </div><!-- #scroll-container -->
+
+  <!-- ── Canvas 2 (fixed, second scroll animation) ────────────────────────── -->
+  <div class="canvas2-wrap" id="canvas2-wrap">
+    <canvas id="canvas2"></canvas>
+  </div>
+
+  <!-- ── Scroll Container 2 (second animation + Heritage + CTA) ──────────── -->
+  <div id="scroll-container-2">
+
+    <!-- Section: Heritage -->
     <section class="scroll-section section-content align-left"
-             data-enter="74" data-leave="86" data-animation="rotate-in">
+             data-enter="3" data-leave="85" data-animation="rotate-in">
       <div class="section-inner">
         <span class="section-label">004 / Heritage</span>
         <h2 class="section-heading">Rooted in<br>Polynesian Culture</h2>
@@ -202,18 +238,18 @@
       </div>
     </section>
 
-    <!-- Section 6: CTA (persists) -->
-    <section class="scroll-section section-cta align-left"
-             data-enter="88" data-leave="100" data-animation="clip-reveal" data-persist="true">
-      <div class="section-inner">
-        <span class="section-label">005 / Begin</span>
-        <h2 class="section-heading">Certified Culinary<br>Business Leader</h2>
-        <p class="section-body">Earn a credential focused on culinary finance, operations, leadership, and guest experience. Build the skills that move you from great cook to confident business leader.</p>
-        <a href="/ccbl" class="cta-button">Link to Certified Culinary Business Leader</a>
-      </div>
-    </section>
+  </div>
 
-  </div><!-- #scroll-container -->
+  <!-- ── System Behind the Experience ─────────────────────────────────────── -->
+  <section class="system-behind-section">
+    <div class="system-behind-bg"></div>
+    <div class="system-behind-inner">
+      <span class="section-label">004 / BEGIN</span>
+      <h2 class="section-heading">THE SYSTEM<br>BEHIND THE<br>EXPERIENCE</h2>
+      <p class="section-body">Behind every plate is a system built on discipline, accountability, and real-world execution. The Center for Culinary Excellence and Leadership develops apprentices into professionals who perform at a high level and uphold the standards behind Taste Polynesia.</p>
+      <a href="/ccbl" class="cta-button" style="margin-top:2rem;">LEARN MORE ABOUT THE CENTER FOR CULINARY EXCELLENCE AND LEADERSHIP &rarr;</a>
+    </div>
+  </section>
 
   <!-- ── Footer ────────────────────────────────────────────────────────────── -->
   <footer class="site-footer">
@@ -229,6 +265,7 @@
     <div class="footer-bottom">
       <span>Polynesian Cultural Center, All Rights Reserved, &copy; 2026</span>
       <div class="footer-links">
+        <a href="#" id="admin-trigger" aria-hidden="true" tabindex="-1">&nbsp;</a>
         <a href="/terms/index.html">Terms of Use</a>
         <span>|</span>
         <a href="/privacy/index.html">Privacy Policy</a>
@@ -239,6 +276,11 @@
   <script src="https://cdn.jsdelivr.net/npm/lenis@1/dist/lenis.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/ScrollTrigger.min.js"></script>
-  <script src="/directory/js/app.js?v=20260404"></script>
+  <script src="/directory/js/app.js?v=20260405"></script>
+  <!-- Firebase compat SDK for admin panel -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="/directory/js/admin.js?v=20260404"></script>
 </body>
 </html>
+

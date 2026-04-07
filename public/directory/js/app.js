@@ -1,10 +1,11 @@
 ﻿/* â”€â”€ app.js â€” PCC Culinary scroll-driven page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-const FRAME_TOTAL  = 200;
+const FRAME_TOTAL  = 121;
 const FRAME_STEP   = 1;
 const FRAME_COUNT  = Math.ceil(FRAME_TOTAL / FRAME_STEP);
-const FRAME_SPEED  = 2.0;
+const FRAME_SPEED  = 1.0;
+const FADE_RANGE   = 0.04;   // crossfade width on each side of the canvas swap threshold
 const IMAGE_SCALE  = 1.0;
 const FRAME_PATH   = '/animations/samples/01/frames/frame_';
 
@@ -196,6 +197,7 @@ function initFrameScroll() {
         currentFrame = index;
         requestAnimationFrame(() => drawFrame(currentFrame));
       }
+      // canvas2 fades itself in at the start of scroll-container-2
     }
   });
 }
@@ -211,76 +213,67 @@ function positionSections() {
   });
 }
 
-/* â”€â”€ 6e. Section animation system â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-function initSections() {
+/* Section animation builder (shared) */
+function buildSectionItems(container) {
   const items = [];
-
-  document.querySelectorAll('.scroll-section').forEach(section => {
-    const type    = section.dataset.animation;
+  container.querySelectorAll('.scroll-section').forEach(section => {
     const persist = section.dataset.persist === 'true';
     const enter   = parseFloat(section.dataset.enter) / 100;
     const leave   = parseFloat(section.dataset.leave) / 100;
-    const children = section.querySelectorAll(
-      '.section-label, .section-heading, .section-body, .cta-button, .stat'
-    );
-
-    const tl = gsap.timeline({ paused: true });
-
-    switch (type) {
-      case 'fade-up':
-        tl.from(children, { y: 50, opacity: 0, stagger: 0.12, duration: 0.9, ease: 'power3.out' });
-        break;
-      case 'slide-left':
-        tl.from(children, { x: -80, opacity: 0, stagger: 0.14, duration: 0.9, ease: 'power3.out' });
-        break;
-      case 'slide-right':
-        tl.from(children, { x: 80, opacity: 0, stagger: 0.14, duration: 0.9, ease: 'power3.out' });
-        break;
-      case 'scale-up':
-        tl.from(children, { scale: 0.85, opacity: 0, stagger: 0.12, duration: 1.0, ease: 'power2.out' });
-        break;
-      case 'rotate-in':
-        tl.from(children, { y: 40, rotation: 3, opacity: 0, stagger: 0.1, duration: 0.9, ease: 'power3.out' });
-        break;
-      case 'stagger-up':
-        tl.from(children, { y: 60, opacity: 0, stagger: 0.15, duration: 0.8, ease: 'power3.out' });
-        break;
-      case 'clip-reveal':
-        tl.from(children, {
-          clipPath: 'inset(100% 0 0 0)', opacity: 0,
-          stagger: 0.15, duration: 1.2, ease: 'power4.inOut'
-        });
-        break;
-    }
-
-    items.push({ section, tl, enter, leave, persist });
+    const wrapper = section.querySelector('.section-inner, .sq-quote');
+    const startY  = window.innerHeight * 0.75; // push fully below viewport
+    if (wrapper) gsap.set(wrapper, { y: startY, opacity: 0 });
+    items.push({ section, wrapper, enter, leave, persist, startY });
   });
+  return items;
+}
 
+function bindSectionScrollTrigger(trigger, items) {
   ScrollTrigger.create({
-    trigger: scrollContainer,
+    trigger,
     start: 'top top',
     end: 'bottom bottom',
     scrub: true,
     onUpdate(self) {
       const p = self.progress;
-      items.forEach(({ section, tl, enter, leave, persist }) => {
-        const inZone = p >= enter && p <= leave;
+      items.forEach(({ section, wrapper, enter, leave, persist, startY }) => {
+        if (!wrapper) return;
         const pastLeave = p > leave;
 
-        if (inZone || (persist && pastLeave)) {
-          if (tl.progress() < 1) tl.play();
+        if (p >= enter && p <= leave) {
+          const raw     = (p - enter) / (leave - enter);     // 0 → 1 across zone
+          const tOpacity = Math.min(1, raw * 5);             // full color at 20% of zone
+          const tMove    = Math.min(1, raw * (1 / 0.6));     // fully settled at 60% of zone
+          const easeMove = tMove * tMove * (3 - 2 * tMove);  // smoothstep for movement
+          gsap.set(wrapper, { y: startY * (1 - easeMove), opacity: tOpacity });
           section.classList.add('visible');
+
+        } else if (persist && pastLeave) {
+          gsap.set(wrapper, { y: 0, opacity: 1 });
+          section.classList.add('visible');
+
         } else if (p < enter) {
-          if (tl.progress() > 0) tl.reverse();
+          gsap.set(wrapper, { y: startY, opacity: 0 });
           section.classList.remove('visible');
+
         } else if (pastLeave && !persist) {
-          if (tl.progress() > 0) tl.reverse();
+          gsap.set(wrapper, { y: 0, opacity: 0 });
           section.classList.remove('visible');
         }
       });
     }
   });
 }
+
+function initSections() {
+  bindSectionScrollTrigger(scrollContainer, buildSectionItems(scrollContainer));
+}
+
+function initSections2() {
+  if (!scrollContainer2) return;
+  bindSectionScrollTrigger(scrollContainer2, buildSectionItems(scrollContainer2));
+}
+
 
 /* â”€â”€ Populate gallery from Firestore â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function populateGalleryTracks(items) {
@@ -424,7 +417,7 @@ function initMarquees() {
 
 /* â”€â”€ 6h. Dark overlay + canvas hide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initDarkOverlay() {
-  const enter = 0.56, leave = 0.72;
+  const enter = 0.66, leave = 0.84;
   const fadeRange = 0.04;
   ScrollTrigger.create({
     trigger: scrollContainer,
@@ -444,17 +437,6 @@ function initDarkOverlay() {
         opacity = 0.9 * (1 - (p - leave) / fadeRange);
       }
       darkOverlay.style.opacity = opacity;
-
-      // Canvas fades out as dark section approaches, back in after it lifts
-      let canvasOpacity = 1;
-      if (p >= enter - fadeRange && p <= enter) {
-        canvasOpacity = 1 - (p - (enter - fadeRange)) / fadeRange;
-      } else if (p > enter && p < leave) {
-        canvasOpacity = 0;
-      } else if (p >= leave && p <= leave + fadeRange) {
-        canvasOpacity = (p - leave) / fadeRange;
-      }
-      canvasWrap.style.opacity = canvasOpacity;
     }
   });
 }
@@ -475,14 +457,137 @@ async function init() {
   initHeroTransition();
   initFrameScroll();
   initSections();
+  initSections2();
   initGallerySlider();
   initMarquees();
   initDarkOverlay();
 }
 
-/* â”€â”€ Boot â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Second animation (mirrors animation 1 exactly) ───────────────────────── */
+  const FRAME2_TOTAL = 96;
+const FRAME2_STEP  = 1;
+const FRAME2_COUNT = Math.ceil(FRAME2_TOTAL / FRAME2_STEP);
+const FRAME2_SPEED = 1.053;
+  const FRAME2_PATH  = '/animations/samples/02/frames/frame_';
+  const FRAME2_VERSION = '20260406b';
+
+const canvas2Wrap      = document.getElementById('canvas2-wrap');
+const canvas2          = document.getElementById('canvas2');
+const ctx2             = canvas2 ? canvas2.getContext('2d') : null;
+const scrollContainer2 = document.getElementById('scroll-container-2');
+
+const frames2       = new Array(FRAME2_COUNT).fill(null);
+let   currentFrame2 = 0;
+let   bgColor2      = '#000000';
+
+function padIdx2(i) { return String(i * FRAME2_STEP + 1).padStart(4, '0'); }
+
+function resizeCanvas2() {
+  if (!canvas2 || !ctx2) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cw  = window.innerWidth, ch = window.innerHeight;
+  canvas2.width        = cw * dpr;
+  canvas2.height       = ch * dpr;
+  canvas2.style.width  = cw + 'px';
+  canvas2.style.height = ch + 'px';
+  ctx2.setTransform(1, 0, 0, 1, 0, 0);
+  ctx2.scale(dpr, dpr);
+  drawFrame2(currentFrame2);
+}
+
+function sampleBgColor2(img) {
+  const tmp = document.createElement('canvas');
+  tmp.width = 10; tmp.height = 10;
+  const tc = tmp.getContext('2d');
+  if (!tc) return;
+  tc.drawImage(img, 0, 0, 10, 10);
+  const d = tc.getImageData(0, 0, 1, 1).data;
+  bgColor2 = `rgb(${d[0]},${d[1]},${d[2]})`;
+}
+
+function drawFrame2(index) {
+  if (!ctx2 || !canvas2) return;
+  const img = frames2[index];
+  if (!img) return;
+  const cw = canvas2.clientWidth  || window.innerWidth;
+  const ch = canvas2.clientHeight || window.innerHeight;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const scale = Math.max(cw / iw, ch / ih) * IMAGE_SCALE;
+  const dw = iw * scale, dh = ih * scale;
+  const dx = (cw - dw) / 2, dy = (ch - dh) / 2;
+  ctx2.fillStyle = bgColor2;
+  ctx2.fillRect(0, 0, cw, ch);
+  ctx2.drawImage(img, dx, dy, dw, dh);
+}
+
+function loadFrames2(onComplete) {
+  let loaded = 0;
+
+  function onFrameLoad2(i, img) {
+    frames2[i] = img;
+    if (i % 20 === 0) sampleBgColor2(img);
+    if (i === 0) resizeCanvas2();
+    loaded++;
+    if (loaded === FRAME2_COUNT) onComplete();
+  }
+
+  const phase1 = Math.min(10, FRAME2_COUNT);
+  let phase1Done = 0;
+
+  for (let i = 0; i < phase1; i++) {
+    const img = new Image();
+    const idx = i;
+    img.onload  = function () { onFrameLoad2(idx, img); phase1Done++; if (phase1Done === phase1) loadPhase2_2(); };
+    img.onerror = function () { phase1Done++; loaded++; if (phase1Done === phase1) loadPhase2_2(); if (loaded === FRAME2_COUNT) onComplete(); };
+    img.src = FRAME2_PATH + padIdx2(idx) + '.webp?v=' + FRAME2_VERSION;
+  }
+
+  function loadPhase2_2() {
+    for (let i = phase1; i < FRAME2_COUNT; i++) {
+      const img = new Image();
+      const idx = i;
+      img.onload  = function () { onFrameLoad2(idx, img); };
+      img.onerror = function () { loaded++; if (loaded === FRAME2_COUNT) onComplete(); };
+      img.src = FRAME2_PATH + padIdx2(idx) + '.webp?v=' + FRAME2_VERSION;
+    }
+  }
+}
+
+function initCanvas2() {
+  if (!canvas2 || !canvas2Wrap || !scrollContainer2) return;
+  resizeCanvas2();
+  window.addEventListener('resize', () => { resizeCanvas2(); ScrollTrigger.refresh(); });
+
+  ScrollTrigger.create({
+    trigger: scrollContainer2,
+    start: 'top top',
+    end: 'bottom bottom',
+    scrub: true,
+    onUpdate(self) {
+      // Fade in over first 5% of container-2 scroll
+      canvas2Wrap.style.opacity = String(Math.min(1, self.progress / 0.05));
+
+      const accelerated = Math.min(self.progress * FRAME2_SPEED, 1);
+      const index = Math.min(Math.floor(accelerated * FRAME2_COUNT), FRAME2_COUNT - 1);
+      if (index !== currentFrame2) {
+        currentFrame2 = index;
+        requestAnimationFrame(() => drawFrame2(currentFrame2));
+      }
+    },
+  });
+}
+
+/* ── Boot ──────────────────────────────────────────────────────────────────── */
 loadFrames(() => {
   hideLoader();
   init();
+});
+
+loadFrames2(() => {
+  if (typeof ScrollTrigger !== 'undefined') {
+    initCanvas2();
+  } else {
+    window.addEventListener('load', initCanvas2);
+  }
 });
 
