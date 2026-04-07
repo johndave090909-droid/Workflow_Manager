@@ -851,7 +851,7 @@ body.scroll-complete .marquee-wrap {
 
 /* ── Ocean Overlay (animation 1 end frames) ────────────────────────────────── */
 .section-ocean-overlay {
-  padding: 0 5vw;
+  padding: 28vh 5vw 0;
   justify-content: center;
 }
 
