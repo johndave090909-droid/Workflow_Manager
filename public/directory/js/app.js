@@ -221,7 +221,7 @@ function buildSectionItems(container) {
     const slowLeave  = section.dataset.slowLeave === 'true';
     const enter      = parseFloat(section.dataset.enter) / 100;
     const leave      = parseFloat(section.dataset.leave) / 100;
-    const wrapper    = section.querySelector('.section-inner, .sq-quote, .gallery-rows');
+    const wrapper    = section.querySelector('.section-inner, .sq-quote');
     const startY     = window.innerHeight * 0.75; // push fully below viewport
     if (wrapper) gsap.set(wrapper, { y: startY, opacity: 0 });
     items.push({ section, wrapper, enter, leave, persist, slowLeave, startY });
