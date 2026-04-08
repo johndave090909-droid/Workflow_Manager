@@ -1024,7 +1024,7 @@ body.scroll-complete .marquee-wrap {
   flex-direction: column;
   width: 100%;
   max-width: 1100px;
-  padding: 3.5rem 3rem;
+  padding: 3.5rem 3.5rem 3.5rem 4.5rem;
   overflow: hidden;
   /* Subtle dark veil — canvas frames are very dark here, this just ensures legibility */
   background: rgba(8, 6, 4, 0.68);
@@ -1150,17 +1150,17 @@ body.scroll-complete .marquee-wrap {
 
 .oo2-h-line {
   font-family: var(--font-display);
-  font-size: clamp(3.4rem, 7.5vw, 6.8rem);
-  font-weight: 600;
+  font-size: clamp(4rem, 8vw, 7.5rem);
+  font-weight: 700;
   letter-spacing: -0.025em;
   color: #f4efe8;
   display: block;
 }
 
 /* Offset the two lines to create a staggered editorial look */
-.oo2-h-l1 { transform: translateX(-3rem); }
+.oo2-h-l1 { transform: translateX(0); }
 .oo2-h-l2 {
-  transform: translateX(3rem);
+  transform: translateX(2.5rem);
   color: var(--gold);
 }
 
@@ -1188,9 +1188,9 @@ body.scroll-complete .marquee-wrap {
 .oo2-tagline {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 1.05rem;
+  font-size: 1.2rem;
   color: var(--gold-dim);
-  margin: -0.6rem 0 0;
+  margin: -0.4rem 0 0;
 }
 
 /* Two-column body grid */
@@ -1206,18 +1206,19 @@ body.scroll-complete .marquee-wrap {
 
 .oo2-body {
   font-family: var(--font-body);
-  font-size: 0.8rem;
+  font-size: 0.92rem;
   line-height: 1.9;
-  color: rgba(242, 237, 230, 0.6);
+  color: rgba(242, 237, 230, 0.78);
   margin: 0;
+  font-weight: 500;
 }
 
 .oo2-creed {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   line-height: 1.65;
-  color: rgba(242, 237, 230, 0.88);
+  color: rgba(242, 237, 230, 0.95);
   border-left: 2px solid rgba(208, 178, 90, 0.55);
   padding-left: 1.25rem;
   margin: 0;
@@ -1239,8 +1240,8 @@ body.scroll-complete .marquee-wrap {
 .oo2-pillars span {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 0.95rem;
-  color: rgba(242, 237, 230, 0.65);
+  font-size: 1.05rem;
+  color: rgba(242, 237, 230, 0.78);
   white-space: nowrap;
 }
 
@@ -1248,7 +1249,7 @@ body.scroll-complete .marquee-wrap {
 .oo2-close {
   font-family: var(--font-display);
   font-style: italic;
-  font-size: 0.95rem;
+  font-size: 1.1rem;
   color: var(--gold);
   margin: 0;
 }
@@ -1263,7 +1264,7 @@ body.scroll-complete .marquee-wrap {
   .oo2-layout { grid-template-columns: 1fr; gap: 2rem; }
   .oo2-body-grid { grid-template-columns: 1fr; gap: 1.2rem; }
   .oo2-pillars { flex-direction: column; gap: 0.4rem; }
-  .oo2-h-l1 { transform: translateX(-1.5rem); }
+  .oo2-h-l1 { transform: translateX(0); }
   .oo2-h-l2 { transform: translateX(1.5rem); }
   #fish-viewer { aspect-ratio: 4 / 3; }
 
