@@ -423,7 +423,7 @@ function initMarquees() {
 
 /* â”€â”€ 6h. Dark overlay + canvas hide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initDarkOverlay() {
-  const enter = 0.66, leave = 0.84;
+  const enter = 0.78, leave = 0.93;
   const fadeRange = 0.04;
   ScrollTrigger.create({
     trigger: scrollContainer,
