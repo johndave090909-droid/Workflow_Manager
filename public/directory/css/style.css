@@ -425,6 +425,7 @@ body {
   background: var(--bg-dark);
   opacity: 0; pointer-events: none;
   will-change: opacity;
+  transition: opacity 1s ease;
 }
 
 /* ── Marquees ──────────────────────────────────────────────────────────────── */
@@ -754,7 +755,6 @@ body {
 }
 
 body.scroll-complete .canvas-wrap,
-body.scroll-complete #dark-overlay,
 body.scroll-complete .marquee-wrap {
   opacity: 0 !important;
   pointer-events: none;
