@@ -423,8 +423,11 @@ function initMarquees() {
 
 /* â”€â”€ 6h. Dark overlay + canvas hide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initDarkOverlay() {
-  const enter = 0.78, leave = 0.90;
+  // Gallery phase: 0.78 → 0.90  |  Ocean phase: 0.93 → 1.00
+  const gEnter = 0.78, gLeave = 0.90;
+  const oEnter = 0.93;
   const fadeRange = 0.04;
+
   ScrollTrigger.create({
     trigger: scrollContainer,
     start: 'top top',
@@ -432,16 +435,23 @@ function initDarkOverlay() {
     scrub: true,
     onUpdate(self) {
       const p = self.progress;
-
-      // Dark overlay opacity
       let opacity = 0;
-      if (p >= enter - fadeRange && p <= enter) {
-        opacity = (p - (enter - fadeRange)) / fadeRange;
-      } else if (p > enter && p < leave) {
+
+      // ── Gallery backdrop ──────────────────────────────────────────
+      if (p >= gEnter - fadeRange && p <= gEnter) {
+        opacity = (p - (gEnter - fadeRange)) / fadeRange;
+      } else if (p > gEnter && p < gLeave) {
         opacity = 0.9;
-      } else if (p >= leave && p <= leave + fadeRange) {
-        opacity = 0.9 * (1 - (p - leave) / fadeRange);
+      } else if (p >= gLeave && p <= gLeave + fadeRange) {
+        opacity = 0.9 * (1 - (p - gLeave) / fadeRange);
+
+      // ── Ocean to Plate backdrop (fades in just before section enters) ──
+      } else if (p >= oEnter - fadeRange && p < oEnter) {
+        opacity = (p - (oEnter - fadeRange)) / fadeRange * 0.88;
+      } else if (p >= oEnter) {
+        opacity = 0.88;
       }
+
       darkOverlay.style.opacity = opacity;
     }
   });
