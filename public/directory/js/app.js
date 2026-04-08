@@ -423,8 +423,8 @@ function initMarquees() {
 
 /* â”€â”€ 6h. Dark overlay + canvas hide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initDarkOverlay() {
-  // Fade in just before gallery (0.78), stay dark through ocean section (1.00)
-  const enter = 0.78, fadeRange = 0.04;
+  // Gallery only: fade in at 0.74, hold through 0.93, fade out by 0.97
+  const enter = 0.78, leave = 0.93, fadeRange = 0.04;
 
   ScrollTrigger.create({
     trigger: scrollContainer,
@@ -437,8 +437,10 @@ function initDarkOverlay() {
 
       if (p >= enter - fadeRange && p < enter) {
         opacity = (p - (enter - fadeRange)) / fadeRange * 0.92;
-      } else if (p >= enter) {
+      } else if (p >= enter && p < leave) {
         opacity = 0.92;
+      } else if (p >= leave && p < leave + fadeRange) {
+        opacity = 0.92 * (1 - (p - leave) / fadeRange);
       }
 
       darkOverlay.style.opacity = opacity;
