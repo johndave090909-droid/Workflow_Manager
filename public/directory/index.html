@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600&family=Fredoka+One&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/directory/css/style.css?v=20260405" />
+  <link rel="stylesheet" href="/directory/css/style.css?v=20260407" />
 </head>
 <body>
 
@@ -194,28 +194,50 @@
       </div>
     </section>
 
-    <!-- Section: Ocean to Plate — editorial overlay on animation 1 end frames -->
-    <section class="scroll-section section-ocean-overlay"
-             data-enter="84" data-leave="100">
-      <div class="section-inner oo-panel">
-        <div class="oo-left">
-          <span class="oo-eyebrow">001 / Origin</span>
-          <h2 class="oo-heading">From<br>Ocean<br>to Plate</h2>
-          <p class="oo-sub">Ahi, As It Was Meant to Be</p>
+    <!-- Section: Ocean to Plate -->
+    <section class="scroll-section section-ocean-v2" data-enter="84" data-leave="100">
+      <div class="section-inner oo2-inner">
+
+        <!-- Ghost watermark -->
+        <div class="oo2-ghost" aria-hidden="true">ORIGIN</div>
+
+        <!-- Eyebrow -->
+        <span class="oo2-eyebrow">001 / Origin</span>
+
+        <!-- Heading — staggered lines for depth -->
+        <h2 class="oo2-heading">
+          <span class="oo2-h-line oo2-h-l1">From Ocean</span>
+          <span class="oo2-h-line oo2-h-l2">to Plate</span>
+        </h2>
+
+        <!-- Gold ornament rule -->
+        <div class="oo2-ornament">
+          <div class="oo2-orn-line"></div>
+          <svg class="oo2-orn-diamond" viewBox="0 0 20 20" width="11" height="11" aria-hidden="true">
+            <polygon points="10,1 19,10 10,19 1,10" fill="currentColor" stroke="none"/>
+          </svg>
+          <div class="oo2-orn-line"></div>
         </div>
-        <div class="oo-right">
-          <p class="oo-body">Each day, we source whole ahi directly from the Honolulu fish auction — bringing in the fish in its entirety and breaking it down in-house. Served as sashimi in its purest form, this is not altered, masked, or overworked.</p>
-          <blockquote class="oo-creed">No manipulation. No excess. No compromise.<br>Unadulterated. Untouched. True to the ingredient.</blockquote>
-          <div class="oo-list">
-            <span class="oo-list-label">This practice reflects respect:</span>
-            <ul>
-              <li>for the ingredient</li>
-              <li>for the process</li>
-              <li>for the culture</li>
-            </ul>
-          </div>
-          <p class="oo-close">From ocean to plate, this is Hawai&lsquo;i.</p>
+
+        <!-- Tagline -->
+        <p class="oo2-tagline">Ahi, As It Was Meant to Be</p>
+
+        <!-- Body grid: prose + creed -->
+        <div class="oo2-body-grid">
+          <p class="oo2-body">Each day, we source whole ahi directly from the Honolulu fish auction &mdash; bringing in the fish in its entirety and breaking it down in-house. Served as sashimi in its purest form, this is not altered, masked, or overworked.</p>
+          <blockquote class="oo2-creed">No manipulation. No excess. No compromise.<br><em>Unadulterated. Untouched. True to the ingredient.</em></blockquote>
         </div>
+
+        <!-- Three pillars -->
+        <div class="oo2-pillars">
+          <span>&mdash;&thinsp;for the ingredient</span>
+          <span>&mdash;&thinsp;for the process</span>
+          <span>&mdash;&thinsp;for the culture</span>
+        </div>
+
+        <!-- Closing line -->
+        <p class="oo2-close">From ocean to plate, this is Hawai&lsquo;i.</p>
+
       </div>
     </section>
 
