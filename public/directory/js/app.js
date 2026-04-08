@@ -221,7 +221,7 @@ function buildSectionItems(container) {
     const slowLeave  = section.dataset.slowLeave === 'true';
     const enter      = parseFloat(section.dataset.enter) / 100;
     const leave      = parseFloat(section.dataset.leave) / 100;
-    const wrapper    = section.querySelector('.section-inner, .sq-quote');
+    const wrapper    = section.querySelector('.section-inner, .sq-quote, .gallery-rows');
     const startY     = window.innerHeight * 0.75; // push fully below viewport
     if (wrapper) gsap.set(wrapper, { y: startY, opacity: 0 });
     items.push({ section, wrapper, enter, leave, persist, slowLeave, startY });
@@ -423,10 +423,8 @@ function initMarquees() {
 
 /* â”€â”€ 6h. Dark overlay + canvas hide â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initDarkOverlay() {
-  // Gallery phase: 0.78 → 0.90  |  Ocean phase: 0.93 → 1.00
-  const gEnter = 0.78, gLeave = 0.90;
-  const oEnter = 0.93;
-  const fadeRange = 0.04;
+  // Fade in just before gallery (0.78), stay dark through ocean section (1.00)
+  const enter = 0.78, fadeRange = 0.04;
 
   ScrollTrigger.create({
     trigger: scrollContainer,
@@ -437,19 +435,10 @@ function initDarkOverlay() {
       const p = self.progress;
       let opacity = 0;
 
-      // ── Gallery backdrop ──────────────────────────────────────────
-      if (p >= gEnter - fadeRange && p <= gEnter) {
-        opacity = (p - (gEnter - fadeRange)) / fadeRange;
-      } else if (p > gEnter && p < gLeave) {
-        opacity = 0.9;
-      } else if (p >= gLeave && p <= gLeave + fadeRange) {
-        opacity = 0.9 * (1 - (p - gLeave) / fadeRange);
-
-      // ── Ocean to Plate backdrop (fades in just before section enters) ──
-      } else if (p >= oEnter - fadeRange && p < oEnter) {
-        opacity = (p - (oEnter - fadeRange)) / fadeRange * 0.88;
-      } else if (p >= oEnter) {
-        opacity = 0.88;
+      if (p >= enter - fadeRange && p < enter) {
+        opacity = (p - (enter - fadeRange)) / fadeRange * 0.92;
+      } else if (p >= enter) {
+        opacity = 0.92;
       }
 
       darkOverlay.style.opacity = opacity;
