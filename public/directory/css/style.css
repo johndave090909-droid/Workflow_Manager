@@ -1022,12 +1022,9 @@ body.scroll-complete .marquee-wrap {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 1.6rem;
   width: 100%;
-  max-width: 880px;
-  padding: 4rem 3rem 3.5rem;
+  max-width: 1100px;
+  padding: 3.5rem 3rem;
   overflow: hidden;
   /* Subtle dark veil — canvas frames are very dark here, this just ensures legibility */
   background: rgba(8, 6, 4, 0.68);
@@ -1035,6 +1032,72 @@ body.scroll-complete .marquee-wrap {
   -webkit-backdrop-filter: blur(1px);
   border-top: 1px solid rgba(208, 178, 90, 0.22);
   border-bottom: 1px solid rgba(208, 178, 90, 0.22);
+}
+
+/* Two-column layout inside the card */
+.oo2-layout {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 3rem;
+  align-items: center;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+/* Left text column */
+.oo2-text-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  text-align: left;
+}
+
+/* Right viewer column */
+.oo2-viewer-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#fish-viewer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(208, 178, 90, 0.35);
+  background: #0a0e16;
+  box-shadow: 0 0 40px rgba(208, 178, 90, 0.08), inset 0 0 60px rgba(0,0,0,0.6);
+}
+
+#fish-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#fish-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: rgba(208, 178, 90, 0.6);
+  pointer-events: none;
+}
+
+.oo2-viewer-hint {
+  margin-top: 0.75rem;
+  font-family: var(--font-body);
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(208, 178, 90, 0.45);
+  text-align: center;
 }
 
 /* Ghost watermark — "ORIGIN" behind everything */
@@ -1060,7 +1123,8 @@ body.scroll-complete .marquee-wrap {
 .section-ocean-v2 .oo2-tagline,
 .section-ocean-v2 .oo2-body-grid,
 .section-ocean-v2 .oo2-pillars,
-.section-ocean-v2 .oo2-close {
+.section-ocean-v2 .oo2-close,
+.section-ocean-v2 .oo2-viewer-col {
   position: relative;
   z-index: 1;
 }
@@ -1078,7 +1142,7 @@ body.scroll-complete .marquee-wrap {
 .oo2-heading {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0;
   margin: 0;
   line-height: 0.9;
@@ -1195,11 +1259,13 @@ body.scroll-complete .marquee-wrap {
   #scroll-container-2 { height: 400vh; }
 
   .section-ocean-v2 { padding: 0 1.25rem; }
-  .section-ocean-v2 .section-inner.oo2-inner { padding: 2.5rem 1.5rem; gap: 1.2rem; }
+  .section-ocean-v2 .section-inner.oo2-inner { padding: 2.5rem 1.5rem; }
+  .oo2-layout { grid-template-columns: 1fr; gap: 2rem; }
   .oo2-body-grid { grid-template-columns: 1fr; gap: 1.2rem; }
   .oo2-pillars { flex-direction: column; gap: 0.4rem; }
   .oo2-h-l1 { transform: translateX(-1.5rem); }
   .oo2-h-l2 { transform: translateX(1.5rem); }
+  #fish-viewer { aspect-ratio: 4 / 3; }
 
   .system-behind-section { padding: 4rem 1.5rem; min-height: 0; align-items: flex-start; }
   .system-behind-inner { max-width: 100%; gap: 1rem; }

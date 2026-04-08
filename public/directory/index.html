@@ -8,6 +8,14 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600&family=Fredoka+One&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/directory/css/style.css?v=20260407" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
 
@@ -201,39 +209,58 @@
         <!-- Ghost watermark -->
         <div class="oo2-ghost" aria-hidden="true">ORIGIN</div>
 
-        <!-- Heading — staggered lines for depth -->
-        <h2 class="oo2-heading">
-          <span class="oo2-h-line oo2-h-l1">From Ocean</span>
-          <span class="oo2-h-line oo2-h-l2">to Plate</span>
-        </h2>
+        <!-- Two-column layout: text left, 3D viewer right -->
+        <div class="oo2-layout">
 
-        <!-- Gold ornament rule -->
-        <div class="oo2-ornament">
-          <div class="oo2-orn-line"></div>
-          <svg class="oo2-orn-diamond" viewBox="0 0 20 20" width="11" height="11" aria-hidden="true">
-            <polygon points="10,1 19,10 10,19 1,10" fill="currentColor" stroke="none"/>
-          </svg>
-          <div class="oo2-orn-line"></div>
-        </div>
+          <!-- Left: text content -->
+          <div class="oo2-text-col">
 
-        <!-- Tagline -->
-        <p class="oo2-tagline">Ahi, As It Was Meant to Be</p>
+            <!-- Heading — staggered lines for depth -->
+            <h2 class="oo2-heading">
+              <span class="oo2-h-line oo2-h-l1">From Ocean</span>
+              <span class="oo2-h-line oo2-h-l2">to Plate</span>
+            </h2>
 
-        <!-- Body grid: prose + creed -->
-        <div class="oo2-body-grid">
-          <p class="oo2-body">Each day, we source whole ahi directly from the Honolulu fish auction &mdash; bringing in the fish in its entirety and breaking it down in-house. Served as sashimi in its purest form, this is not altered, masked, or overworked.</p>
-          <blockquote class="oo2-creed">No manipulation. No excess. No compromise.<br><em>Unadulterated. Untouched. True to the ingredient.</em></blockquote>
-        </div>
+            <!-- Gold ornament rule -->
+            <div class="oo2-ornament">
+              <div class="oo2-orn-line"></div>
+              <svg class="oo2-orn-diamond" viewBox="0 0 20 20" width="11" height="11" aria-hidden="true">
+                <polygon points="10,1 19,10 10,19 1,10" fill="currentColor" stroke="none"/>
+              </svg>
+              <div class="oo2-orn-line"></div>
+            </div>
 
-        <!-- Three pillars -->
-        <div class="oo2-pillars">
-          <span>&mdash;&thinsp;for the ingredient</span>
-          <span>&mdash;&thinsp;for the process</span>
-          <span>&mdash;&thinsp;for the culture</span>
-        </div>
+            <!-- Tagline -->
+            <p class="oo2-tagline">Ahi, As It Was Meant to Be</p>
 
-        <!-- Closing line -->
-        <p class="oo2-close">From ocean to plate, this is Hawai&lsquo;i.</p>
+            <!-- Body grid: prose + creed -->
+            <div class="oo2-body-grid">
+              <p class="oo2-body">Each day, we source whole ahi directly from the Honolulu fish auction &mdash; bringing in the fish in its entirety and breaking it down in-house. Served as sashimi in its purest form, this is not altered, masked, or overworked.</p>
+              <blockquote class="oo2-creed">No manipulation. No excess. No compromise.<br><em>Unadulterated. Untouched. True to the ingredient.</em></blockquote>
+            </div>
+
+            <!-- Three pillars -->
+            <div class="oo2-pillars">
+              <span>&mdash;&thinsp;for the ingredient</span>
+              <span>&mdash;&thinsp;for the process</span>
+              <span>&mdash;&thinsp;for the culture</span>
+            </div>
+
+            <!-- Closing line -->
+            <p class="oo2-close">From ocean to plate, this is Hawai&lsquo;i.</p>
+
+          </div><!-- /.oo2-text-col -->
+
+          <!-- Right: interactive 3D tuna viewer -->
+          <div class="oo2-viewer-col">
+            <div id="fish-viewer">
+              <canvas id="fish-canvas"></canvas>
+              <div id="fish-loading">Loading 3D model…</div>
+              <p class="oo2-viewer-hint">Drag to rotate &nbsp;&middot;&nbsp; Scroll to zoom</p>
+            </div>
+          </div><!-- /.oo2-viewer-col -->
+
+        </div><!-- /.oo2-layout -->
 
       </div>
     </section>
@@ -321,6 +348,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="/directory/js/admin.js?v=20260404"></script>
+  <script type="module" src="/directory/js/fish-viewer.js"></script>
 </body>
 </html>
 
