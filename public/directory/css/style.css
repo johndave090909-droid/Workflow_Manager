@@ -780,6 +780,80 @@ body.scroll-complete .marquee-wrap {
   gap: 1.4rem;
 }
 
+/* ── Call to Action Section ────────────────────────────────────────────────── */
+.cta-section {
+  background: var(--bg-dark);
+  padding: 6rem 6vw 7rem;
+  position: relative;
+  z-index: 10;
+  border-top: 1px solid rgba(208,178,90,0.15);
+}
+
+.cta-section-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.cta-section-eyebrow {
+  font-size: 0.65rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--gold);
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.cta-section-heading {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.05;
+  margin-bottom: 0.8rem;
+}
+
+.cta-section-sub {
+  font-size: clamp(0.85rem, 1.1vw, 1rem);
+  color: rgba(255,255,255,0.6);
+  max-width: 48ch;
+  line-height: 1.7;
+  margin-bottom: 3rem;
+}
+
+.cta-section-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.cta-card {
+  border: 1px solid rgba(208,178,90,0.2);
+  padding: 2.2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.cta-card-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 1.6vw, 1.5rem);
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.cta-card-body {
+  font-size: 0.9rem;
+  color: rgba(255,255,255,0.55);
+  line-height: 1.7;
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .cta-section { padding: 4rem 1.5rem 5rem; }
+  .cta-section-cards { grid-template-columns: 1fr; gap: 1.5rem; }
+}
+
 /* ── Footer ────────────────────────────────────────────────────────────────── */
 .site-footer {
   background: #47392a;

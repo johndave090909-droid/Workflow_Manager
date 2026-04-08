@@ -8,6 +8,7 @@ import {
   addDoc, query, orderBy, onSnapshot, serverTimestamp, where,
 } from 'firebase/firestore';
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
+import { notifyUser } from './notifications';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut as fbSignOut } from 'firebase/auth';
 
@@ -75,15 +76,19 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   const ccblInputRef = useRef<HTMLInputElement>(null);
 
   // ── CCBL Apprentices state ─────────────────────────────────────
-  type CcblApprentice = { id: string; name: string; role?: string; sortOrder: number };
+  type CcblApprentice = { id: string; name: string; role?: string; location?: string; desc?: string; sortOrder: number };
   type CcblApprenticMedia = { id: string; apprenticeId: string; url: string; storagePath?: string; type: 'photo' | 'video'; name: string };
   const [apprentices, setApprentices] = useState<CcblApprentice[]>([]);
   const [apprenticesOpen, setApprenticesOpen] = useState(false);
   const [selectedApprentice, setSelectedApprentice] = useState<CcblApprentice | null>(null);
   const [apprenticeMedia, setApprenticeMedia] = useState<CcblApprenticMedia[]>([]);
-  const [apprenticeForm, setApprenticeForm] = useState({ name: '', role: '' });
+  const [apprenticeForm, setApprenticeForm] = useState({ name: '', role: '', location: '', desc: '' });
+  const [editForm, setEditForm] = useState({ name: '', role: '', location: '', desc: '' });
   const [apprenticeUploading, setApprenticeUploading] = useState(false);
   const apprenticeInputRef = useRef<HTMLInputElement>(null);
+  const [ccblEditorIds, setCcblEditorIds] = useState<string[]>([]);
+  const [ccblAccessToggling, setCcblAccessToggling] = useState<string | null>(null);
+  const [ccblAccessOpen, setCcblAccessOpen] = useState(false);
 
   // ── Page visibility state ─────────────────────────────────────
   const [pageVisibility, setPageVisibility] = useState<Record<string, boolean>>({});
@@ -124,7 +129,19 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
   }, []);
 
   useEffect(() => {
+    return onSnapshot(collection(db, 'ccbl_editor_access'), snap => {
+      setCcblEditorIds(snap.docs.map(d => d.id));
+    });
+  }, []);
+
+  useEffect(() => {
     if (!selectedApprentice) { setApprenticeMedia([]); return; }
+    setEditForm({
+      name: selectedApprentice.name,
+      role: selectedApprentice.role ?? '',
+      location: selectedApprentice.location ?? '',
+      desc: selectedApprentice.desc ?? '',
+    });
     const q = query(collection(db, 'ccbl_apprentice_media'), where('apprenticeId', '==', selectedApprentice.id));
     return onSnapshot(q, snap => setApprenticeMedia(snap.docs.map(d => ({ id: d.id, ...d.data() } as CcblApprenticMedia))));
   }, [selectedApprentice]);
@@ -310,9 +327,43 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
     await addDoc(collection(db, 'ccbl_apprentices'), {
       name: apprenticeForm.name.trim(),
       role: apprenticeForm.role.trim() || null,
+      location: apprenticeForm.location.trim() || null,
+      desc: apprenticeForm.desc.trim() || null,
       sortOrder: apprentices.length,
     });
-    setApprenticeForm({ name: '', role: '' });
+    setApprenticeForm({ name: '', role: '', location: '', desc: '' });
+  };
+
+  const saveApprentice = async () => {
+    if (!selectedApprentice || !editForm.name.trim()) return;
+    await updateDoc(doc(db, 'ccbl_apprentices', selectedApprentice.id), {
+      name: editForm.name.trim(),
+      role: editForm.role.trim() || null,
+      location: editForm.location.trim() || null,
+      desc: editForm.desc.trim() || null,
+    });
+    setSelectedApprentice(prev => prev ? { ...prev, ...editForm, role: editForm.role || undefined, location: editForm.location || undefined, desc: editForm.desc || undefined } : null);
+  };
+
+  const toggleCcblAccess = async (u: User) => {
+    if (ccblAccessToggling) return;
+    setCcblAccessToggling(u.id);
+    try {
+      const docRef = doc(db, 'ccbl_editor_access', u.id);
+      if (ccblEditorIds.includes(u.id)) {
+        await deleteDoc(docRef);
+      } else {
+        await setDoc(docRef, { userId: u.id, userName: u.name, grantedAt: serverTimestamp() });
+        await notifyUser(
+          u.id,
+          'CCBL Apprentice Program — Editor Access Granted',
+          'You have been granted editing access to the CCBL Apprentice Program. Open the Apprentice Program from your dashboard to view and edit apprentice profiles.',
+          'ccbl_access',
+        );
+      }
+    } finally {
+      setCcblAccessToggling(null);
+    }
   };
 
   const deleteApprentice = async (a: CcblApprentice) => {
@@ -1061,18 +1112,77 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
 
         {/* ── CCBL Apprentices ── */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-2xl font-bold" style={{ color: '#a855f7' }}>CCBL Apprentices</h2>
               <p className="text-sm text-slate-400 mt-1">Manage apprentice profiles and their portfolio media.</p>
             </div>
-            <button
-              onClick={() => setApprenticesOpen(o => !o)}
-              className="px-4 py-2.5 rounded-xl text-sm font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
-            >
-              {apprenticesOpen ? '▲ Hide' : '▼ Show'}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setCcblAccessOpen(o => !o)}
+                className="px-4 py-2.5 rounded-xl text-sm font-bold border transition-all"
+                style={ccblAccessOpen
+                  ? { borderColor: '#a855f7', color: '#a855f7', background: 'rgba(168,85,247,0.1)' }
+                  : { borderColor: 'rgba(255,255,255,0.1)', color: '#64748b' }
+                }
+              >
+                {ccblAccessOpen ? '▲ Editor Access' : '▼ Editor Access'}
+              </button>
+              <button
+                onClick={() => setApprenticesOpen(o => !o)}
+                className="px-4 py-2.5 rounded-xl text-sm font-bold border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
+              >
+                {apprenticesOpen ? '▲ Hide' : '▼ Show'}
+              </button>
+            </div>
           </div>
+
+          {ccblAccessOpen && (
+            <div className="glass-card rounded-2xl border border-white/10 p-4 space-y-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Editor Access</p>
+                <p className="text-xs text-slate-600 mt-0.5">Grant selected users editing rights in the Apprentice Program. They will receive a notification.</p>
+              </div>
+              {usersLoading ? (
+                <p className="text-xs text-slate-600 italic">Loading users…</p>
+              ) : users.length === 0 ? (
+                <p className="text-xs text-slate-600 italic">No users found.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                  {users.map(u => {
+                    const hasAccess = ccblEditorIds.includes(u.id);
+                    const toggling = ccblAccessToggling === u.id;
+                    return (
+                      <div
+                        key={u.id}
+                        className="flex items-center justify-between px-3 py-2.5 rounded-xl transition-all"
+                        style={{
+                          border: hasAccess ? '1.5px solid #a855f7' : '1px solid rgba(255,255,255,0.08)',
+                          background: hasAccess ? 'rgba(168,85,247,0.08)' : 'rgba(255,255,255,0.02)',
+                        }}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-white leading-none">{u.name}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">{u.role}</p>
+                        </div>
+                        <button
+                          onClick={() => toggleCcblAccess(u)}
+                          disabled={toggling}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                          style={hasAccess
+                            ? { background: 'rgba(255,77,77,0.15)', color: '#ff4d4d', border: '1px solid rgba(255,77,77,0.3)' }
+                            : { background: 'rgba(168,85,247,0.15)', color: '#a855f7', border: '1px solid rgba(168,85,247,0.3)' }
+                          }
+                        >
+                          {toggling ? '…' : hasAccess ? 'Revoke' : 'Grant Access'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {apprenticesOpen && (
             <div className="flex flex-col sm:flex-row gap-4">
@@ -1095,6 +1205,20 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                     value={apprenticeForm.role}
                     onChange={e => setApprenticeForm(f => ({ ...f, role: e.target.value }))}
                     className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Country / Organization (optional)"
+                    value={apprenticeForm.location}
+                    onChange={e => setApprenticeForm(f => ({ ...f, location: e.target.value }))}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                  />
+                  <textarea
+                    placeholder="Short description (optional)"
+                    value={apprenticeForm.desc}
+                    onChange={e => setApprenticeForm(f => ({ ...f, desc: e.target.value }))}
+                    rows={2}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all resize-none"
                   />
                   <button
                     onClick={addApprentice}
@@ -1125,6 +1249,7 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                       <div>
                         <p className="text-sm font-semibold text-white leading-none">{a.name}</p>
                         {a.role && <p className="text-[10px] text-slate-500 mt-0.5">{a.role}</p>}
+                        {a.location && <p className="text-[10px] text-slate-600 mt-0.5">{a.location}</p>}
                       </div>
                       <button
                         onClick={e => { e.stopPropagation(); deleteApprentice(a); }}
@@ -1145,6 +1270,47 @@ export default function SystemAdminPanel({ currentUser, onBackToHub, onCardsChan
                   </div>
                 ) : (
                   <>
+                    {/* Edit profile */}
+                    <div className="space-y-2 pb-3 border-b border-white/10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Edit Profile</p>
+                      <input
+                        type="text"
+                        placeholder="Name *"
+                        value={editForm.name}
+                        onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Role"
+                        value={editForm.role}
+                        onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Country / Organization"
+                        value={editForm.location}
+                        onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all"
+                      />
+                      <textarea
+                        placeholder="Short description"
+                        value={editForm.desc}
+                        onChange={e => setEditForm(f => ({ ...f, desc: e.target.value }))}
+                        rows={2}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#a855f7] transition-all resize-none"
+                      />
+                      <button
+                        onClick={saveApprentice}
+                        disabled={!editForm.name.trim()}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                        style={{ backgroundColor: '#a855f7', boxShadow: '0 0 12px rgba(168,85,247,0.2)' }}
+                      >
+                        <Check size={13} /> Save Profile
+                      </button>
+                    </div>
+
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Portfolio</p>

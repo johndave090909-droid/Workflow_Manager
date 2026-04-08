@@ -7,7 +7,8 @@ export type NotificationType =
   | 'completion_approved'
   | 'completion_rejected'
   | 'labor_report'
-  | 'project_chat';
+  | 'project_chat'
+  | 'ccbl_access';
 
 export interface AppNotification {
   id: string;

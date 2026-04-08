@@ -16,6 +16,7 @@ const TYPE_CONFIG: Record<NotificationType, { icon: string; color: string; bg: s
   completion_rejected: { icon: '❌', color: '#ff4d4d', bg: 'rgba(255,77,77,0.15)'   },
   labor_report:        { icon: '📊', color: '#a78bfa', bg: 'rgba(167,139,250,0.15)' },
   project_chat:        { icon: '💬', color: '#38bdf8', bg: 'rgba(56,189,248,0.15)'  },
+  ccbl_access:         { icon: '🎓', color: '#6366f1', bg: 'rgba(99,102,241,0.15)'  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

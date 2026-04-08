@@ -555,7 +555,7 @@ export default function App() {
     return (
       <>
         {floatingBell}
-        <ApprenticeProgram onBackToHub={() => setCurrentView('hub')} />
+        <ApprenticeProgram onBackToHub={() => setCurrentView('hub')} currentUser={currentUser!} />
         <BottomNav current={currentView} onNavigate={v => setCurrentView(v)} perms={perms} roleColor={userRoleColor} systemCards={systemCards} />
       </>
     );
