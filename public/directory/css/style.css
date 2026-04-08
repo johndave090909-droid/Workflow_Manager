@@ -450,7 +450,7 @@ body {
 /* ── Scroll Container ──────────────────────────────────────────────────────── */
 #scroll-container {
   position: relative;
-  height: 620vh;
+  height: 900vh;
   z-index: 5;
 }
 
@@ -1256,7 +1256,7 @@ body.scroll-complete .marquee-wrap {
 
 /* ── Mobile ────────────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-  #scroll-container   { height: 900vh; }
+  #scroll-container   { height: 1100vh; }
   #scroll-container-2 { height: 400vh; }
 
   .section-ocean-v2 { padding: 0 1.25rem; }
