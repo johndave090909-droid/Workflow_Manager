@@ -217,13 +217,14 @@ function positionSections() {
 function buildSectionItems(container) {
   const items = [];
   container.querySelectorAll('.scroll-section').forEach(section => {
-    const persist = section.dataset.persist === 'true';
-    const enter   = parseFloat(section.dataset.enter) / 100;
-    const leave   = parseFloat(section.dataset.leave) / 100;
-    const wrapper = section.querySelector('.section-inner, .sq-quote');
-    const startY  = window.innerHeight * 0.75; // push fully below viewport
+    const persist    = section.dataset.persist === 'true';
+    const slowLeave  = section.dataset.slowLeave === 'true';
+    const enter      = parseFloat(section.dataset.enter) / 100;
+    const leave      = parseFloat(section.dataset.leave) / 100;
+    const wrapper    = section.querySelector('.section-inner, .sq-quote');
+    const startY     = window.innerHeight * 0.75; // push fully below viewport
     if (wrapper) gsap.set(wrapper, { y: startY, opacity: 0 });
-    items.push({ section, wrapper, enter, leave, persist, startY });
+    items.push({ section, wrapper, enter, leave, persist, slowLeave, startY });
   });
   return items;
 }
@@ -236,13 +237,18 @@ function bindSectionScrollTrigger(trigger, items) {
     scrub: true,
     onUpdate(self) {
       const p = self.progress;
-      items.forEach(({ section, wrapper, enter, leave, persist, startY }) => {
+      items.forEach(({ section, wrapper, enter, leave, persist, slowLeave, startY }) => {
         if (!wrapper) return;
         const pastLeave = p > leave;
 
         if (p >= enter && p <= leave) {
-          const raw     = (p - enter) / (leave - enter);     // 0 → 1 across zone
-          const tOpacity = Math.min(1, raw * 5);             // full color at 20% of zone
+          const raw      = (p - enter) / (leave - enter);     // 0 → 1 across zone
+          const tOpacityIn  = Math.min(1, raw * 5);           // full color at 20% of zone
+          // Slow fade-out: begin fading at 70% of zone, fully gone at 100%
+          const tOpacityOut = (slowLeave && raw > 0.7)
+            ? Math.max(0, 1 - (raw - 0.7) / 0.3)
+            : 1;
+          const tOpacity = tOpacityIn * tOpacityOut;
           const tMove    = Math.min(1, raw * (1 / 0.6));     // fully settled at 60% of zone
           const easeMove = tMove * tMove * (3 - 2 * tMove);  // smoothstep for movement
           gsap.set(wrapper, { y: startY * (1 - easeMove), opacity: tOpacity });
