@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { format } from 'date-fns';
-import { Calendar, LogOut, Paperclip, Upload } from 'lucide-react';
+import { Calendar, LogOut, Paperclip, Upload, Plus, Pencil, Trash2, X, Sparkles } from 'lucide-react';
 import { User, SystemCard, AppView, RolePermissions, Project, Deliverable } from './types';
 import { db, storage, guardianDb, progressionDb, kdsDb } from './firebase';
 import ComplaintsView from './ComplaintsView';
@@ -47,6 +47,9 @@ function formatBytes(bytes: number): string {
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type HubSection = 'home' | 'complaints' | 'deliverables' | 'org-chart' | 'directory' | 'rules' | 'member-profile' | 'live-guest-count' | 'office-schedules' | 'members';
+type WhatsNewTag = 'feature' | 'update' | 'fix' | 'notice';
+interface WhatsNewEntry { id: string; title: string; body: string; tag: WhatsNewTag; date: string; createdBy: string; }
+interface AnnouncementEntry { id: string; title: string; body: string; date: string; createdBy: string; }
 type DeliverableWithProject = Deliverable & {
   projectId: string;
   projectName: string;
@@ -83,8 +86,9 @@ interface SystemHubProps {
 export default function SystemHub({
   currentUser, systemCards, onNavigate, onLogout, permissions, roleColor, projects, allProjects,
 }: SystemHubProps) {
-  const firstName  = currentUser.name.split(' ')[0];
-  const isDirector = permissions.view_all_projects;
+  const firstName        = currentUser.name.split(' ')[0];
+  const isDirector       = permissions.view_all_projects;
+  const canManageAnn     = permissions.access_it_admin || isDirector;
 
   // Restore state when returning from Workflow Automation
   const [hubReturnTarget] = useState<{ user: User; tab: 'profile' | 'work' } | null>(() => {
@@ -112,6 +116,30 @@ export default function SystemHub({
   const navScrollRef = useRef<HTMLDivElement>(null);
   const [navCanScrollLeft,  setNavCanScrollLeft]  = useState(false);
   const [navCanScrollRight, setNavCanScrollRight] = useState(true);
+
+  // ── What's New ────────────────────────────────────────────────────────────
+  const [whatsNew,        setWhatsNew]        = useState<WhatsNewEntry[]>([]);
+  const [wnLoaded,        setWnLoaded]        = useState(false);
+  const [wnHistoryOpen,   setWnHistoryOpen]   = useState(false);
+  const [wnModalOpen,     setWnModalOpen]     = useState(false);
+  const [wnEditing,       setWnEditing]       = useState<WhatsNewEntry | null>(null);
+  const [wnTitle,         setWnTitle]         = useState('');
+  const [wnBody,          setWnBody]          = useState('');
+  const [wnTag,           setWnTag]           = useState<WhatsNewTag>('feature');
+  const [wnDate,          setWnDate]          = useState('');
+  const [wnSaving,        setWnSaving]        = useState(false);
+  const wnSeededRef = useRef(false);
+
+  // ── Announcements ─────────────────────────────────────────────────────────
+  const [announcements,   setAnnouncements]   = useState<AnnouncementEntry[]>([]);
+  const [annLoaded,       setAnnLoaded]       = useState(false);
+  const [annHistoryOpen,  setAnnHistoryOpen]  = useState(false);
+  const [annModalOpen,    setAnnModalOpen]    = useState(false);
+  const [annEditing,      setAnnEditing]      = useState<AnnouncementEntry | null>(null);
+  const [annTitle,        setAnnTitle]        = useState('');
+  const [annBody,         setAnnBody]         = useState('');
+  const [annDate,         setAnnDate]         = useState('');
+  const [annSaving,       setAnnSaving]       = useState(false);
 
   // Fetch deliverables: visible-project deliverables + shared deliverables for non-directors
   useEffect(() => {
@@ -228,6 +256,59 @@ export default function SystemHub({
       .catch(() => {});
   }, []);
 
+  // ── What's New listener ───────────────────────────────────────────────────
+  useEffect(() => {
+    const q = query(collection(db, 'whats_new'), orderBy('date', 'desc'));
+    return onSnapshot(q, snap => {
+      setWhatsNew(snap.docs.map(d => {
+        const data = d.data();
+        return {
+          id:        d.id,
+          title:     data.title ?? '',
+          body:      data.body  ?? '',
+          tag:       data.tag   ?? 'update',
+          date:      data.date  ?? '',
+          createdBy: data.createdBy ?? '',
+        };
+      }));
+      setWnLoaded(true);
+    });
+  }, []);
+
+  // ── Announcements listener ────────────────────────────────────────────────
+  useEffect(() => {
+    const q = query(collection(db, 'announcements'), orderBy('date', 'desc'));
+    return onSnapshot(q, snap => {
+      setAnnouncements(snap.docs.map(d => {
+        const data = d.data();
+        return { id: d.id, title: data.title ?? '', body: data.body ?? '', date: data.date ?? '', createdBy: data.createdBy ?? '' };
+      }));
+      setAnnLoaded(true);
+    });
+  }, []);
+
+  // ── Seed initial What's New entries (IT admin, once per device) ───────────
+  useEffect(() => {
+    if (!wnLoaded || whatsNew.length > 0 || !permissions.access_it_admin) return;
+    if (wnSeededRef.current || localStorage.getItem('wn_seeded')) return;
+    wnSeededRef.current = true;
+    const seed = async () => {
+      const base = { createdBy: currentUser.name, createdAt: serverTimestamp() };
+      await addDoc(collection(db, 'whats_new'), {
+        ...base, tag: 'feature', date: '2026-04-09',
+        title: 'Send multiple images in one message',
+        body:  'Attach or paste multiple images at once in Messages. They display as a grid in chat, and clicking any photo opens a full-screen lightbox.',
+      });
+      await addDoc(collection(db, 'whats_new'), {
+        ...base, tag: 'feature', date: '2026-04-09',
+        title: 'Paste screenshots directly into chat',
+        body:  'Press Ctrl+V while the message input is focused to paste a screenshot or image from your clipboard. A preview appears before you send.',
+      });
+      localStorage.setItem('wn_seeded', '1');
+    };
+    seed().catch(() => {});
+  }, [wnLoaded, whatsNew.length, permissions.access_it_admin]);
+
   // Director toggle: share/unshare a deliverable with all accounts
   const handleToggleShared = async (deliv: DeliverableWithProject) => {
     const newVal = !deliv.sharedWithAll;
@@ -243,6 +324,72 @@ export default function SystemHub({
         )
       );
     } catch {}
+  };
+
+  // ── What's New handlers ───────────────────────────────────────────────────
+  const openWnAdd = () => {
+    setWnEditing(null);
+    setWnTitle(''); setWnBody(''); setWnTag('feature');
+    setWnDate(new Date().toISOString().slice(0, 10));
+    setWnModalOpen(true);
+  };
+
+  const openWnEdit = (entry: WhatsNewEntry) => {
+    setWnEditing(entry);
+    setWnTitle(entry.title); setWnBody(entry.body); setWnTag(entry.tag); setWnDate(entry.date);
+    setWnModalOpen(true);
+  };
+
+  const saveWn = async () => {
+    if (!wnTitle.trim() || !wnDate) return;
+    setWnSaving(true);
+    try {
+      const payload = { title: wnTitle.trim(), body: wnBody.trim(), tag: wnTag, date: wnDate, createdBy: currentUser.name };
+      if (wnEditing) {
+        await updateDoc(doc(db, 'whats_new', wnEditing.id), payload);
+      } else {
+        await addDoc(collection(db, 'whats_new'), { ...payload, createdAt: serverTimestamp() });
+      }
+      setWnModalOpen(false);
+    } finally { setWnSaving(false); }
+  };
+
+  const deleteWn = async (id: string) => {
+    if (!window.confirm('Delete this update?')) return;
+    await deleteDoc(doc(db, 'whats_new', id));
+  };
+
+  // ── Announcement handlers ─────────────────────────────────────────────────
+  const openAnnAdd = () => {
+    setAnnEditing(null);
+    setAnnTitle(''); setAnnBody('');
+    setAnnDate(new Date().toISOString().slice(0, 10));
+    setAnnModalOpen(true);
+  };
+
+  const openAnnEdit = (entry: AnnouncementEntry) => {
+    setAnnEditing(entry);
+    setAnnTitle(entry.title); setAnnBody(entry.body); setAnnDate(entry.date);
+    setAnnModalOpen(true);
+  };
+
+  const saveAnn = async () => {
+    if (!annTitle.trim() || !annDate) return;
+    setAnnSaving(true);
+    try {
+      const payload = { title: annTitle.trim(), body: annBody.trim(), date: annDate, createdBy: currentUser.name };
+      if (annEditing) {
+        await updateDoc(doc(db, 'announcements', annEditing.id), payload);
+      } else {
+        await addDoc(collection(db, 'announcements'), { ...payload, createdAt: serverTimestamp() });
+      }
+      setAnnModalOpen(false);
+    } finally { setAnnSaving(false); }
+  };
+
+  const deleteAnn = async (id: string) => {
+    if (!window.confirm('Delete this announcement?')) return;
+    await deleteDoc(doc(db, 'announcements', id));
   };
 
   const handleView = (deliv: DeliverableWithProject) => {
@@ -474,80 +621,201 @@ export default function SystemHub({
                 </h2>
                 <p className="hidden sm:block text-sm text-slate-400">Select a system to get started.</p>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-4 max-w-5xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24">
-                {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').map(card => (
-                  <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
-                ))}
-                {/* CCBL Certificate Landing Page */}
-                <button
-                  onClick={() => window.open('/ccbl', '_blank', 'noopener,noreferrer')}
-                  className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
-                >
-                  <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#C9A84C' }} />
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#C9A84C20', border: '1px solid #C9A84C40' }}>
-                    <span className="text-base sm:text-lg">🏅</span>
-                  </div>
-                  <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#C9A84C' }}>
-                    CCBL Certificate
-                  </h3>
-                  <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
-                    Certified Culinary Business Leader — credential landing page for QR code verification.
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-1 relative z-10">
-                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
-                      ↗<span className="hidden sm:inline"> External</span>
-                    </span>
-                  </div>
-                </button>
-                {/* Apprentice Program */}
-                <button
-                  onClick={() => onNavigate('apprentice-program')}
-                  className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
-                >
-                  <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#6366f1' }} />
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#6366f120', border: '1px solid #6366f140' }}>
-                    <span className="text-base sm:text-lg">🎓</span>
-                  </div>
-                  <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#6366f1' }}>
-                    Apprentice Program
-                  </h3>
-                  <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
-                    Track and manage culinary apprentices through their training milestones.
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-1 relative z-10">
-                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
-                      — <span className="hidden sm:inline">Open</span>
-                    </span>
-                  </div>
-                </button>
+              <div className="flex flex-col xl:flex-row gap-4 max-w-6xl mx-auto px-3 sm:px-8 pb-16 sm:pb-24 items-start">
 
-                {/* Motion Samples */}
-                <button
-                  onClick={() => onNavigate('motion-samples')}
-                  className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
-                >
-                  <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#7c3aed' }} />
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#7c3aed20', border: '1px solid #7c3aed40' }}>
-                    <span className="text-base sm:text-lg">✨</span>
-                  </div>
-                  <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#7c3aed' }}>
-                    Motion Samples
-                  </h3>
-                  <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
-                    Scroll-driven animation library for building premium websites.
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-1 relative z-10">
-                    <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
-                      — <span className="hidden sm:inline">Open</span>
-                    </span>
-                  </div>
-                </button>
+                {/* ── System cards grid ──────────────────────────────── */}
+                <div className="flex-1 min-w-0">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                    {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').map(card => (
+                      <SystemCardTile key={card.id} card={card} onNavigate={onNavigate} />
+                    ))}
+                    {/* CCBL Certificate Landing Page */}
+                    <button
+                      onClick={() => window.open('/ccbl', '_blank', 'noopener,noreferrer')}
+                      className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                    >
+                      <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#C9A84C' }} />
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#C9A84C20', border: '1px solid #C9A84C40' }}>
+                        <span className="text-base sm:text-lg">🏅</span>
+                      </div>
+                      <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#C9A84C' }}>
+                        CCBL Certificate
+                      </h3>
+                      <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
+                        Certified Culinary Business Leader — credential landing page for QR code verification.
+                      </p>
+                      <div className="mt-1.5 flex items-center gap-1 relative z-10">
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
+                          ↗<span className="hidden sm:inline"> External</span>
+                        </span>
+                      </div>
+                    </button>
+                    {/* Apprentice Program */}
+                    <button
+                      onClick={() => onNavigate('apprentice-program')}
+                      className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                    >
+                      <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#6366f1' }} />
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#6366f120', border: '1px solid #6366f140' }}>
+                        <span className="text-base sm:text-lg">🎓</span>
+                      </div>
+                      <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#6366f1' }}>
+                        Apprentice Program
+                      </h3>
+                      <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
+                        Track and manage culinary apprentices through their training milestones.
+                      </p>
+                      <div className="mt-1.5 flex items-center gap-1 relative z-10">
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
+                          — <span className="hidden sm:inline">Open</span>
+                        </span>
+                      </div>
+                    </button>
 
-                {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').length === 0 && (
-                  <div className="col-span-4 text-center py-20 text-slate-600 italic text-sm">
-                    No systems available. Contact your IT Administrator.
+                    {/* Motion Samples */}
+                    <button
+                      onClick={() => onNavigate('motion-samples')}
+                      className="glass-card rounded-2xl p-3 sm:p-4 text-left group transition-all duration-300 hover:-translate-y-1 w-full relative overflow-hidden border border-white/10 hover:border-white/20"
+                    >
+                      <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full blur-3xl opacity-15 group-hover:opacity-35 transition-all duration-300" style={{ backgroundColor: '#7c3aed' }} />
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center mb-2 relative z-10 overflow-hidden" style={{ backgroundColor: '#7c3aed20', border: '1px solid #7c3aed40' }}>
+                        <span className="text-base sm:text-lg">✨</span>
+                      </div>
+                      <h3 className="text-xs sm:text-sm font-bold mb-1 relative z-10 leading-tight" style={{ color: '#7c3aed' }}>
+                        Motion Samples
+                      </h3>
+                      <p className="hidden text-xs text-slate-400 leading-relaxed relative z-10 line-clamp-2">
+                        Scroll-driven animation library for building premium websites.
+                      </p>
+                      <div className="mt-1.5 flex items-center gap-1 relative z-10">
+                        <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest text-slate-600">
+                          — <span className="hidden sm:inline">Open</span>
+                        </span>
+                      </div>
+                    </button>
+
+                    {systemCards.filter(c => c.link !== 'management-council' && c.link !== 'workflow').length === 0 && (
+                      <div className="col-span-4 text-center py-20 text-slate-600 italic text-sm">
+                        No systems available. Contact your IT Administrator.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Right column: What's New + Announcements ───────── */}
+                {(wnLoaded || annLoaded || permissions.access_it_admin) && (
+                  <div className="w-full xl:w-64 shrink-0 flex flex-col gap-6">
+
+                    {/* What's New */}
+                    {(whatsNew.length > 0 || permissions.access_it_admin) && (() => {
+                      const latest = whatsNew[0];
+                      const tagMeta: Record<WhatsNewTag, { label: string; color: string }> = {
+                        feature: { label: 'Feature', color: '#38bdf8' },
+                        update:  { label: 'Update',  color: '#a855f7' },
+                        fix:     { label: 'Fix',     color: '#f59e0b' },
+                        notice:  { label: 'Notice',  color: '#22c55e' },
+                      };
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Sparkles size={13} className="text-[#a855f7]" />
+                            <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">What's New</span>
+                            {permissions.access_it_admin && (
+                              <button onClick={openWnAdd}
+                                className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white text-[10px] font-semibold transition-colors"
+                              ><Plus size={10} /> Add</button>
+                            )}
+                            {whatsNew.length > 1 && (
+                              <button onClick={() => setWnHistoryOpen(true)}
+                                className="ml-auto text-[10px] text-slate-500 hover:text-[#a855f7] transition-colors font-semibold whitespace-nowrap"
+                              >All →</button>
+                            )}
+                          </div>
+                          {!latest ? (
+                            <p className="text-xs text-slate-600 italic">No updates yet.</p>
+                          ) : (
+                            <div className="group relative bg-white/[0.04] border border-white/[0.08] hover:border-[#a855f7]/30 rounded-2xl p-4 flex flex-col gap-2 transition-colors"
+                              onClick={() => whatsNew.length > 1 && setWnHistoryOpen(true)}
+                              style={{ cursor: whatsNew.length > 1 ? 'pointer' : 'default' }}
+                            >
+                              <div className="absolute -top-px left-6 right-6 h-px bg-gradient-to-r from-transparent via-[#a855f7]/40 to-transparent" />
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+                                  style={{ backgroundColor: `${tagMeta[latest.tag].color}20`, color: tagMeta[latest.tag].color }}
+                                >{tagMeta[latest.tag].label}</span>
+                                <span className="text-[10px] text-slate-600">{latest.date}</span>
+                                {permissions.access_it_admin && (
+                                  <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={e => { e.stopPropagation(); openWnEdit(latest); }}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"><Pencil size={11} /></button>
+                                    <button onClick={e => { e.stopPropagation(); deleteWn(latest.id); }}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"><Trash2 size={11} /></button>
+                                  </div>
+                                )}
+                              </div>
+                              <p className="text-sm font-bold text-white leading-snug">{latest.title}</p>
+                              {latest.body && <p className="text-xs text-slate-400 leading-relaxed">{latest.body}</p>}
+                              {whatsNew.length > 1 && (
+                                <p className="text-[10px] text-slate-600 mt-1">+ {whatsNew.length - 1} previous update{whatsNew.length > 2 ? 's' : ''} — click to see history</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Announcements */}
+                    {(announcements.length > 0 || canManageAnn) && (() => {
+                      const latest = announcements[0];
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-sm leading-none">📣</span>
+                            <span className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Announcements</span>
+                            {canManageAnn && (
+                              <button onClick={openAnnAdd}
+                                className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white text-[10px] font-semibold transition-colors"
+                              ><Plus size={10} /> Add</button>
+                            )}
+                            {announcements.length > 1 && (
+                              <button onClick={() => setAnnHistoryOpen(true)}
+                                className="ml-auto text-[10px] text-slate-500 hover:text-amber-400 transition-colors font-semibold whitespace-nowrap"
+                              >All →</button>
+                            )}
+                          </div>
+                          {!latest ? (
+                            <p className="text-xs text-slate-600 italic">No announcements yet.</p>
+                          ) : (
+                            <div className="group relative bg-white/[0.04] border border-white/[0.08] hover:border-amber-400/30 rounded-2xl p-4 flex flex-col gap-2 transition-colors"
+                              onClick={() => announcements.length > 1 && setAnnHistoryOpen(true)}
+                              style={{ cursor: announcements.length > 1 ? 'pointer' : 'default' }}
+                            >
+                              <div className="absolute -top-px left-6 right-6 h-px bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-slate-600">{latest.date}</span>
+                                {canManageAnn && (
+                                  <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={e => { e.stopPropagation(); openAnnEdit(latest); }}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"><Pencil size={11} /></button>
+                                    <button onClick={e => { e.stopPropagation(); deleteAnn(latest.id); }}
+                                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"><Trash2 size={11} /></button>
+                                  </div>
+                                )}
+                              </div>
+                              <p className="text-sm font-bold text-white leading-snug">{latest.title}</p>
+                              {latest.body && <p className="text-xs text-slate-400 leading-relaxed">{latest.body}</p>}
+                              {announcements.length > 1 && (
+                                <p className="text-[10px] text-slate-600 mt-1">+ {announcements.length - 1} more — click to see all</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                   </div>
                 )}
+
               </div>
             </>
           )}
@@ -692,6 +960,230 @@ export default function SystemHub({
 
         </main>
       </div>
+
+      {/* What's New — history modal */}
+      {wnHistoryOpen && (() => {
+        const tagMeta: Record<WhatsNewTag, { label: string; color: string }> = {
+          feature: { label: 'Feature', color: '#38bdf8' },
+          update:  { label: 'Update',  color: '#a855f7' },
+          fix:     { label: 'Fix',     color: '#f59e0b' },
+          notice:  { label: 'Notice',  color: '#22c55e' },
+        };
+        return (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={() => setWnHistoryOpen(false)}>
+            <div className="w-full max-w-lg bg-[#1a1030] border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+              {/* header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-[#a855f7]" />
+                  <h3 className="text-sm font-bold text-white">Update History</h3>
+                  <span className="text-[10px] text-slate-600 ml-1">{whatsNew.length} entries</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {permissions.access_it_admin && (
+                    <button onClick={() => { setWnHistoryOpen(false); openWnAdd(); }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-semibold transition-colors">
+                      <Plus size={11} /> Add
+                    </button>
+                  )}
+                  <button onClick={() => setWnHistoryOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"><X size={16} /></button>
+                </div>
+              </div>
+
+              {/* timeline list */}
+              <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-3">
+                {whatsNew.map((entry, idx) => {
+                  const meta = tagMeta[entry.tag];
+                  return (
+                    <div key={entry.id} className="flex gap-3 group">
+                      {/* timeline spine */}
+                      <div className="flex flex-col items-center shrink-0 pt-1">
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: idx === 0 ? meta.color : '#334155' }} />
+                        {idx < whatsNew.length - 1 && <div className="w-px flex-1 bg-white/[0.06] mt-1" />}
+                      </div>
+
+                      <div className="flex-1 pb-3">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
+                            style={{ backgroundColor: `${meta.color}20`, color: meta.color }}>{meta.label}</span>
+                          <span className="text-[10px] text-slate-600">{entry.date}</span>
+                          {idx === 0 && <span className="text-[9px] font-bold text-[#a855f7] bg-[#a855f7]/10 px-1.5 py-0.5 rounded-full">Latest</span>}
+                          {permissions.access_it_admin && (
+                            <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => { setWnHistoryOpen(false); openWnEdit(entry); }}
+                                className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"><Pencil size={10} /></button>
+                              <button onClick={() => deleteWn(entry.id)}
+                                className="p-1 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"><Trash2 size={10} /></button>
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm font-bold text-white leading-snug mb-1">{entry.title}</p>
+                        {entry.body && <p className="text-xs text-slate-400 leading-relaxed">{entry.body}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Announcements — history modal */}
+      {annHistoryOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={() => setAnnHistoryOpen(false)}>
+          <div className="w-full max-w-lg bg-[#1a1030] border border-white/10 rounded-2xl shadow-2xl flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06] shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm leading-none">📣</span>
+                <h3 className="text-sm font-bold text-white">Announcements</h3>
+                <span className="text-[10px] text-slate-600 ml-1">{announcements.length} entries</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {canManageAnn && (
+                  <button onClick={() => { setAnnHistoryOpen(false); openAnnAdd(); }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-semibold transition-colors">
+                    <Plus size={11} /> Add
+                  </button>
+                )}
+                <button onClick={() => setAnnHistoryOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"><X size={16} /></button>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-3">
+              {announcements.map((entry, idx) => (
+                <div key={entry.id} className="flex gap-3 group">
+                  <div className="flex flex-col items-center shrink-0 pt-1">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: idx === 0 ? '#f59e0b' : '#334155' }} />
+                    {idx < announcements.length - 1 && <div className="w-px flex-1 bg-white/[0.06] mt-1" />}
+                  </div>
+                  <div className="flex-1 pb-3">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-[10px] text-slate-600">{entry.date}</span>
+                      {idx === 0 && <span className="text-[9px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">Latest</span>}
+                      {canManageAnn && (
+                        <div className="flex gap-1 ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => { setAnnHistoryOpen(false); openAnnEdit(entry); }}
+                            className="p-1 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"><Pencil size={10} /></button>
+                          <button onClick={() => deleteAnn(entry.id)}
+                            className="p-1 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"><Trash2 size={10} /></button>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm font-bold text-white leading-snug mb-1">{entry.title}</p>
+                    {entry.body && <p className="text-xs text-slate-400 leading-relaxed">{entry.body}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Announcements — add/edit modal */}
+      {annModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={() => setAnnModalOpen(false)}>
+          <div className="w-full max-w-md bg-[#1a1030] border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">{annEditing ? 'Edit Announcement' : 'New Announcement'}</h3>
+              <button onClick={() => setAnnModalOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"><X size={16} /></button>
+            </div>
+            <input
+              type="date"
+              value={annDate}
+              onChange={e => setAnnDate(e.target.value)}
+              className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-amber-400/50"
+            />
+            <input
+              type="text"
+              placeholder="Title *"
+              value={annTitle}
+              onChange={e => setAnnTitle(e.target.value)}
+              className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-amber-400/50"
+            />
+            <textarea
+              placeholder="Details (optional)"
+              value={annBody}
+              onChange={e => setAnnBody(e.target.value)}
+              rows={4}
+              className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-amber-400/50 resize-none"
+            />
+            <button
+              onClick={saveAnn}
+              disabled={annSaving || !annTitle.trim()}
+              className="w-full py-2.5 rounded-xl text-white font-bold text-sm disabled:opacity-40 transition-colors"
+              style={{ backgroundColor: '#f59e0b' }}
+            >
+              {annSaving ? 'Saving…' : annEditing ? 'Save Changes' : 'Post Announcement'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* What's New modal */}
+      {wnModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4" onClick={() => setWnModalOpen(false)}>
+          <div className="w-full max-w-md bg-[#1a1030] border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-white">{wnEditing ? 'Edit Update' : 'New Update'}</h3>
+              <button onClick={() => setWnModalOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"><X size={16} /></button>
+            </div>
+
+            {/* Tag */}
+            <div className="flex gap-2">
+              {(['feature', 'update', 'fix', 'notice'] as WhatsNewTag[]).map(t => {
+                const colors: Record<WhatsNewTag, string> = { feature: '#38bdf8', update: '#a855f7', fix: '#f59e0b', notice: '#22c55e' };
+                const active = wnTag === t;
+                return (
+                  <button
+                    key={t}
+                    onClick={() => setWnTag(t)}
+                    className="flex-1 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
+                    style={{
+                      backgroundColor: active ? `${colors[t]}25` : 'transparent',
+                      color: active ? colors[t] : '#64748b',
+                      border: `1px solid ${active ? colors[t] + '50' : '#ffffff15'}`,
+                    }}
+                  >{t}</button>
+                );
+              })}
+            </div>
+
+            {/* Date */}
+            <input
+              type="date"
+              value={wnDate}
+              onChange={e => setWnDate(e.target.value)}
+              className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-[#a855f7]/50"
+            />
+
+            {/* Title */}
+            <input
+              type="text"
+              placeholder="Title *"
+              value={wnTitle}
+              onChange={e => setWnTitle(e.target.value)}
+              className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-[#a855f7]/50"
+            />
+
+            {/* Body */}
+            <textarea
+              placeholder="Description (optional)"
+              value={wnBody}
+              onChange={e => setWnBody(e.target.value)}
+              rows={3}
+              className="bg-white/[0.06] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-600 outline-none focus:border-[#a855f7]/50 resize-none"
+            />
+
+            <button
+              onClick={saveWn}
+              disabled={wnSaving || !wnTitle.trim()}
+              className="w-full py-2.5 rounded-xl bg-[#a855f7] text-white font-bold text-sm disabled:opacity-40 hover:bg-[#9333ea] transition-colors"
+            >
+              {wnSaving ? 'Saving…' : wnEditing ? 'Save Changes' : 'Post Update'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* IT Admin FAB */}
       {permissions.access_it_admin && (

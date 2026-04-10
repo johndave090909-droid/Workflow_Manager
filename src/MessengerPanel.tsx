@@ -39,9 +39,12 @@ interface ChatMessage {
   content: string;
   timestamp: string | null;
   seenBy?: Record<string, string>; // userId → ISO timestamp
-  mediaUrl?: string;
-  mediaType?: 'image' | 'video';
+  mediaUrl?: string;               // legacy single
+  mediaType?: 'image' | 'video';  // legacy single
+  mediaUrls?: string[];            // multiple images
 }
+
+interface MediaItem { file: File; preview: string; type: 'image' | 'video'; }
 
 type View = 'list' | 'chat' | 'new-dm' | 'new-group';
 
@@ -108,10 +111,9 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
   const [messages,      setMessages]      = useState<ChatMessage[]>([]);
   const [newMsg,        setNewMsg]        = useState('');
   const [sending,       setSending]       = useState(false);
-  const [mediaFile,     setMediaFile]     = useState<File | null>(null);
-  const [mediaPreview,  setMediaPreview]  = useState<string | null>(null);
-  const [mediaType,     setMediaType]     = useState<'image' | 'video' | null>(null);
+  const [mediaItems,    setMediaItems]    = useState<MediaItem[]>([]);
   const [uploadPct,     setUploadPct]     = useState<number | null>(null);
+  const [lightboxUrl,   setLightboxUrl]   = useState<string | null>(null);
   const [allUsers,      setAllUsers]      = useState<AppUser[]>([]);
   const [searchQuery,   setSearchQuery]   = useState('');
   const [selectedUsers, setSelectedUsers] = useState<AppUser[]>([]);
@@ -194,8 +196,9 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
           content:     data.content,
           timestamp:   data.timestamp?.toDate?.()?.toISOString() ?? null,
           seenBy:      Object.keys(seenBy).length > 0 ? seenBy : undefined,
-          mediaUrl:    data.mediaUrl  ?? undefined,
-          mediaType:   data.mediaType ?? undefined,
+          mediaUrl:    data.mediaUrl   ?? undefined,
+          mediaType:   data.mediaType  ?? undefined,
+          mediaUrls:   data.mediaUrls  ?? undefined,
         };
       });
       msgs.sort((a, b) => {
@@ -259,65 +262,122 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
 
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCounts?.[currentUser.id] ?? 0), 0);
 
-  // ── Handle file selection ─────────────────────────────────────────────────
+  // ── Handle file selection (multiple) ─────────────────────────────────────
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const isVideo = file.type.startsWith('video/');
-    const isImage = file.type.startsWith('image/');
-    if (!isImage && !isVideo) return;
-    setMediaFile(file);
-    setMediaType(isVideo ? 'video' : 'image');
-    setMediaPreview(URL.createObjectURL(file));
+    const files = Array.from(e.target.files ?? []) as File[];
+    if (!files.length) return;
+    const newItems: MediaItem[] = files
+      .filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'))
+      .map(f => ({
+        file:    f,
+        preview: URL.createObjectURL(f),
+        type:    f.type.startsWith('video/') ? 'video' : 'image',
+      }));
+    setMediaItems(prev => [...prev, ...newItems]);
     e.target.value = '';
   };
 
+  // ── Handle clipboard paste (Ctrl+V image) ────────────────────────────────
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const newItems: MediaItem[] = [];
+    for (const item of Array.from(items) as DataTransferItem[]) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (!file) continue;
+        newItems.push({ file, preview: URL.createObjectURL(file), type: 'image' });
+      }
+    }
+    if (newItems.length) {
+      e.preventDefault();
+      setMediaItems(prev => [...prev, ...newItems]);
+    }
+  };
+
+  const removeMediaItem = (index: number) => {
+    setMediaItems(prev => prev.filter((_, i) => i !== index));
+  };
+
   const clearMedia = () => {
-    setMediaFile(null);
-    setMediaPreview(null);
-    setMediaType(null);
+    setMediaItems([]);
     setUploadPct(null);
   };
 
   // ── Send message ──────────────────────────────────────────────────────────
   const sendMessage = async () => {
     const content = newMsg.trim();
-    if ((!content && !mediaFile) || sending || !activeConv) return;
+    if ((!content && mediaItems.length === 0) || sending || !activeConv) return;
     setSending(true);
     try {
-      let uploadedUrl: string | undefined;
-      let uploadedType: 'image' | 'video' | undefined;
+      // Split items: images go together, each video is its own message
+      const imageItems = mediaItems.filter(m => m.type === 'image');
+      const videoItems = mediaItems.filter(m => m.type === 'video');
 
-      if (mediaFile && mediaType) {
-        const path = `chat-media/${activeConv.id}/${Date.now()}-${mediaFile.name}`;
+      const uploadFile = async (item: MediaItem, idx: number): Promise<string> => {
+        const path = `chat-media/${activeConv.id}/${Date.now()}-${idx}-${item.file.name}`;
         const sRef = storageRef(storage, path);
-        await new Promise<void>((resolve, reject) => {
-          const task = uploadBytesResumable(sRef, mediaFile);
+        return new Promise<string>((resolve, reject) => {
+          const task = uploadBytesResumable(sRef, item.file);
           task.on('state_changed',
             snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
             reject,
-            async () => { uploadedUrl = await getDownloadURL(task.snapshot.ref); resolve(); }
+            async () => resolve(await getDownloadURL(task.snapshot.ref)),
           );
         });
-        uploadedType = mediaType;
-      }
+      };
 
-      const lastPreview = uploadedType === 'image' ? '📷 Photo' : uploadedType === 'video' ? '🎥 Video' : content;
-
-      await addDoc(collection(db, 'conversations', activeConv.id, 'messages'), {
-        senderId:    currentUser.id,
-        senderName:  currentUser.name,
-        senderPhoto: currentUser.photo ?? '',
-        content:     content || '',
-        timestamp:   serverTimestamp(),
-        seenBy:      { [currentUser.id]: serverTimestamp() },
-        ...(uploadedUrl  ? { mediaUrl: uploadedUrl }   : {}),
-        ...(uploadedType ? { mediaType: uploadedType } : {}),
-      });
       const unreadUpdate: Record<string, ReturnType<typeof increment>> = {};
       activeConv.members.forEach(id => {
         if (id !== currentUser.id) unreadUpdate[`unreadCounts.${id}`] = increment(1);
       });
+
+      let lastPreview = content || '📷 Photo';
+
+      // Send images in one message
+      if (imageItems.length > 0) {
+        const urls = await Promise.all(imageItems.map((item, i) => uploadFile(item, i)));
+        lastPreview = imageItems.length > 1 ? `📷 ${imageItems.length} Photos` : '📷 Photo';
+        await addDoc(collection(db, 'conversations', activeConv.id, 'messages'), {
+          senderId:    currentUser.id,
+          senderName:  currentUser.name,
+          senderPhoto: currentUser.photo ?? '',
+          content:     content || '',
+          timestamp:   serverTimestamp(),
+          seenBy:      { [currentUser.id]: serverTimestamp() },
+          mediaUrls:   urls,
+        });
+      }
+
+      // Send each video as its own message
+      for (let i = 0; i < videoItems.length; i++) {
+        const url = await uploadFile(videoItems[i], imageItems.length + i);
+        lastPreview = '🎥 Video';
+        await addDoc(collection(db, 'conversations', activeConv.id, 'messages'), {
+          senderId:    currentUser.id,
+          senderName:  currentUser.name,
+          senderPhoto: currentUser.photo ?? '',
+          content:     (imageItems.length === 0 && i === 0) ? content || '' : '',
+          timestamp:   serverTimestamp(),
+          seenBy:      { [currentUser.id]: serverTimestamp() },
+          mediaUrl:    url,
+          mediaType:   'video',
+        });
+      }
+
+      // Text-only message when no media
+      if (mediaItems.length === 0 && content) {
+        lastPreview = content;
+        await addDoc(collection(db, 'conversations', activeConv.id, 'messages'), {
+          senderId:    currentUser.id,
+          senderName:  currentUser.name,
+          senderPhoto: currentUser.photo ?? '',
+          content,
+          timestamp:   serverTimestamp(),
+          seenBy:      { [currentUser.id]: serverTimestamp() },
+        });
+      }
+
       await updateDoc(doc(db, 'conversations', activeConv.id), {
         lastMessage:         lastPreview,
         lastMessageAt:       serverTimestamp(),
@@ -592,16 +652,39 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                               isMe
                                 ? 'bg-[#38bdf8] text-white rounded-br-sm'
                                 : 'bg-white/[0.09] text-slate-200 rounded-bl-sm'
-                            } ${msg.mediaUrl ? 'p-0' : 'px-3 py-2'}`}>
-                              {msg.mediaUrl && msg.mediaType === 'image' && (
-                                <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer">
+                            } ${(msg.mediaUrls?.length || msg.mediaUrl) ? 'p-0' : 'px-3 py-2'}`}>
+                              {/* Multiple images */}
+                              {msg.mediaUrls && msg.mediaUrls.length > 0 && (
+                                <div className={`grid gap-0.5 rounded-2xl overflow-hidden ${msg.mediaUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                                  {msg.mediaUrls.map((url, i) => (
+                                    <button
+                                      key={i}
+                                      onClick={() => setLightboxUrl(url)}
+                                      className="focus:outline-none cursor-zoom-in overflow-hidden"
+                                    >
+                                      <img
+                                        src={url}
+                                        alt="shared"
+                                        className="w-full object-cover"
+                                        style={{ maxHeight: msg.mediaUrls!.length === 1 ? 280 : 140, display: 'block' }}
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                              {/* Legacy single image */}
+                              {!msg.mediaUrls?.length && msg.mediaUrl && msg.mediaType === 'image' && (
+                                <button
+                                  onClick={() => setLightboxUrl(msg.mediaUrl!)}
+                                  className="block focus:outline-none cursor-zoom-in"
+                                >
                                   <img
                                     src={msg.mediaUrl}
                                     alt="shared"
                                     className="max-w-[220px] max-h-[280px] object-cover rounded-2xl"
                                     style={{ display: 'block' }}
                                   />
-                                </a>
+                                </button>
                               )}
                               {msg.mediaUrl && msg.mediaType === 'video' && (
                                 <video
@@ -612,7 +695,7 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                                 />
                               )}
                               {msg.content && (
-                                <span className={msg.mediaUrl ? 'block px-3 py-2' : ''}>{msg.content}</span>
+                                <span className={(msg.mediaUrls?.length || msg.mediaUrl) ? 'block px-3 py-2' : ''}>{msg.content}</span>
                               )}
                             </div>
                             {isLastInGroup && timeLabel && (
@@ -638,25 +721,29 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
 
               {/* Input */}
               <div className="px-3 pb-3 flex-shrink-0">
-                {/* Media preview */}
-                {mediaPreview && (
-                  <div className="mb-2 relative inline-block">
-                    {mediaType === 'image' ? (
-                      <img src={mediaPreview} alt="preview" className="max-h-32 rounded-xl object-cover border border-white/10" />
-                    ) : (
-                      <video src={mediaPreview} className="max-h-32 rounded-xl border border-white/10" />
-                    )}
-                    <button
-                      onClick={clearMedia}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 border border-white/20 flex items-center justify-center text-slate-300 hover:text-white"
-                    >
-                      <X size={10} />
-                    </button>
-                    {uploadPct !== null && (
-                      <div className="absolute inset-0 rounded-xl bg-black/50 flex items-center justify-center">
-                        <span className="text-white text-xs font-bold">{uploadPct}%</span>
+                {/* Media preview strip */}
+                {mediaItems.length > 0 && (
+                  <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+                    {mediaItems.map((item, idx) => (
+                      <div key={idx} className="relative shrink-0">
+                        {item.type === 'image' ? (
+                          <img src={item.preview} alt="preview" className="h-20 w-20 rounded-xl object-cover border border-white/10" />
+                        ) : (
+                          <video src={item.preview} className="h-20 w-20 rounded-xl object-cover border border-white/10" />
+                        )}
+                        <button
+                          onClick={() => removeMediaItem(idx)}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 border border-white/20 flex items-center justify-center text-slate-300 hover:text-white"
+                        >
+                          <X size={10} />
+                        </button>
+                        {uploadPct !== null && (
+                          <div className="absolute inset-0 rounded-xl bg-black/50 flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">{uploadPct}%</span>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    ))}
                   </div>
                 )}
                 <div className="flex items-center gap-2 bg-white/[0.06] rounded-2xl px-3 py-2 border border-white/[0.08] focus-within:border-[#38bdf8]/30 transition-colors">
@@ -665,6 +752,7 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                     ref={fileInputRef}
                     type="file"
                     accept="image/*,video/*"
+                    multiple
                     className="hidden"
                     onChange={handleFileSelect}
                   />
@@ -680,12 +768,13 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
                     value={newMsg}
                     onChange={e => setNewMsg(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    onPaste={handlePaste}
                     placeholder="Type a message…"
                     className="flex-1 bg-transparent text-sm text-white placeholder-slate-600 outline-none"
                   />
                   <button
                     onClick={sendMessage}
-                    disabled={(!newMsg.trim() && !mediaFile) || sending}
+                    disabled={(!newMsg.trim() && mediaItems.length === 0) || sending}
                     className="p-2 min-h-[44px] min-w-[44px] rounded-xl bg-[#38bdf8] text-white disabled:opacity-30 transition-all hover:bg-[#0ea5e9] shrink-0 flex items-center justify-center"
                   >
                     <Send size={13} />
@@ -822,6 +911,26 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
     return (
       <div className="flex flex-col h-full w-full bg-[#12091e] overflow-hidden">
         {panelBody}
+        {lightboxUrl && createPortal(
+          <div
+            className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <button
+              onClick={() => setLightboxUrl(null)}
+              className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={lightboxUrl}
+              alt="full size"
+              className="max-w-[90vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            />
+          </div>,
+          document.body
+        )}
       </div>
     );
   }
@@ -849,6 +958,26 @@ export default function MessengerPanel({ currentUser, standalone = false }: Prop
           className="fixed inset-0 md:inset-auto md:top-16 md:right-4 bg-[#12091e] border-0 md:border border-white/10 rounded-none md:rounded-2xl shadow-2xl shadow-black/80 z-[9998] overflow-hidden flex flex-col messenger-panel-size"
         >
           {panelBody}
+        </div>,
+        document.body
+      )}
+      {lightboxUrl && createPortal(
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            onClick={() => setLightboxUrl(null)}
+            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <X size={18} />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt="full size"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-2xl shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
         </div>,
         document.body
       )}
