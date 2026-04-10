@@ -166,6 +166,8 @@ function initHeroEntrance() {
 
 /* â”€â”€ 6i. Circle-wipe hero reveal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function initHeroTransition() {
+  const canvasHeroBg = document.getElementById('canvas-hero-bg');
+
   ScrollTrigger.create({
     trigger: scrollContainer,
     start: 'top top',
@@ -173,11 +175,20 @@ function initHeroTransition() {
     scrub: true,
     onUpdate(self) {
       const p = self.progress;
-      // Hero fades out
-      heroSection.style.opacity = Math.max(0, 1 - Math.max(0, p - 0.03) * 25);
-      // Canvas circle wipe
-      const wipeProgress = Math.min(1, Math.max(0, (p - 0.02) / 0.07));
-      const radius = wipeProgress * 80;
+
+      // Hero section fades out
+      if (heroSection) heroSection.style.opacity = Math.max(0, 1 - Math.max(0, p - 0.03) * 25);
+
+      // Tapa bg: always visible, fade out only as circle nears full coverage
+      if (canvasHeroBg) {
+        const wipeP = Math.min(1, Math.max(0, (p - 0.02) / 0.14));
+        const bgOut = Math.max(0, 1 - Math.max(0, (wipeP - 0.75) / 0.25));
+        canvasHeroBg.style.opacity = String(bgOut);
+      }
+
+      // Circle wipe — slower (14% of scroll) and radius 125% to cover corners
+      const wipeProgress = Math.min(1, Math.max(0, (p - 0.02) / 0.14));
+      const radius = wipeProgress * 125;
       canvasWrap.style.clipPath = `circle(${radius}% at 50% 50%)`;
     }
   });
@@ -450,12 +461,51 @@ function initDarkOverlay() {
 
 /* ── 6j. End of scroll animation ───────────────────────────────────────────── */
 function initScrollEnd() {
+  // Scrub canvas1 opacity out over the last 6% of scroll-container
+  ScrollTrigger.create({
+    trigger: scrollContainer,
+    start: 'top top',
+    end: 'bottom bottom',
+    scrub: true,
+    onUpdate(self) {
+      const p = self.progress;
+      if (p >= 0.94) {
+        canvasWrap.style.opacity = String(Math.max(0, 1 - (p - 0.94) / 0.06));
+      } else {
+        canvasWrap.style.opacity = '1';
+      }
+    }
+  });
+
   ScrollTrigger.create({
     trigger: scrollContainer,
     start: 'bottom bottom',
     onEnter: () => document.body.classList.add('scroll-complete'),
     onLeaveBack: () => document.body.classList.remove('scroll-complete'),
   });
+}
+
+/* ── Banner fade-in / fade-out ──────────────────────────────────────────────── */
+function initBannerFade() {
+  const banner = document.querySelector('.ocean-plate-banner');
+  if (!banner) return;
+
+  // Fade in sync with canvas1 fade-out (last 6% of scroll-container)
+  ScrollTrigger.create({
+    trigger: scrollContainer,
+    start: 'top top',
+    end: 'bottom bottom',
+    scrub: true,
+    onUpdate(self) {
+      const p = self.progress;
+      if (p >= 0.94) {
+        banner.style.opacity = String(Math.min(1, (p - 0.94) / 0.06));
+      } else {
+        banner.style.opacity = '0';
+      }
+    }
+  });
+
 }
 
 /* ── Init sequence (runs after all frames are loaded) ───────────────────── */
@@ -479,6 +529,7 @@ async function init() {
   initMarquees();
   initDarkOverlay();
   initScrollEnd();
+  initBannerFade();
 }
 
 /* ── Second animation (mirrors animation 1 exactly) ───────────────────────── */

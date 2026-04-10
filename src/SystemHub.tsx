@@ -4694,60 +4694,74 @@ interface SignatureModalProps {
   onSigned: (dataUrl: string) => void;
 }
 function SignatureModal({ policyTitle, onClose, onSigned }: SignatureModalProps) {
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const drawing   = React.useRef(false);
-  const lastPos   = React.useRef<{ x: number; y: number } | null>(null);
+  const canvasRef  = React.useRef<HTMLCanvasElement>(null);
+  const drawing    = React.useRef(false);
+  const lastPos    = React.useRef<{ x: number; y: number } | null>(null);
+  const midPos     = React.useRef<{ x: number; y: number } | null>(null);
   const [isEmpty, setIsEmpty] = React.useState(true);
 
+  // Clamp pointer coords to canvas bounds and apply display→canvas scaling
+  const getPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!;
+    const rect   = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: Math.max(0, Math.min(canvas.width,  (e.clientX - rect.left) * scaleX)),
+      y: Math.max(0, Math.min(canvas.height, (e.clientY - rect.top)  * scaleY)),
+      pressure: e.pressure > 0 ? e.pressure : 0.5,
+    };
+  };
+
   const getCtx = () => {
-    const c = canvasRef.current;
-    const ctx = c?.getContext('2d');
+    const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return null;
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth   = 2.5;
-    ctx.lineCap     = 'round';
-    ctx.lineJoin    = 'round';
+    ctx.lineCap  = 'round';
+    ctx.lineJoin = 'round';
     return ctx;
   };
 
-  const posFromEvent = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const scaleX = canvasRef.current!.width / rect.width;
-    const scaleY = canvasRef.current!.height / rect.height;
-    if ('touches' in e) {
-      const t = e.touches[0];
-      return { x: (t.clientX - rect.left) * scaleX, y: (t.clientY - rect.top) * scaleY };
-    }
-    return { x: ((e as React.MouseEvent).clientX - rect.left) * scaleX, y: ((e as React.MouseEvent).clientY - rect.top) * scaleY };
-  };
-
-  const startDraw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    // Capture ALL pointer events to this canvas — cursor can leave the element
+    // and events will still fire here (key fix for USB signature pads)
+    e.currentTarget.setPointerCapture(e.pointerId);
     drawing.current = true;
     setIsEmpty(false);
-    const pos = posFromEvent(e);
+    const pos = getPos(e);
     lastPos.current = pos;
+    midPos.current  = pos;
     const ctx = getCtx();
     if (!ctx) return;
+    // Paint a small dot for tap/click with no movement
     ctx.beginPath();
-    ctx.arc(pos.x, pos.y, 1, 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y, (pos.pressure * 1.8), 0, Math.PI * 2);
     ctx.fillStyle = '#ffffff';
     ctx.fill();
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    if (!drawing.current || !lastPos.current) return;
-    const ctx = getCtx(); if (!ctx) return;
-    const pos = posFromEvent(e);
+    if (!drawing.current || !lastPos.current || !midPos.current) return;
+    const ctx = getCtx();
+    if (!ctx) return;
+    const pos = getPos(e);
+
+    // Quadratic Bézier through midpoints — much smoother than straight lines
+    const mid = { x: (lastPos.current.x + pos.x) / 2, y: (lastPos.current.y + pos.y) / 2 };
     ctx.beginPath();
-    ctx.moveTo(lastPos.current.x, lastPos.current.y);
-    ctx.lineTo(pos.x, pos.y);
+    ctx.moveTo(midPos.current.x, midPos.current.y);
+    ctx.quadraticCurveTo(lastPos.current.x, lastPos.current.y, mid.x, mid.y);
+    // Pressure-sensitive width (USB pads report e.pressure; mouse defaults to 0.5)
+    ctx.lineWidth   = 1.2 + pos.pressure * 2.2;
+    ctx.strokeStyle = '#ffffff';
     ctx.stroke();
+
+    midPos.current  = mid;
     lastPos.current = pos;
   };
 
-  const endDraw = () => { drawing.current = false; lastPos.current = null; };
+  const onPointerUp = () => { drawing.current = false; lastPos.current = null; midPos.current = null; };
 
   const clearCanvas = () => {
     const c = canvasRef.current;
@@ -4777,16 +4791,13 @@ function SignatureModal({ policyTitle, onClose, onSigned }: SignatureModalProps)
               height={190}
               className="w-full block"
               style={{ cursor: 'crosshair', touchAction: 'none' }}
-              onMouseDown={startDraw}
-              onMouseMove={draw}
-              onMouseUp={endDraw}
-              onMouseLeave={endDraw}
-              onTouchStart={startDraw}
-              onTouchMove={draw}
-              onTouchEnd={endDraw}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
             />
           </div>
-          <p className="text-[10px] text-slate-600 mt-2 text-center italic">Sign with your mouse or finger</p>
+          <p className="text-[10px] text-slate-600 mt-2 text-center italic">Sign with your signature pad, mouse, or finger</p>
 
           <div className="flex gap-3 mt-5">
             <button onClick={clearCanvas}
