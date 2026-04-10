@@ -15,10 +15,133 @@
 html { scroll-behavior: auto; }
 
 body {
-  background: var(--bg-light); /* overridden by JS once first frame loads */
+  background-color: #120b04;
+  background-image:
+    radial-gradient(ellipse at center, rgba(6,3,1,0.5) 0%, rgba(6,3,1,0.82) 100%),
+    url('/directory/img/tapa-fiji.svg');
+  background-size: auto, 400px 400px;
+  background-attachment: fixed, fixed;
   color: var(--text-on-light);
   font-family: var(--font-body);
   overflow-x: hidden;
+}
+
+/* ── Tapa Border Divider ───────────────────────────────────────────────────── */
+.tapa-divider {
+  position: relative;
+  height: 65px;
+  background-color: #1a0e05;
+  /* Overlapping diagonal lines forming a diamond/lozenge grid — classic tapa border */
+  background-image:
+    repeating-linear-gradient(
+      60deg,
+      transparent 0px, transparent 13px,
+      rgba(196,146,50,0.55) 13px, rgba(196,146,50,0.55) 15px,
+      transparent 15px, transparent 28px
+    ),
+    repeating-linear-gradient(
+      120deg,
+      transparent 0px, transparent 13px,
+      rgba(196,146,50,0.55) 13px, rgba(196,146,50,0.55) 15px,
+      transparent 15px, transparent 28px
+    );
+  /* Sawtooth bottom edge — 20 teeth across the full width */
+  clip-path: polygon(
+    0 0, 100% 0,
+    100% 50%, 97.5% 100%, 95% 50%, 92.5% 100%, 90% 50%, 87.5% 100%,
+    85% 50%, 82.5% 100%, 80% 50%, 77.5% 100%, 75% 50%, 72.5% 100%,
+    70% 50%, 67.5% 100%, 65% 50%, 62.5% 100%, 60% 50%, 57.5% 100%,
+    55% 50%, 52.5% 100%, 50% 50%, 47.5% 100%, 45% 50%, 42.5% 100%,
+    40% 50%, 37.5% 100%, 35% 50%, 32.5% 100%, 30% 50%, 27.5% 100%,
+    25% 50%, 22.5% 100%, 20% 50%, 17.5% 100%, 15% 50%, 12.5% 100%,
+    10% 50%, 7.5% 100%, 5% 50%, 2.5% 100%, 0 50%
+  );
+}
+
+/* ── Brand Hero ────────────────────────────────────────────────────────────── */
+.brand-hero {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-color: #120b04;
+}
+
+.brand-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url('../img/tapa-fiji.svg');
+  background-size: 400px 400px;
+  background-repeat: repeat;
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/* layered overlay: flat dark base + vignette edges */
+.brand-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at center, transparent 20%, rgba(6,3,1,0.72) 100%),
+    rgba(6, 3, 1, 0.42);
+  pointer-events: none;
+}
+
+.brand-hero-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 820px;
+  padding: 6rem 5vw;
+  text-align: center;
+}
+
+
+.brand-hero-label {
+  display: block;
+  font-family: 'Fredoka One', var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.42em;
+  color: #e8891e;
+  margin-bottom: 1.6rem;
+  text-transform: uppercase;
+  text-shadow:
+    0 0 12px rgba(0,0,0,0.95),
+    0 0 28px rgba(0,0,0,0.85);
+}
+
+.brand-hero-heading {
+  font-family: 'Fredoka One', var(--font-display);
+  font-size: clamp(2.6rem, 6vw, 5.6rem);
+  font-weight: 400;
+  line-height: 1.08;
+  color: #e8891e;
+  margin: 0 0 2.2rem;
+  /* dark halo — reads over any part of the pattern */
+  text-shadow:
+    0 0 6px  rgba(0,0,0,1),
+    0 0 14px rgba(0,0,0,1),
+    0 0 30px rgba(0,0,0,0.95),
+    0 0 60px rgba(0,0,0,0.7),
+    0 3px 8px rgba(0,0,0,0.9);
+}
+
+.brand-hero-body {
+  font-family: var(--font-body);
+  font-size: clamp(0.68rem, 1vw, 0.78rem);
+  letter-spacing: 0.14em;
+  line-height: 2;
+  color: rgba(255, 238, 200, 0.92);
+  max-width: 660px;
+  margin: 0 auto;
+  text-shadow:
+    0 0 8px  rgba(0,0,0,1),
+    0 0 20px rgba(0,0,0,0.9),
+    0 1px 4px rgba(0,0,0,0.95);
 }
 
 /* ── Loader ────────────────────────────────────────────────────────────────── */
@@ -111,6 +234,59 @@ body {
   inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
+}
+
+/* ── What is Taste Polynesia ───────────────────────────────────────────────── */
+.witp-section {
+  position: relative;
+  background: #110a03;
+  padding: 5rem 8vw;
+  z-index: 10;
+}
+
+.witp-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url('../img/tapa-fiji.svg');
+  background-size: 300px 300px;
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+.witp-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 820px;
+}
+
+.witp-label {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  letter-spacing: 0.35em;
+  color: #c49232;
+  text-transform: uppercase;
+  margin-bottom: 1.1rem;
+}
+
+.witp-heading {
+  font-family: var(--font-display);
+  font-size: clamp(1.8rem, 3.5vw, 3rem);
+  font-weight: 700;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1.1;
+  margin: 0 0 1.4rem;
+}
+
+.witp-body {
+  font-family: var(--font-body);
+  font-size: clamp(0.82rem, 1.1vw, 0.95rem);
+  line-height: 1.85;
+  color: rgba(210, 185, 140, 0.8);
+  max-width: 680px;
 }
 
 /* ── Alternating Rows Section ──────────────────────────────────────────────── */
@@ -404,6 +580,11 @@ body {
 @keyframes swayDown {
   0%, 100% { transform: translateY(0); }
   50%       { transform: translateY(7px); }
+}
+
+/* ── Canvas hero background (tapa — shows outside circle during wipe) ──────── */
+#canvas-hero-bg {
+  display: none; /* body background handles the tapa pattern */
 }
 
 /* ── Canvas (right half only) ──────────────────────────────────────────────── */
@@ -754,7 +935,10 @@ body {
   z-index: 2;
 }
 
-body.scroll-complete .canvas-wrap,
+body.scroll-complete .canvas-wrap {
+  pointer-events: none;
+}
+
 body.scroll-complete .marquee-wrap {
   opacity: 0 !important;
   pointer-events: none;
@@ -841,10 +1025,27 @@ body.scroll-complete .marquee-wrap {
   padding: 6rem 6vw 5rem;
 }
 
+/* ── Ocean to Plate Banner ───────────────────────────────────────────────── */
+.ocean-plate-banner {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ocean-plate-banner img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+}
+
 .system-behind-bg {
   position: absolute;
   inset: 0;
-  background-image: url('/frames/frame_0085.webp');
+  background-image: url('/directory/img/system-behind-bg.jpg');
   background-size: cover;
   background-position: center;
   filter: brightness(0.38) saturate(0.7);

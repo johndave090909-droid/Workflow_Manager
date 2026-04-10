@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="260" viewBox="0 0 360 260">
+  <defs>
+    <pattern id="tapa" width="180" height="130" patternUnits="userSpaceOnUse">
+      <rect width="180" height="130" fill="#efe1cd"/>
+      <rect x="8" y="8" width="52" height="52" fill="#d9c1a3" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M8 34h52M34 8v52" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M12 12l44 44M56 12L12 56" stroke="#6b4e2e" stroke-width="2"/>
+
+      <rect x="70" y="8" width="102" height="24" fill="#e2ccb1" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M72 20h98" stroke="#6b4e2e" stroke-width="2" stroke-dasharray="6 6"/>
+
+      <rect x="8" y="70" width="78" height="52" fill="#e4d2bb" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M12 74h70M12 88h70M12 102h70" stroke="#6b4e2e" stroke-width="2"/>
+
+      <rect x="92" y="40" width="80" height="82" fill="#d8c0a2" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M92 40l80 82M172 40l-80 82" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M132 40v82M92 81h80" stroke="#6b4e2e" stroke-width="2"/>
+
+      <circle cx="24" cy="108" r="10" fill="none" stroke="#6b4e2e" stroke-width="2"/>
+      <circle cx="24" cy="108" r="4" fill="#6b4e2e"/>
+      <path d="M148 18c10 6 10 18 0 24" fill="none" stroke="#6b4e2e" stroke-width="2"/>
+      <path d="M148 66c10 6 10 18 0 24" fill="none" stroke="#6b4e2e" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#tapa)"/>
+</svg>

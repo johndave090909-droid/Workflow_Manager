@@ -68,6 +68,18 @@
     </nav>
   </header>
 
+  <!-- ── Brand Hero ───────────────────────────────────────────────────────── -->
+  <section class="brand-hero">
+    <div class="brand-hero-inner">
+      <span class="brand-hero-label">TASTE POLYNESIA</span>
+      <h1 class="brand-hero-heading">A Culinary Expression<br>of Culture, Craft, and Place</h1>
+      <p class="brand-hero-body">SERVING THOUSANDS OF GUESTS DAILY ACROSS MULTIPLE VENUES, TASTE POLYNESIA REPRESENTS THE FOOD OF THE POLYNESIAN CULTURAL CENTER&mdash;A REFLECTION OF POLYNESIAN HERITAGE, HAWAI&lsquo;I&rsquo;S NATURAL ABUNDANCE, AND CULINARY CRAFTSMANSHIP. EVERY DISH CONNECTS GUESTS TO CULTURE, STORY, AND EXPERIENCE THROUGH FOOD.</p>
+    </div>
+  </section>
+
+  <!-- ── Tapa Border Divider ──────────────────────────────────────────────── -->
+  <div class="tapa-divider" aria-hidden="true"></div>
+
   <!-- ── Intro Video (sashimi) ─────────────────────────────────────────────── -->
   <section class="intro-video-section">
     <video class="intro-video" autoplay muted loop playsinline preload="auto">
@@ -75,27 +87,12 @@
     </video>
   </section>
 
-  <!-- ── Hero (standalone, solid dark bg) ──────────────────────────────── -->
-  <section class="hero-standalone" id="hero">
-    <div class="hero-left">
-      <span class="section-label">001 / The Art</span>
-      <h1 class="hero-heading">
-        <span class="word">Crafted</span><br>
-        <span class="word">With</span>
-        <span class="word">Purpose</span>
-      </h1>
-      <p class="hero-tagline">Polynesian Cultural Center &mdash; Culinary Excellence, Laie Hawai&lsquo;i</p>
-      <div class="scroll-indicator">
-        <span>Scroll</span>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
-      </div>
-    </div>
-    <div class="hero-right">
-      <span class="section-label">001 / The Craft</span>
-      <h2 class="hero-sub-heading">Where Passion<br>Meets Precision</h2>
-      <p class="hero-sub-body">Every dish is a story told through heat, technique, and devotion. Our culinary program transforms raw passion into professional mastery — one plate at a time.</p>
+  <!-- ── What is Taste Polynesia ───────────────────────────────────────── -->
+  <section class="witp-section" id="hero">
+    <div class="witp-inner">
+      <span class="witp-label">WHAT IS TASTE POLYNESIA</span>
+      <h2 class="witp-heading">WHERE TRADITION<br>MEETS PRECISION</h2>
+      <p class="witp-body">Our cuisine is rooted in Polynesian tradition&mdash;through imu cooking, live-fire techniques, and indigenous ingredients. At the same time, our kitchens operate with modern equipment, refined techniques, and structured systems that allow our team members to execute at a high level. We do not choose between tradition and innovation. We build mastery in both.</p>
     </div>
   </section>
 
@@ -131,7 +128,10 @@
   </section>
 
   <!-- ── Ocean to Plate ─────────────────────────────────────────────────────── -->
-<!-- ── Canvas (fixed, full viewport, circle-wipe reveal) ─────────────── -->
+<!-- ── Tapa bg shown outside circle during wipe ───────────────────────── -->
+  <div id="canvas-hero-bg" aria-hidden="true"></div>
+
+  <!-- ── Canvas (fixed, full viewport, circle-wipe reveal) ─────────────── -->
   <div class="canvas-wrap" id="canvas-wrap">
     <canvas id="canvas"></canvas>
   </div>
@@ -267,6 +267,11 @@
 
   </div><!-- #scroll-container -->
 
+  <!-- ── Ocean to Plate Banner Image ──────────────────────────────────────── -->
+  <section class="ocean-plate-banner">
+    <img src="/directory/img/ocean-to-plate-banner-opt.jpg" alt="Ocean to Plate" />
+  </section>
+
   <!-- ── Canvas 2 (fixed, second scroll animation) ────────────────────────── -->
   <div class="canvas2-wrap" id="canvas2-wrap">
     <canvas id="canvas2"></canvas>
@@ -291,7 +296,6 @@
   <section class="system-behind-section">
     <div class="system-behind-bg"></div>
     <div class="system-behind-inner">
-      <span class="section-label">004 / BEGIN</span>
       <h2 class="section-heading">THE SYSTEM<br>BEHIND THE<br>EXPERIENCE</h2>
       <p class="section-body"><strong style="display:block;margin-bottom:0.8rem;">Real Operations. Real Discipline. Real Leadership.</strong>At the Polynesian Cultural Center, the Center is a live training and development system embedded within real culinary operations&mdash;serving thousands of guests daily while developing apprentices into professionals who can execute, think, and lead at a high level.</p>
       <a href="/ccbl" class="cta-button" style="margin-top:2rem;">LEARN MORE ABOUT THE CENTER FOR CULINARY EXCELLENCE AND LEADERSHIP &rarr;</a>
