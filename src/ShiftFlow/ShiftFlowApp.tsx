@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import {
@@ -575,6 +575,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
             needsReview: saved.needsReview ?? s.needsReview,
             scheduleImageUrl: saved.scheduleImageUrl ?? s.scheduleImageUrl,
             unavailability: saved.unavailability ?? s.unavailability,
+            excluded: saved.excluded ?? s.excluded ?? false,
           };
         }));
         return;
@@ -656,12 +657,12 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       const next = prev.map(s => s.id === staffId ? { ...s, excluded: !s.excluded } : s);
       const updated = next.find(s => s.id === staffId);
       if (updated) {
-        // Save immediately — don't rely on the debounced save which gets
-        // cancelled on page unload before the 1.5s window expires.
-        setDoc(
+        // Use dot-notation updateDoc so only the excluded field is written —
+        // setDoc with merge:true would replace the entire assignments[staffId]
+        // entry, wiping departmentId, positionId, etc.
+        updateDoc(
           doc(db, 'shiftflow', 'config'),
-          { assignments: { [staffId]: { excluded: updated.excluded ?? false } } },
-          { merge: true }
+          { [`assignments.${staffId}.excluded`]: updated.excluded ?? false }
         ).catch(console.error);
       }
       return next;
