@@ -683,14 +683,14 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   const runAutoSchedule = useCallback(() => {
     const activeStaff = staffRef.current.filter(s => !s.excluded);
     const result = runScheduleAlgorithm(departmentsRef.current, activeStaff, pinnedRef.current);
-    // Don't apply yet — show confirmation modal first
+    // Apply immediately so the user can see the schedule, then confirm to persist
+    setWeekSchedule(result.assignments);
+    setScheduleResult(result);
     setPendingScheduleResult(result);
   }, []); // no deps — always reads latest via refs
 
   const confirmSchedule = useCallback(async (result: ScheduleResult) => {
-    // Apply to local state
-    setWeekSchedule(result.assignments);
-    setScheduleResult(result);
+    // Schedule is already displayed — just clear the pending state and persist
     setPendingScheduleResult(null);
 
     // Persist to Firestore under shiftflow/savedSchedules/{weekStartISO}
@@ -1047,13 +1047,28 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                       {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </h2>
                     <div className="flex items-center gap-2">
-                      {weekSchedule && (
+                      {weekSchedule && !pendingScheduleResult && (
                         <button
-                          onClick={() => { setWeekSchedule(null); setScheduleResult(null); }}
+                          onClick={() => { setWeekSchedule(null); setScheduleResult(null); setPendingScheduleResult(null); }}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg border border-white/10 text-slate-500 hover:text-slate-300 hover:bg-white/10 transition-all"
                         >
                           Clear
                         </button>
+                      )}
+                      {pendingScheduleResult && (
+                        <AnimatePresence mode="wait">
+                          <motion.button
+                            key="confirm-btn"
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            onClick={() => confirmSchedule(pendingScheduleResult)}
+                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all"
+                          >
+                            <CheckCircle2 size={13} />
+                            Confirm Schedule
+                          </motion.button>
+                        </AnimatePresence>
                       )}
                       <button
                         onClick={runAutoSchedule}
@@ -2002,110 +2017,6 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
         })()}
       </AnimatePresence>
 
-      {/* ── Confirm Auto Schedule Modal ── */}
-      <AnimatePresence>
-        {pendingScheduleResult && (
-          <motion.div
-            key="confirm-schedule-modal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-          >
-            <motion.div
-              initial={{ scale: 0.93, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.93, opacity: 0, y: 20 }}
-              transition={{ type: 'spring', damping: 22, stiffness: 260 }}
-              className="w-full max-w-md bg-[#0f0a1a] border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
-            >
-              {/* Header */}
-              <div className="px-6 pt-6 pb-4 border-b border-white/[0.06]">
-                <div className="flex items-center gap-3 mb-1">
-                  <div className="p-2 rounded-xl bg-[#ff00ff]/10 border border-[#ff00ff]/20">
-                    <Sparkles size={16} className="text-[#ff00ff]" />
-                  </div>
-                  <h2 className="text-base font-bold text-white">Confirm Auto Schedule</h2>
-                </div>
-                <p className="text-xs text-slate-500 ml-11">
-                  {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  {' – '}
-                  {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </p>
-              </div>
-
-              {/* Stats */}
-              <div className="px-6 py-4 grid grid-cols-3 gap-3">
-                {[
-                  { label: 'Assigned', val: pendingScheduleResult.stats.primary + pendingScheduleResult.stats.pinned + pendingScheduleResult.stats.substitute, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-400/20' },
-                  { label: 'Substitutes', val: pendingScheduleResult.stats.substitute, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-400/20' },
-                  { label: 'Unassigned', val: pendingScheduleResult.stats.unassigned, color: 'text-rose-400', bg: 'bg-rose-500/10 border-rose-400/20' },
-                ].map(({ label, val, color, bg }) => (
-                  <div key={label} className={`rounded-2xl border px-3 py-3 text-center ${bg}`}>
-                    <div className={`text-xl font-black ${color}`}>{val}</div>
-                    <div className="text-[10px] text-slate-500 mt-0.5 font-semibold uppercase tracking-wide">{label}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Substitute warnings */}
-              {pendingScheduleResult.substituteWarnings.length > 0 && (
-                <div className="px-6 pb-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Substitutions Made</p>
-                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
-                    {pendingScheduleResult.substituteWarnings.map((w, i) => (
-                      <div key={i} className="flex items-start gap-2 text-[11px]">
-                        <span className="text-sky-400 shrink-0 mt-0.5">↩</span>
-                        <span className="text-slate-400">
-                          <span className="text-white font-semibold">{w.staffName}</span>
-                          {' skipped for '}
-                          <span className="text-slate-300">{w.positionName}</span>
-                          {w.reason ? <span className="text-slate-600"> · {w.reason}</span> : null}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Unassigned positions */}
-              {pendingScheduleResult.unassigned.length > 0 && (
-                <div className="px-6 pb-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Open Positions</p>
-                  <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                    {pendingScheduleResult.unassigned.map((u, i) => (
-                      <div key={i} className="text-[11px] text-rose-400">
-                        · {u.positionName} <span className="text-slate-600">({u.departmentName})</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Confirmation note */}
-              <div className="px-6 py-3 bg-white/[0.02] border-t border-white/[0.06] text-[11px] text-slate-500">
-                Confirming will apply this schedule and save it to Firestore under your account.
-              </div>
-
-              {/* Actions */}
-              <div className="px-6 py-4 flex gap-3">
-                <button
-                  onClick={() => setPendingScheduleResult(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm font-semibold text-slate-400 hover:bg-white/[0.05] transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => confirmSchedule(pendingScheduleResult)}
-                  className="flex-1 py-2.5 rounded-xl bg-[#ff00ff]/20 border border-[#ff00ff]/30 text-sm font-bold text-[#ff00ff] hover:bg-[#ff00ff]/30 transition-all"
-                >
-                  Confirm & Save
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
