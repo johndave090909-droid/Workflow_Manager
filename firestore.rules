@@ -26,6 +26,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Confirmed auto-schedule snapshots saved from ShiftFlow
+    match /shiftflow_schedules/{weekDoc} {
+      allow read, write: if true;
+    }
+
     // Directory gallery: public read so the Taste Polynesia page loads without login
     match /directory_gallery/{doc} {
       allow read: if true;

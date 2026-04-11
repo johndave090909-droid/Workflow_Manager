@@ -657,6 +657,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   // Schedule state: positionId → staffId override (null = use static assignments)
   const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
   const [pendingScheduleResult, setPendingScheduleResult] = useState<ScheduleResult | null>(null);
+  const [saveToast, setSaveToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const toggleExcluded = useCallback((staffId: string) => {
     setStaff(prev => {
@@ -690,25 +691,30 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   }, []); // no deps — always reads latest via refs
 
   const confirmSchedule = useCallback(async (result: ScheduleResult) => {
-    // Schedule is already displayed — just clear the pending state and persist
     setPendingScheduleResult(null);
 
-    // Persist to Firestore under shiftflow/savedSchedules/{weekStartISO}
     const weekStartISO = weekStart.toISOString().split('T')[0];
     const confirmedBy = auth.currentUser?.displayName ?? auth.currentUser?.email ?? 'Unknown';
-    await setDoc(
-      doc(db, 'shiftflow_schedules', weekStartISO),
-      {
-        weekStartISO,
-        weekEndISO: addDays(weekStart, 6).toISOString().split('T')[0],
-        assignments: result.assignments,
-        stats: result.stats,
-        substituteWarnings: result.substituteWarnings,
-        unassigned: result.unassigned,
-        confirmedBy,
-        confirmedAt: new Date().toISOString(),
-      }
-    ).catch(console.error);
+    try {
+      await setDoc(
+        doc(db, 'shiftflow_schedules', weekStartISO),
+        {
+          weekStartISO,
+          weekEndISO: addDays(weekStart, 6).toISOString().split('T')[0],
+          assignments: result.assignments,
+          stats: result.stats,
+          substituteWarnings: result.substituteWarnings,
+          unassigned: result.unassigned,
+          confirmedBy,
+          confirmedAt: new Date().toISOString(),
+        }
+      );
+      setSaveToast({ type: 'success', msg: `Schedule saved · confirmed by ${confirmedBy}` });
+    } catch (err) {
+      console.error('confirmSchedule write failed:', err);
+      setSaveToast({ type: 'error', msg: `Save failed: ${(err as Error).message}` });
+    }
+    setTimeout(() => setSaveToast(null), 4000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart]);
 
@@ -2017,6 +2023,25 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
         })()}
       </AnimatePresence>
 
+      {/* ── Save toast ── */}
+      <AnimatePresence>
+        {saveToast && (
+          <motion.div
+            key="save-toast"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl border text-sm font-semibold shadow-xl flex items-center gap-2 ${
+              saveToast.type === 'success'
+                ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300'
+                : 'bg-rose-500/20 border-rose-400/30 text-rose-300'
+            }`}
+          >
+            {saveToast.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+            {saveToast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
