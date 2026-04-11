@@ -23,7 +23,8 @@ function ScheduleCalendar({ entries, onRemove }: {
 }) {
   if (entries.length === 0) return <p className="text-xs text-slate-600 italic">No classes found.</p>;
 
-  const activeDays = [0, 1, 2, 3, 4, 5, 6];
+  // Only render days that actually have entries — keeps the grid compact on mobile
+  const activeDays = [...new Set(entries.map(e => e.day))].sort((a, b) => a - b);
 
   const allMins = entries.flatMap(e => [toMin(e.startTime), toMin(e.endTime)]);
   const minTime = Math.floor(Math.min(...allMins) / 60) * 60;
@@ -45,24 +46,24 @@ function ScheduleCalendar({ entries, onRemove }: {
   const fmtHour = (h: number) => h === 0 ? '12AM' : h < 12 ? `${h}AM` : h === 12 ? '12PM' : `${h - 12}PM`;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.015]">
-      <div className="flex min-w-max p-2 gap-0">
-        {/* Time axis */}
-        <div className="relative w-10 shrink-0 mr-0.5" style={{ height: totalH, marginTop: 20 }}>
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.015] w-full">
+      <div className="flex w-full p-1">
+        {/* Time axis — fixed narrow width */}
+        <div className="relative shrink-0 mr-0.5" style={{ width: 28, height: totalH, marginTop: 20 }}>
           {hourTicks.map(h => (
-            <div key={h} className="absolute right-1" style={{ top: (h * 60 - minTime) * PX - 5 }}>
-              <span className="text-[7px] text-slate-700 whitespace-nowrap tabular-nums">{fmtHour(h)}</span>
+            <div key={h} className="absolute right-0.5" style={{ top: (h * 60 - minTime) * PX - 4 }}>
+              <span className="text-[6px] text-slate-600 whitespace-nowrap tabular-nums leading-none">{fmtHour(h)}</span>
             </div>
           ))}
         </div>
 
-        {/* Day columns */}
+        {/* Day columns — fill remaining width equally */}
         {activeDays.map(dayIdx => {
           const dayEntries = entries.filter(e => e.day === dayIdx);
           return (
-            <div key={dayIdx} className="w-[90px] shrink-0">
+            <div key={dayIdx} className="flex-1 min-w-0">
               <div className="text-center h-5 flex items-center justify-center">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                <span className="text-[8px] font-black uppercase tracking-tight text-slate-500">
                   {DAY_SHORT[dayIdx]}
                 </span>
               </div>
@@ -72,32 +73,24 @@ function ScheduleCalendar({ entries, onRemove }: {
                 ))}
                 {dayEntries.map(e => {
                   const top = (toMin(e.startTime) - minTime) * PX;
-                  const height = Math.max((toMin(e.endTime) - toMin(e.startTime)) * PX, 22);
+                  const height = Math.max((toMin(e.endTime) - toMin(e.startTime)) * PX, 18);
                   const color = colorMap[e.label || '__block__'];
-                  const timeRange = `${fmt12(e.startTime)} – ${fmt12(e.endTime)}`;
+                  const timeRange = `${fmt12(e.startTime)}–${fmt12(e.endTime)}`;
                   return (
                     <div
                       key={e.id}
-                      className="absolute inset-x-0.5 rounded overflow-hidden px-1.5 py-1 group cursor-default"
+                      onClick={() => { if (!window.confirm('Remove this class entry?')) return; onRemove(e.id); }}
+                      className="absolute inset-x-px rounded overflow-hidden px-1 py-0.5 cursor-pointer active:opacity-70"
                       style={{ top, height, backgroundColor: `${color}22`, borderLeft: `2px solid ${color}70` }}
                     >
                       {height >= 14 && (
-                        <p className="text-[8px] font-bold leading-tight line-clamp-2 pr-3" style={{ color: `${color}cc` }}>
+                        <p className="text-[7px] font-bold leading-tight line-clamp-2" style={{ color: `${color}cc` }}>
                           {e.label || 'Class'}
                         </p>
                       )}
-                      {height >= 32 && (
-                        <p className="text-[7px] tabular-nums mt-0.5" style={{ color: `${color}99` }}>{timeRange}</p>
+                      {height >= 30 && (
+                        <p className="text-[6px] tabular-nums mt-0.5 leading-tight" style={{ color: `${color}99` }}>{timeRange}</p>
                       )}
-                      {height >= 14 && height < 32 && (
-                        <p className="text-[6px] tabular-nums leading-tight" style={{ color: `${color}80` }}>{timeRange}</p>
-                      )}
-                      <button
-                        onClick={() => { if (!window.confirm('Remove this class entry?')) return; onRemove(e.id); }}
-                        className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Trash2 size={8} className="text-slate-500 hover:text-rose-400" />
-                      </button>
                     </div>
                   );
                 })}
@@ -116,6 +109,67 @@ interface ExtractedEntry {
   startTime: string;
   endTime: string;
   label: string;
+}
+
+function EntryEditor({ entries, onChange }: {
+  entries: ExtractedEntry[];
+  onChange: (entries: ExtractedEntry[]) => void;
+}) {
+  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+  function update(id: string, patch: Partial<ExtractedEntry>) {
+    onChange(entries.map(e => e.id === id ? { ...e, ...patch } : e));
+  }
+
+  function add() {
+    onChange([...entries, { id: `manual-${Date.now()}`, day: 0, startTime: '09:00', endTime: '10:00', label: '' }]);
+  }
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Edit Entries</p>
+        <button onClick={add} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#ff00ff]/10 border border-[#ff00ff]/20 text-[#ff00ff] text-[10px] font-bold hover:bg-[#ff00ff]/20 transition-all">
+          + Add
+        </button>
+      </div>
+      <div className="space-y-1.5">
+        {entries.map(e => (
+          <div key={e.id} className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap">
+            <select
+              value={e.day}
+              onChange={ev => update(e.id, { day: Number(ev.target.value) })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#ff00ff]/40 shrink-0 w-[106px]"
+            >
+              {days.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+            <input
+              type="time" value={e.startTime}
+              onChange={ev => update(e.id, { startTime: ev.target.value })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#ff00ff]/40 w-[110px] shrink-0"
+            />
+            <span className="text-slate-600 text-xs shrink-0">–</span>
+            <input
+              type="time" value={e.endTime}
+              onChange={ev => update(e.id, { endTime: ev.target.value })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#ff00ff]/40 w-[110px] shrink-0"
+            />
+            <input
+              type="text" value={e.label} placeholder="Label (e.g. CS 101)"
+              onChange={ev => update(e.id, { label: ev.target.value })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#ff00ff]/40 flex-1 min-w-[120px]"
+            />
+            <button
+              onClick={() => onChange(entries.filter(x => x.id !== e.id))}
+              className="p-1.5 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 interface WorkerData {
@@ -148,6 +202,7 @@ export default function WorkerPortal() {
   const [extracted, setExtracted] = useState<ExtractedEntry[]>([]);
   const [extractError, setExtractError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [showOriginal, setShowOriginal] = useState(false);
 
   // ── Login ──────────────────────────────────────────────────────────────────
   async function handleLogin(e: React.FormEvent) {
@@ -480,7 +535,7 @@ Return ONLY a raw JSON array, no markdown, no explanation:
 
       {/* ── STEP: Preview / Saving ── */}
       {(step === 'preview' || step === 'saving') && worker && (
-        <div className="w-full max-w-3xl space-y-5">
+        <div className="w-full max-w-5xl space-y-5">
           {/* Worker header */}
           <div className="flex items-center gap-4 bg-white/[0.03] border border-white/10 rounded-2xl px-5 py-4">
             <div
@@ -495,39 +550,71 @@ Return ONLY a raw JSON array, no markdown, no explanation:
             </div>
           </div>
 
-          {/* Extracted schedule */}
-          <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
+          {/* Dual verification: original image + extracted schedule */}
+          <div className="flex flex-col lg:flex-row gap-4 items-start">
+
+            {/* Original upload — collapsible on mobile, always visible on desktop */}
+            <div className="w-full lg:w-[340px] shrink-0 bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between gap-2 p-4">
+                <div className="flex items-center gap-2">
+                  {/* Mobile toggle */}
+                  <button
+                    onClick={() => setShowOriginal(v => !v)}
+                    className="lg:hidden flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-slate-400 hover:text-white transition-colors"
+                  >
+                    <ImageIcon size={12} />
+                    Original
+                    <span className="text-slate-600">{showOriginal ? '▲' : '▼'}</span>
+                  </button>
+                  {/* Desktop label — always shown */}
+                  <span className="hidden lg:block text-sm font-black text-white uppercase tracking-wide">Original Upload</span>
+                </div>
+                <button
+                  onClick={() => setStep('upload')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 text-xs font-bold transition-all shrink-0"
+                >
+                  <RefreshCw size={11} /> Re-upload
+                </button>
+              </div>
+              {imagePreview && (
+                <div className={`lg:block ${showOriginal ? 'block' : 'hidden'} px-4 pb-4`}>
+                  <img
+                    src={imagePreview}
+                    alt="Uploaded schedule"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.02] object-contain"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Extracted schedule */}
+            <div className="flex-1 min-w-0 bg-white/[0.03] border border-white/10 rounded-2xl p-5 space-y-4">
               <div>
                 <h2 className="text-sm font-black text-white uppercase tracking-wide">Extracted Schedule</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Review your extracted class times. Remove any incorrect entries, then confirm to save.
+                  Tap a block to remove it. Compare with your original above.
                 </p>
               </div>
-              <button
-                onClick={() => setStep('upload')}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white hover:bg-white/5 text-xs font-bold transition-all shrink-0"
-              >
-                <RefreshCw size={11} /> Re-upload
-              </button>
+
+              {extracted.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-sm text-slate-500">No classes were found in the image.</p>
+                  <button
+                    onClick={() => setStep('upload')}
+                    className="mt-3 text-xs text-[#ff00ff]/70 hover:text-[#ff00ff] underline underline-offset-2 transition-colors"
+                  >
+                    Try a different image
+                  </button>
+                </div>
+              ) : (
+                <ScheduleCalendar
+                  entries={extracted}
+                  onRemove={id => setExtracted(prev => prev.filter(x => x.id !== id))}
+                />
+              )}
+              <EntryEditor entries={extracted} onChange={setExtracted} />
             </div>
 
-            {extracted.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-sm text-slate-500">No classes were found in the image.</p>
-                <button
-                  onClick={() => setStep('upload')}
-                  className="mt-3 text-xs text-[#ff00ff]/70 hover:text-[#ff00ff] underline underline-offset-2 transition-colors"
-                >
-                  Try a different image
-                </button>
-              </div>
-            ) : (
-              <ScheduleCalendar
-                entries={extracted}
-                onRemove={id => setExtracted(prev => prev.filter(x => x.id !== id))}
-              />
-            )}
           </div>
 
           {saveError && (

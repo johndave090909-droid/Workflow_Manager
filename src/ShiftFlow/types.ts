@@ -37,6 +37,8 @@ export interface Staff {
   unavailability: Unavailability[];
   needsReview?: boolean;
   scheduleImageUrl?: string;
+  /** When true, this worker is excluded from auto-scheduling (e.g. terminated, on leave) */
+  excluded?: boolean;
 }
 
 export interface ShiftRequirement {

@@ -5,7 +5,8 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '../firebase';
 import {
   Calendar as CalendarIcon,
   Users,
@@ -26,10 +27,14 @@ import {
   Sparkles,
   Pin,
   PinOff,
+  ImageIcon,
+  Upload,
+  RefreshCw,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Staff, Semester, ShiftType, Department, Position } from './types';
 import { getSemesterDates } from './utils';
+import { runScheduleAlgorithm, isStaffBlocked, ScheduleResult } from './scheduleEngine';
 
 const SHIFT_COLORS: Record<ShiftType, string> = {
   Morning: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30',
@@ -218,6 +223,240 @@ function UnavailCalendar({ unavailability, onRemove }: {
   );
 }
 
+// ── Schedule Image Uploader ───────────────────────────────────────────────────
+
+interface ExtractedEntry { id: string; day: number; startTime: string; endTime: string; label: string; }
+
+const DAY_NAMES_FULL = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+
+function EntryList({ entries, onChange }: { entries: ExtractedEntry[]; onChange: (e: ExtractedEntry[]) => void }) {
+  function update(id: string, patch: Partial<ExtractedEntry>) {
+    onChange(entries.map(e => e.id === id ? { ...e, ...patch } : e));
+  }
+  function add() {
+    onChange([...entries, { id: `manual-${Date.now()}`, day: 0, startTime: '09:00', endTime: '10:00', label: '' }]);
+  }
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Edit Entries</p>
+        <button onClick={add} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#ff00ff]/10 border border-[#ff00ff]/20 text-[#ff00ff] text-[10px] font-bold hover:bg-[#ff00ff]/20 transition-all">+ Add</button>
+      </div>
+      <div className="space-y-1.5">
+        {entries.map(e => (
+          <div key={e.id} className="flex items-center gap-1.5 flex-wrap">
+            <select value={e.day} onChange={ev => update(e.id, { day: Number(ev.target.value) })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#ff00ff]/40 shrink-0">
+              {DAY_NAMES_FULL.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+            <input type="time" value={e.startTime} onChange={ev => update(e.id, { startTime: ev.target.value })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#ff00ff]/40 w-[100px] shrink-0" />
+            <span className="text-slate-600 text-xs">–</span>
+            <input type="time" value={e.endTime} onChange={ev => update(e.id, { endTime: ev.target.value })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#ff00ff]/40 w-[100px] shrink-0" />
+            <input type="text" value={e.label} placeholder="Label (e.g. CS 101)" onChange={ev => update(e.id, { label: ev.target.value })}
+              className="bg-white/5 border border-white/10 text-slate-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-[#ff00ff]/40 flex-1 min-w-[120px]" />
+            <button onClick={() => onChange(entries.filter(x => x.id !== e.id))}
+              className="p-1 rounded-lg text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all shrink-0"><Trash2 size={12} /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleUploader({ memberId, memberName, onSave }: {
+  memberId: string;
+  memberName: string;
+  onSave: (unavailability: Staff['unavailability'], imageUrl: string) => void;
+}) {
+  const [phase, setPhase] = useState<'idle' | 'processing' | 'preview' | 'saving'>('idle');
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [extracted, setExtracted] = useState<ExtractedEntry[]>([]);
+  const [error, setError] = useState('');
+
+  function handlePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file); setExtracted([]); setError('');
+    const reader = new FileReader();
+    reader.onload = ev => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  async function processImage() {
+    if (!imagePreview) return;
+    setPhase('processing'); setError('');
+    try {
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error('API key not configured.');
+      const match = imagePreview.match(/^data:(.+);base64,(.+)$/);
+      if (!match) throw new Error('Invalid image.');
+      const mediaType = match[1] as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+      const base64Data = match[2];
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6', max_tokens: 2000,
+          system: 'You are a precise class schedule extractor. Return only valid JSON arrays.',
+          messages: [{ role: 'user', content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+            { type: 'text', text: `Extract all class schedule entries. Day numbers: Mon=0,Tue=1,Wed=2,Thu=3,Fri=4,Sat=5,Sun=6. Times in HH:MM 24h.\nReturn ONLY a raw JSON array:\n[{"day":0,"startTime":"08:00","endTime":"08:50","label":"CS 101"}]` },
+          ] }],
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const clean = (data.content?.[0]?.text ?? '').replace(/```(?:json)?\n?/g,'').replace(/```/g,'').trim();
+      const parsed: Array<{ day: number; startTime: string; endTime: string; label: string }> = JSON.parse(clean);
+      setExtracted(parsed.map((e, i) => ({ ...e, id: `ai-${i}-${Date.now()}` })));
+      setPhase('preview');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process image.');
+      setPhase('idle');
+    }
+  }
+
+  async function handleSave() {
+    if (!imageFile) return;
+    setPhase('saving');
+    try {
+      const storageRef = ref(storage, `shiftflow-schedules/${memberId}`);
+      await uploadBytes(storageRef, imageFile);
+      const imageUrl = await getDownloadURL(storageRef);
+      const unavailability = extracted.map(e => ({ id: e.id, date: '', dayOfWeek: e.day, startTime: e.startTime, endTime: e.endTime, label: e.label }));
+      onSave(unavailability, imageUrl);
+      setPhase('idle'); setImageFile(null); setImagePreview(null); setExtracted([]);
+    } catch {
+      setError('Failed to save. Please try again.');
+      setPhase('preview');
+    }
+  }
+
+  const DAY_SHORT_U = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const toMinU = (t: string) => { const [h,m] = t.split(':').map(Number); return h*60+m; };
+
+  return (
+    <div className="space-y-3 pt-1">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Upload Class Schedule</p>
+
+      {phase === 'idle' && (
+        <div className="space-y-2">
+          {imagePreview ? (
+            <div className="relative">
+              <img src={imagePreview} alt="preview" className="w-full max-h-48 object-contain rounded-xl border border-white/10 bg-white/[0.02]" />
+              <button onClick={() => { setImageFile(null); setImagePreview(null); }} className="absolute top-2 right-2 p-1 bg-black/60 rounded-lg text-slate-400 hover:text-rose-400"><Trash2 size={12} /></button>
+            </div>
+          ) : (
+            <label className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-dashed border-white/10 hover:border-[#ff00ff]/30 hover:bg-[#ff00ff]/5 transition-all cursor-pointer group">
+              <ImageIcon size={14} className="text-slate-600 group-hover:text-[#ff00ff]/60 shrink-0" />
+              <span className="text-xs text-slate-500 group-hover:text-slate-300">Click to upload schedule image</span>
+              <input type="file" accept="image/*" className="hidden" onChange={handlePick} />
+            </label>
+          )}
+          {error && <p className="text-xs text-rose-400">{error}</p>}
+          {imagePreview && (
+            <button onClick={processImage} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#ff00ff]/15 border border-[#ff00ff]/25 text-[#ff00ff] text-xs font-bold hover:bg-[#ff00ff]/25 transition-all">
+              <Sparkles size={12} /> Process with AI
+            </button>
+          )}
+        </div>
+      )}
+
+      {phase === 'processing' && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#ff00ff]/10 border border-[#ff00ff]/20">
+          <div className="w-3 h-3 border-2 border-[#ff00ff]/30 border-t-[#ff00ff] rounded-full animate-spin shrink-0" />
+          <span className="text-xs text-[#ff00ff]/80">Reading schedule…</span>
+        </div>
+      )}
+
+      {(phase === 'preview' || phase === 'saving') && (() => {
+        const activeDays = [...new Set(extracted.map(e => e.day))].sort((a: number,b: number) => a-b);
+        const allMins = extracted.flatMap(e => [toMinU(e.startTime), toMinU(e.endTime)]);
+        const minTime = Math.floor(Math.min(...allMins)/60)*60;
+        const maxTime = Math.ceil(Math.max(...allMins)/60)*60;
+        const range = Math.max(maxTime - minTime, 60);
+        const COLORS = ['#6366f1','#ec4899','#14b8a6','#f97316','#84cc16','#8b5cf6','#ef4444','#3b82f6'];
+        const colorMap: Record<string,string> = {};
+        let ci = 0;
+        extracted.forEach(e => { const k = e.label||'__'; if (!colorMap[k]) colorMap[k] = COLORS[ci++%COLORS.length]; });
+        const startHour = minTime/60; const endHour = maxTime/60;
+        const hourTicks = Array.from({ length: endHour - startHour + 1 }, (_,i) => startHour+i);
+        const fmtH = (h: number) => h===0?'12AM':h<12?`${h}AM`:h===12?'12PM':`${h-12}PM`;
+        const PX = 2.0;
+        const totalH = range * PX;
+        return (
+          <div className="space-y-3">
+            <div className="flex gap-4 items-start">
+              {imagePreview && (
+                <div className="shrink-0 space-y-1 w-44">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Original</p>
+                  <img src={imagePreview} alt="original" className="w-full rounded-xl border border-white/10 object-contain bg-white/[0.02] cursor-zoom-in" onClick={() => window.open(imagePreview!, '_blank')} />
+                </div>
+              )}
+              <div className="flex-1 min-w-0 space-y-1">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Extracted · {extracted.length} entries <span className="text-slate-700 font-normal normal-case tracking-normal">· click block to remove</span></p>
+                {extracted.length === 0 ? <p className="text-xs text-slate-600 italic">No entries found.</p> : (
+                  <div className="rounded-lg border border-white/[0.06] bg-white/[0.01] w-full">
+                    <div className="flex w-full p-1">
+                      <div className="relative shrink-0 mr-1" style={{ width: 32, height: totalH, marginTop: 20 }}>
+                        {hourTicks.map(h => (
+                          <div key={h} className="absolute right-0.5" style={{ top:(h*60-minTime)*PX - 5 }}>
+                            <span className="text-[8px] tabular-nums text-slate-600">{fmtH(h)}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {activeDays.map(dayIdx => {
+                        const dayEntries = extracted.filter(e => e.day===dayIdx);
+                        return (
+                          <div key={dayIdx} className="flex-1 min-w-0">
+                            <div className="flex items-center justify-center h-[20px]">
+                              <span className="text-[9px] font-black uppercase tracking-tight text-slate-400">{DAY_SHORT_U[dayIdx as number]}</span>
+                            </div>
+                            <div className="relative border-l border-white/[0.06]" style={{ height: totalH }}>
+                              {hourTicks.map(h => <div key={h} className="absolute w-full border-t border-white/[0.04]" style={{ top:(h*60-minTime)*PX }} />)}
+                              {dayEntries.map(e => {
+                                const top = (toMinU(e.startTime)-minTime)*PX;
+                                const height = Math.max((toMinU(e.endTime)-toMinU(e.startTime))*PX, 18);
+                                const color = colorMap[e.label||'__'];
+                                return (
+                                  <div key={e.id} onClick={() => setExtracted(prev => prev.filter(x => x.id !== e.id))}
+                                    className="absolute inset-x-px rounded overflow-hidden cursor-pointer hover:brightness-125 transition-all"
+                                    style={{ top, height, backgroundColor:`${color}22`, borderLeft:`2px solid ${color}70`, padding:'2px 4px' }}
+                                    title={`${e.label} — click to remove`}
+                                  >
+                                    {height >= 16 && <p className="text-[8px] font-bold leading-tight line-clamp-2" style={{ color:`${color}cc` }}>{e.label||'Class'}</p>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <EntryList entries={extracted} onChange={setExtracted} />
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => { setPhase('idle'); setExtracted([]); }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/10 text-slate-400 hover:text-white text-xs font-bold transition-all"><RefreshCw size={11} /> Re-upload</button>
+              {extracted.length > 0 && (
+                <button onClick={handleSave} disabled={phase==='saving'} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs font-bold hover:bg-emerald-500/30 transition-all disabled:opacity-40">
+                  {phase==='saving' ? <><div className="w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin"/>Saving…</> : <><CheckCircle2 size={12}/>Save Schedule</>}
+                </button>
+              )}
+            </div>
+            {error && <p className="text-xs text-rose-400">{error}</p>}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void }) {
   const [semester, setSemester] = useState<Semester>('Spring');
 
@@ -272,8 +511,21 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     '#9333ea','#16a34a','#ca8a04','#0891b2','#db2777','#0d9488','#b45309',
   ];
 
+  // Rich roster row type — all fixed columns from WorkerRoster
+  type RosterRow = {
+    id: string;
+    firstName?: string; lastName?: string; name?: string;
+    idNumber?: string; preferredName?: string; job?: string;
+    shift?: string; payRate?: string; birthDay?: string;
+    messenger?: string; persona?: string; knife?: string;
+    [key: string]: unknown;
+  };
   // Rows ref so the config listener can always see the latest roster rows
-  const rowsRef = React.useRef<Array<{ id: string; firstName?: string; lastName?: string; name?: string; idNumber?: string }>>([]);
+  const rowsRef = React.useRef<RosterRow[]>([]);
+  // Map of staffId → roster row for modal lookups
+  const [rosterMap, setRosterMap] = React.useState<Record<string, RosterRow>>({});
+  // Staff detail modal
+  const [selectedStaff, setSelectedStaff] = React.useState<Staff | null>(null);
   // Track whether the initial staff load is complete. After that, onSnapshot must NOT
   // overwrite departmentId/positionId (manager-set fields) — only update portal-driven
   // fields (needsReview, scheduleImageUrl, unavailability) to avoid clobbering in-flight
@@ -287,14 +539,18 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     // 1. Load roster once (rows don't change often)
     getDoc(doc(db, 'worker_roster', 'main')).then(rosterSnap => {
       if (!active) return;
-      rowsRef.current = Array.isArray(rosterSnap.data()?.rows) ? rosterSnap.data()!.rows : [];
+      const rows: RosterRow[] = Array.isArray(rosterSnap.data()?.rows) ? rosterSnap.data()!.rows : [];
+      rowsRef.current = rows;
+      const map: Record<string, RosterRow> = {};
+      rows.forEach(r => { map[r.id] = r; });
+      setRosterMap(map);
     }).catch(e => console.error('ShiftFlow: failed to load roster', e));
 
     // 2. Live-listen to shiftflow/config so worker portal changes appear instantly
     const unsub = onSnapshot(doc(db, 'shiftflow', 'config'), configSnap => {
       if (!active) return;
       const savedConfig = configSnap.data() ?? {};
-      const savedAssignments: Record<string, { departmentId: string; positionId: string; unavailability?: Staff['unavailability']; needsReview?: boolean; scheduleImageUrl?: string }> =
+      const savedAssignments: Record<string, { departmentId: string; positionId: string; unavailability?: Staff['unavailability']; needsReview?: boolean; scheduleImageUrl?: string; excluded?: boolean }> =
         savedConfig.assignments ?? {};
 
       if (savedConfig.departments) {
@@ -333,7 +589,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
           setStaff(latestRows.map((row, idx) => {
             const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || (row as { name?: string }).name || 'Unknown';
             const saved = savedAssignments[row.id] ?? { departmentId: '', positionId: '', unavailability: [] };
-            return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
+            return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl, excluded: saved.excluded ?? false };
           }));
           setRosterLoaded(true);
           initialLoadDoneRef.current = true;
@@ -344,7 +600,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       setStaff(rows.map((row, idx) => {
         const fullName = `${row.firstName ?? ''} ${row.lastName ?? ''}`.trim() || (row as { name?: string }).name || 'Unknown';
         const saved = savedAssignments[row.id] ?? { departmentId: '', positionId: '', unavailability: [] };
-        return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl };
+        return { id: row.id, name: fullName, idNumber: row.idNumber, departmentId: saved.departmentId ?? '', positionId: saved.positionId ?? '', color: STAFF_COLORS[idx % STAFF_COLORS.length], unavailability: saved.unavailability ?? [], needsReview: saved.needsReview ?? false, scheduleImageUrl: saved.scheduleImageUrl, excluded: saved.excluded ?? false };
       }));
       setRosterLoaded(true);
       initialLoadDoneRef.current = true;
@@ -360,9 +616,9 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     if (!rosterLoaded) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      const assignments: Record<string, { departmentId: string; positionId: string; unavailability: Staff['unavailability']; needsReview?: boolean; scheduleImageUrl?: string }> = {};
+      const assignments: Record<string, { departmentId: string; positionId: string; unavailability: Staff['unavailability']; needsReview?: boolean; scheduleImageUrl?: string; excluded?: boolean }> = {};
       staff.forEach(s => {
-        assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, ...(s.scheduleImageUrl !== undefined ? { scheduleImageUrl: s.scheduleImageUrl } : {}) };
+        assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, excluded: s.excluded ?? false, ...(s.scheduleImageUrl !== undefined ? { scheduleImageUrl: s.scheduleImageUrl } : {}) };
       });
       setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, pinnedAssignments, ...(weekSchedule && Object.keys(weekSchedule).length > 0 ? { weekSchedule } : { weekSchedule: null }) }, { merge: true }).catch(console.error);
     }, 1500);
@@ -392,124 +648,31 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       return timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
     });
 
-  // Auto-schedule state: positionId → staffId override (null = use static assignments)
-  const [aiScheduling, setAiScheduling] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
+  // Schedule state: positionId → staffId override (null = use static assignments)
+  const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
 
-  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-  const runAutoSchedule = useCallback(async () => {
-    setAiScheduling(true);
-    setAiError(null);
-
-    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-
-    // ── Separate pinned vs free positions/staff ───────────────────────────────
-    const pinnedPosIds = new Set(Object.keys(pinnedAssignments));
-    const pinnedStaffIds = new Set(Object.values(pinnedAssignments));
-
-    // ── Build prompt (exclude pinned positions and pinned staff) ──────────────
-    const deptLines = departments.map(dept => {
-      const posLines = dept.positions
-        .filter(pos => !pinnedPosIds.has(pos.id))
-        .map(pos =>
-          `  - Position ID: "${pos.id}" | Name: ${pos.name} | Days: ${pos.days.map(d => DAY_LABELS[d]).join(', ')} | Time: ${fmt12(pos.startTime)} – ${fmt12(pos.endTime)}`
-        ).join('\n');
-      return posLines ? `Department: ${dept.name}\n${posLines}` : null;
-    }).filter(Boolean).join('\n\n');
-
-    const staffLines = staff
-      .filter(s => !pinnedStaffIds.has(s.id))
-      .map(s => {
-        const dept = departments.find(d => d.id === s.departmentId);
-        const pos = dept?.positions.find(p => p.id === s.positionId);
-        const unavail = s.unavailability.length === 0
-          ? 'None'
-          : s.unavailability.map(un => {
-              const timeStr = `${fmt12(un.startTime)} – ${fmt12(un.endTime)}`;
-              const label = un.label ? ` (${un.label})` : '';
-              if (un.dayOfWeek !== undefined) return `${DAY_LABELS[un.dayOfWeek]} ${timeStr}${label}`;
-              return `All days ${timeStr}${label}`;
-            }).join('; ');
-        return `- Staff ID: "${s.id}" | Name: ${s.name} | Dept: ${dept?.name ?? 'Unassigned'} | Assigned position: ${pos?.name ?? 'None'}\n  Unavailability: ${unavail}`;
-      }).join('\n');
-
-    const pinnedNote = pinnedPosIds.size > 0
-      ? `\nNOTE: The following position→staff assignments are LOCKED and must NOT be changed:\n${
-          Object.entries(pinnedAssignments).map(([pId, sId]) => {
-            const pos = departments.flatMap(d => d.positions).find(p => p.id === pId);
-            const s = staff.find(x => x.id === sId);
-            return `  - "${pos?.name ?? pId}" is locked to "${s?.name ?? sId}"`;
-          }).join('\n')
-        }\nDo not include these positions in your output — they are already assigned.`
-      : '';
-
-    const prompt = `You are a shift scheduler. Assign staff to positions for the coming week.${pinnedNote}
-
-DEPARTMENTS AND SHIFTS (excluding locked positions):
-${deptLines || '(all positions are locked)'}
-
-STAFF AVAILABLE FOR ASSIGNMENT (excluding locked staff):
-${staffLines || '(all staff are locked)'}
-
-RULES:
-1. Only assign staff to positions within their own department.
-2. Prefer assigning each person to their designated position first.
-3. If the designated person is unavailable (their unavailability overlaps the shift time on that day), find a substitute from the same department.
-4. Each staff member can only be assigned to ONE position.
-5. Do not assign anyone whose unavailability overlaps the shift time on ANY of the shift's days.
-6. Leave a position unassigned rather than assign someone who is unavailable.
-
-Return ONLY a valid JSON object mapping positionId to staffId for the NON-LOCKED positions only. No markdown, no explanation.
-Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
-
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          system: 'You are a precise shift scheduler. You return only valid JSON with no explanation or markdown.',
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-
-      if (!response.ok) throw new Error(`Claude error: ${response.status}`);
-
-      const data = await response.json();
-      const text: string = data.content?.[0]?.text ?? '';
-      const clean = text.replace(/```(?:json)?\n?/g, '').replace(/```/g, '').trim();
-      const aiMap: Record<string, string> = JSON.parse(clean);
-      setWeekSchedule({ ...pinnedAssignments, ...aiMap });
-    } catch (err) {
-      console.error('AI scheduling failed, falling back to rule-based:', err);
-      setAiError('Auto-scheduling failed. Used rule-based fallback.');
-
-      // ── Rule-based fallback (respects pins) ──────────────────────────────
-      const map: Record<string, string> = { ...pinnedAssignments };
-      const usedGlobal = new Set<string>(Object.values(pinnedAssignments));
-      for (const dept of departments) {
-        const deptStaff = staff.filter(s => s.departmentId === dept.id);
-        for (const pos of dept.positions) {
-          if (pinnedPosIds.has(pos.id)) continue;
-          const primary = deptStaff.find(s => s.positionId === pos.id);
-          if (primary && !usedGlobal.has(primary.id) && !isStaffUnavailable(primary, pos)) {
-            map[pos.id] = primary.id; usedGlobal.add(primary.id); continue;
-          }
-          const sub = deptStaff.find(s => !usedGlobal.has(s.id) && !isStaffUnavailable(s, pos));
-          if (sub) { map[pos.id] = sub.id; usedGlobal.add(sub.id); }
-        }
+  const toggleExcluded = useCallback((staffId: string) => {
+    setStaff(prev => {
+      const next = prev.map(s => s.id === staffId ? { ...s, excluded: !s.excluded } : s);
+      const updated = next.find(s => s.id === staffId);
+      if (updated) {
+        // Save immediately — don't rely on the debounced save which gets
+        // cancelled on page unload before the 1.5s window expires.
+        setDoc(
+          doc(db, 'shiftflow', 'config'),
+          { assignments: { [staffId]: { excluded: updated.excluded ?? false } } },
+          { merge: true }
+        ).catch(console.error);
       }
-      setWeekSchedule(map);
-    } finally {
-      setAiScheduling(false);
-    }
+      return next;
+    });
+  }, []);
+
+  const runAutoSchedule = useCallback(() => {
+    const activeStaff = staff.filter(s => !s.excluded);
+    const result = runScheduleAlgorithm(departments, activeStaff, pinnedAssignments);
+    setWeekSchedule(result.assignments);
+    setScheduleResult(result);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments, staff, pinnedAssignments]);
 
@@ -726,10 +889,54 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                     <p className="text-right text-[9px] text-slate-600 mt-1">{alertData.coveragePct}% filled</p>
                   </div>
 
-                  {/* AI fallback error */}
-                  {aiError && (
-                    <div className="p-2.5 bg-rose-500/10 border border-rose-400/30 rounded-xl text-[11px] text-rose-300 font-medium">
-                      {aiError}
+
+
+                  {/* Last run stats */}
+                  {scheduleResult && (
+                    <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-2">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">Last Run</p>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {[
+                          { label: 'Pinned',     val: scheduleResult.stats.pinned,     color: 'text-amber-400'   },
+                          { label: 'Primary',    val: scheduleResult.stats.primary,    color: 'text-emerald-400' },
+                          { label: 'Substitute', val: scheduleResult.stats.substitute, color: 'text-sky-400'     },
+                          { label: 'Unassigned', val: scheduleResult.stats.unassigned, color: 'text-rose-400'    },
+                          { label: 'Bench',      val: scheduleResult.stats.bench,      color: 'text-violet-400'  },
+                        ].map(({ label, val, color }) => (
+                          <div key={label} className="flex items-center justify-between bg-white/[0.03] rounded-lg px-2 py-1">
+                            <span className="text-[9px] text-slate-500 font-bold">{label}</span>
+                            <span className={`text-xs font-black ${color}`}>{val}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {scheduleResult.substituteWarnings.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">Substitutions</p>
+                          {scheduleResult.substituteWarnings.map((w, i) => (
+                            <p key={i} className="text-[10px] text-slate-500 leading-relaxed">
+                              <span className="text-sky-400 font-semibold">{w.positionName}</span>
+                              {' — '}
+                              <span className="text-slate-400">{w.staffName}: {w.reason}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      {scheduleResult.bench.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">On Bench</p>
+                          {scheduleResult.bench.map((b, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <div className="w-4 h-4 rounded-md bg-violet-500/20 border border-violet-400/30 flex items-center justify-center text-[8px] font-black text-violet-300 shrink-0">
+                                  {b.staffName.charAt(0)}
+                                </div>
+                                <span className="text-[10px] text-slate-400 truncate">{b.staffName}</span>
+                              </div>
+                              <span className="text-[9px] text-slate-600 shrink-0 truncate">{b.departmentName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -806,7 +1013,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                     <div className="flex items-center gap-2">
                       {weekSchedule && (
                         <button
-                          onClick={() => setWeekSchedule(null)}
+                          onClick={() => { setWeekSchedule(null); setScheduleResult(null); }}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg border border-white/10 text-slate-500 hover:text-slate-300 hover:bg-white/10 transition-all"
                         >
                           Clear
@@ -814,20 +1021,10 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                       )}
                       <button
                         onClick={runAutoSchedule}
-                        disabled={aiScheduling}
-                        className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-[#ff00ff]/30 bg-[#ff00ff]/10 text-[#ff00ff] hover:bg-[#ff00ff]/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-[#ff00ff]/30 bg-[#ff00ff]/10 text-[#ff00ff] hover:bg-[#ff00ff]/20 transition-all"
                       >
-                        {aiScheduling ? (
-                          <>
-                            <div className="w-3 h-3 border-2 border-[#ff00ff]/30 border-t-[#ff00ff] rounded-full animate-spin" />
-                            Scheduling…
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles size={13} />
-                            Auto Schedule
-                          </>
-                        )}
+                        <Sparkles size={13} />
+                        Auto Schedule
                       </button>
                     </div>
                   </div>
@@ -856,9 +1053,11 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                               </td>
                             </tr>
                             {dept.positions.map(pos => {
-                              const assigned = getAssignedStaff(pos.id);
-                              const unavail = assigned ? isStaffUnavailable(assigned, pos) : false;
-                              const isPinned = !!pinnedAssignments[pos.id];
+                              const assigned  = getAssignedStaff(pos.id);
+                              const blockMsg  = assigned ? isStaffBlocked(assigned, pos) : null;
+                              const unavail   = !!blockMsg;
+                              const isPinned  = !!pinnedAssignments[pos.id];
+                              const matchType = scheduleResult?.assignmentDetails[pos.id]?.matchType;
                               return (
                                 <tr key={pos.id} className="group hover:bg-white/[0.02] transition-colors">
                                   <td className="p-3 border-b border-white/[0.06]">
@@ -887,12 +1086,15 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                                             <motion.div
                                               initial={{ scale: 0.9, opacity: 0 }}
                                               animate={{ scale: 1, opacity: 1 }}
-                                              className={`h-full p-2 rounded-xl border text-[10px] font-bold flex flex-col justify-between ${
+                                              onClick={() => setSelectedStaff(assigned)}
+                                              className={`h-full p-2 rounded-xl border text-[10px] font-bold flex flex-col justify-between cursor-pointer hover:brightness-110 transition-all ${
                                                 unavail
                                                   ? 'bg-rose-500/10 border-rose-400/30 text-rose-300'
                                                   : isPinned
                                                     ? 'bg-amber-500/10 border-amber-400/40 text-amber-200'
-                                                    : SHIFT_COLORS[pos.shiftType]
+                                                    : matchType === 'substitute'
+                                                      ? 'bg-sky-500/10 border-sky-400/30 text-sky-200'
+                                                      : SHIFT_COLORS[pos.shiftType]
                                               }`}
                                             >
                                               <div className="flex items-center gap-1.5">
@@ -903,8 +1105,10 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                                                 <span className="truncate">{assigned.name.split(' ')[0]}</span>
                                                 {isPinned && <Pin size={8} className="text-amber-400 shrink-0 ml-auto" />}
                                               </div>
-                                              <div className="text-[9px] opacity-60 mt-1 truncate">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
-                                              {unavail && <div className="text-[9px] opacity-70 mt-0.5 text-rose-300">Unavailable</div>}
+                                              <div className="text-[9px] opacity-60 mt-0.5 truncate">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
+                                              {unavail   && <div className="text-[9px] mt-0.5 text-rose-300 truncate" title={blockMsg ?? ''}>⚠ Unavailable</div>}
+                                              {!unavail && matchType === 'substitute' && <div className="text-[9px] mt-0.5 text-sky-400 opacity-80">↩ Substitute</div>}
+                                              {!unavail && matchType === 'primary'    && <div className="text-[9px] mt-0.5 text-emerald-400 opacity-70">✓ Primary</div>}
                                             </motion.div>
                                           ) : (
                                             <div className="h-full flex items-center justify-center">
@@ -975,7 +1179,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                       const isLast = memberIdx === arr.length - 1 && deptIdx === departments.length - 1;
                       const memberPos = departments.flatMap(d => d.positions).find(p => p.id === member.positionId);
                       return (
-                        <div key={member.id} className={!isLast ? 'border-b border-white/[0.06]' : ''}>
+                        <div key={member.id} className={`${!isLast ? 'border-b border-white/[0.06]' : ''} ${member.excluded ? 'opacity-40' : ''}`}>
                           <div className="flex items-center gap-4 px-4 py-3 hover:bg-white/[0.02] transition-colors group">
                             {/* Avatar */}
                             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0 relative"
@@ -1065,6 +1269,13 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                               {dept.teamLeaderId === member.id ? 'Leader' : 'Set Leader'}
                             </button>
 
+                            {/* Excluded badge (row indicator only) */}
+                            {member.excluded && (
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-400/30 text-rose-300 shrink-0">
+                                Excluded
+                              </span>
+                            )}
+
                             {/* Edit details */}
                             <button
                               onClick={() => { setExpandedStaffId(isExpanded ? null : member.id); setAddUnForm({ startTime: '09:00', endTime: '17:00' }); }}
@@ -1090,6 +1301,26 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                           {isExpanded && (
                             <div className="px-4 pb-4 pt-2 bg-white/[0.02] border-t border-white/[0.06] space-y-4">
 
+                              {/* Exclude from scheduler */}
+                              <div className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border ${member.excluded ? 'bg-rose-500/10 border-rose-400/30' : 'bg-white/[0.02] border-white/[0.06]'}`}>
+                                <div>
+                                  <p className="text-xs font-bold text-white">Exclude from Scheduling</p>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">
+                                    {member.excluded ? 'This worker will not be assigned any shifts when Auto Schedule runs.' : 'Worker is active and eligible for scheduling.'}
+                                  </p>
+                                </div>
+                                <button
+                                  onClick={() => toggleExcluded(member.id)}
+                                  className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
+                                    member.excluded
+                                      ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/20'
+                                      : 'bg-rose-500/10 border-rose-400/30 text-rose-300 hover:bg-rose-500/20'
+                                  }`}
+                                >
+                                  {member.excluded ? 'Re-include' : 'Exclude'}
+                                </button>
+                              </div>
+
                               {/* Needs Review header + dismiss */}
                               {member.needsReview && (
                                 <div className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-400/30">
@@ -1106,10 +1337,17 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                                 </div>
                               )}
 
-                              {/* Schedule image */}
+                              {/* Schedule image upload */}
+                              <ScheduleUploader
+                                memberId={member.id}
+                                memberName={member.name}
+                                onSave={(unavailability, imageUrl) => {
+                                  setStaff(prev => prev.map(s => s.id === member.id ? { ...s, unavailability, scheduleImageUrl: imageUrl } : s));
+                                }}
+                              />
                               {member.scheduleImageUrl && (
                                 <div className="space-y-1.5">
-                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Uploaded Schedule</p>
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Current Schedule Image</p>
                                   <a href={member.scheduleImageUrl} target="_blank" rel="noopener noreferrer">
                                     <img
                                       src={member.scheduleImageUrl}
@@ -1175,7 +1413,7 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                         const isLast = memberIdx === unassigned.length - 1;
                         const isExpanded = expandedStaffId === member.id;
                         return (
-                          <div key={member.id} className={!isLast ? 'border-b border-white/[0.06]' : ''}>
+                          <div key={member.id} className={`${!isLast ? 'border-b border-white/[0.06]' : ''} ${member.excluded ? 'opacity-40' : ''}`}>
                             <div className="flex items-center gap-4 px-4 py-3 hover:bg-white/[0.02] transition-colors group">
                               {/* Avatar */}
                               <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0"
@@ -1221,6 +1459,13 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                                 ))}
                               </select>
 
+                              {/* Excluded badge */}
+                              {member.excluded && (
+                                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-500/10 border border-rose-400/30 text-rose-300 shrink-0">
+                                  Excluded
+                                </span>
+                              )}
+
                               {/* Edit Details */}
                               <button
                                 onClick={() => { setExpandedStaffId(isExpanded ? null : member.id); setAddUnForm({ startTime: '09:00', endTime: '17:00' }); }}
@@ -1245,6 +1490,44 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
                             {/* Expanded unavailability panel */}
                             {isExpanded && (
                               <div className="px-4 pb-4 pt-2 bg-white/[0.02] border-t border-white/[0.06] space-y-3">
+
+                                {/* Exclude from scheduler */}
+                                <div className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border ${member.excluded ? 'bg-rose-500/10 border-rose-400/30' : 'bg-white/[0.02] border-white/[0.06]'}`}>
+                                  <div>
+                                    <p className="text-xs font-bold text-white">Exclude from Scheduling</p>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      {member.excluded ? 'This worker will not be assigned any shifts when Auto Schedule runs.' : 'Worker is active and eligible for scheduling.'}
+                                    </p>
+                                  </div>
+                                  <button
+                                    onClick={() => toggleExcluded(member.id)}
+                                    className={`text-[10px] font-black uppercase px-3 py-1.5 rounded-lg border transition-all shrink-0 ${
+                                      member.excluded
+                                        ? 'bg-emerald-500/10 border-emerald-400/30 text-emerald-300 hover:bg-emerald-500/20'
+                                        : 'bg-rose-500/10 border-rose-400/30 text-rose-300 hover:bg-rose-500/20'
+                                    }`}
+                                  >
+                                    {member.excluded ? 'Re-include' : 'Exclude'}
+                                  </button>
+                                </div>
+
+                                {/* Schedule image upload */}
+                                <ScheduleUploader
+                                  memberId={member.id}
+                                  memberName={member.name}
+                                  onSave={(unavailability, imageUrl) => {
+                                    setStaff(prev => prev.map(s => s.id === member.id ? { ...s, unavailability, scheduleImageUrl: imageUrl } : s));
+                                  }}
+                                />
+                                {member.scheduleImageUrl && (
+                                  <div className="space-y-1.5">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Current Schedule Image</p>
+                                    <a href={member.scheduleImageUrl} target="_blank" rel="noopener noreferrer">
+                                      <img src={member.scheduleImageUrl} alt={`${member.name}'s schedule`} className="w-full max-h-64 object-contain rounded-xl border border-white/10 bg-white/[0.02] hover:border-white/20 transition-colors cursor-zoom-in" />
+                                    </a>
+                                  </div>
+                                )}
+
                                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Unavailability for {member.name}</p>
                                 <UnavailCalendar
                                   unavailability={member.unavailability}
@@ -1474,6 +1757,214 @@ Example: {"posId1": "staffId1", "posId2": "staffId2"}`;
           )}
         </AnimatePresence>
       </main>
+
+      {/* ── Staff Detail Modal ── */}
+      <AnimatePresence>
+        {selectedStaff && (() => {
+          const member  = selectedStaff;
+          const row     = rosterMap[member.id] ?? {};
+          const dept    = departments.find(d => d.id === member.departmentId);
+          const pos     = departments.flatMap(d => d.positions).find(p => p.id === member.positionId);
+          const DAY_LABELS_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+          const DAY_SHORT       = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+          // Build per-day block list
+          const blocksByDay: Record<number, { label: string; start: string; end: string }[]> = {};
+          for (let d = 0; d < 7; d++) blocksByDay[d] = [];
+          member.unavailability.forEach(un => {
+            if (un.dayOfWeek !== undefined) {
+              blocksByDay[un.dayOfWeek].push({ label: un.label ?? '', start: un.startTime, end: un.endTime });
+            } else {
+              // All-week block
+              for (let d = 0; d < 7; d++) {
+                blocksByDay[d].push({ label: un.label ?? 'All day', start: un.startTime, end: un.endTime });
+              }
+            }
+          });
+
+          const infoItems = [
+            { label: 'ID Number',      value: member.idNumber ?? row.idNumber ?? '—' },
+            { label: 'Preferred Name', value: (row.preferredName as string) || '—' },
+            { label: 'Job Title',      value: (row.job as string) || '—' },
+            { label: 'Shift',          value: (row.shift as string) || '—' },
+            { label: 'Department',     value: dept?.name ?? '—' },
+            { label: 'Position',       value: pos?.name ?? '—' },
+            { label: 'Pay Rate',       value: (row.payRate as string) || '—' },
+            { label: 'Birthday',       value: (row.birthDay as string) || '—' },
+            { label: 'Messenger',      value: (row.messenger as string) || '—' },
+            { label: 'Persona',        value: (row.persona as string) || '—' },
+            { label: 'Knife',          value: (row.knife as string) || '—' },
+            { label: 'Status',         value: member.needsReview ? 'Needs Review' : 'Active' },
+          ].filter(i => i.value && i.value !== '—');
+
+          return (
+            <motion.div
+              key="staff-modal-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedStaff(null)}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ scale: 0.92, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.92, opacity: 0, y: 20 }}
+                transition={{ type: 'spring', damping: 22, stiffness: 280 }}
+                onClick={e => e.stopPropagation()}
+                className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#0e0817] border border-white/10 rounded-3xl shadow-2xl"
+              >
+                {/* Header */}
+                <div className="relative p-6 border-b border-white/[0.07] flex items-center gap-4">
+                  <div
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-black shrink-0 shadow-lg"
+                    style={{ backgroundColor: member.color }}
+                  >
+                    {member.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-xl font-black text-white truncate">{member.name}</h2>
+                    {(row.preferredName as string) && (
+                      <p className="text-sm text-slate-400 truncate">"{row.preferredName as string}"</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {dept && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-400">
+                          {dept.name}
+                        </span>
+                      )}
+                      {pos && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${SHIFT_COLORS[pos.shiftType]}`}>
+                          {pos.name}
+                        </span>
+                      )}
+                      {member.needsReview && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300 animate-pulse">
+                          Needs Review
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedStaff(null)}
+                    className="absolute top-4 right-4 p-2 rounded-xl text-slate-500 hover:text-white hover:bg-white/10 transition-all"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Info grid */}
+                {infoItems.length > 0 && (
+                  <div className="p-6 border-b border-white/[0.07]">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Worker Details</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                      {infoItems.map(({ label, value }) => (
+                        <div key={label}>
+                          <p className="text-[10px] text-slate-600 uppercase tracking-wide">{label}</p>
+                          <p className={`text-sm font-semibold mt-0.5 ${
+                            label === 'Status' && member.needsReview ? 'text-amber-300' : 'text-white'
+                          }`}>{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Assigned shift hours */}
+                {pos && (
+                  <div className="px-6 pt-5 pb-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Assigned Shift</p>
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.07]">
+                      <Clock size={14} className="text-slate-400 shrink-0" />
+                      <div>
+                        <p className="text-sm font-bold text-white">{pos.name}</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          {fmt12(pos.startTime)} – {fmt12(pos.endTime)} · {DAY_SHORT.filter((_, i) => pos.days.includes(i)).join(', ')}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Availability calendar */}
+                <div className="p-6">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">
+                    Weekly Availability
+                    {member.unavailability.length === 0 && (
+                      <span className="ml-2 text-emerald-400 normal-case font-semibold tracking-normal">· No blocks — fully available</span>
+                    )}
+                  </p>
+                  <div className="grid grid-cols-7 gap-1">
+                    {DAY_SHORT.map((day, dayIdx) => {
+                      const blocks = blocksByDay[dayIdx];
+                      const posRunsToday = pos?.days.includes(dayIdx);
+                      return (
+                        <div key={dayIdx} className="flex flex-col gap-1">
+                          <div className={`text-center text-[10px] font-bold py-1 rounded-lg ${
+                            posRunsToday ? 'text-white bg-white/[0.06] border border-white/10' : 'text-slate-600'
+                          }`}>
+                            {day}
+                          </div>
+                          {posRunsToday && blocks.length === 0 && (
+                            <div className="rounded-lg bg-emerald-500/10 border border-emerald-400/20 px-1 py-1.5 text-center">
+                              <p className="text-[9px] text-emerald-400 font-bold">Free</p>
+                            </div>
+                          )}
+                          {!posRunsToday && blocks.length === 0 && (
+                            <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] px-1 py-1.5 text-center">
+                              <p className="text-[9px] text-slate-700">Off</p>
+                            </div>
+                          )}
+                          {blocks.map((b, bi) => (
+                            <div key={bi} className="rounded-lg bg-rose-500/10 border border-rose-400/20 px-1 py-1.5">
+                              <p className="text-[8px] text-rose-400 font-bold leading-tight truncate" title={b.label || undefined}>{b.label || 'Block'}</p>
+                              <p className="text-[8px] text-rose-300/70 leading-tight mt-0.5">{fmt12(b.start)}</p>
+                              <p className="text-[8px] text-rose-300/70 leading-tight">– {fmt12(b.end)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Unavailability list (full detail) */}
+                  {member.unavailability.length > 0 && (
+                    <div className="mt-4 space-y-1.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-2">Block Details</p>
+                      {member.unavailability.map((un, i) => (
+                        <div key={i} className="flex items-start gap-3 p-2.5 rounded-xl bg-rose-500/[0.06] border border-rose-400/10">
+                          <AlertCircle size={12} className="text-rose-400 shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-semibold text-rose-300 truncate">
+                              {un.label || 'Unavailable'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              {un.dayOfWeek !== undefined ? DAY_LABELS_FULL[un.dayOfWeek] : 'Every day'}
+                              {un.date ? ` · ${un.date}` : ''} · {fmt12(un.startTime)} – {fmt12(un.endTime)}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Schedule image if present */}
+                {member.scheduleImageUrl && (
+                  <div className="px-6 pb-6">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3">Schedule Image</p>
+                    <img
+                      src={member.scheduleImageUrl}
+                      alt="Schedule"
+                      className="w-full rounded-2xl border border-white/10 object-cover"
+                    />
+                  </div>
+                )}
+              </motion.div>
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
     </div>
   );
 }
