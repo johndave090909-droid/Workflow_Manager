@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../firebase';
+import { db, storage, auth } from '../firebase';
 import {
   Calendar as CalendarIcon,
   Users,
@@ -656,6 +656,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
   // Schedule state: positionId → staffId override (null = use static assignments)
   const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
+  const [pendingScheduleResult, setPendingScheduleResult] = useState<ScheduleResult | null>(null);
 
   const toggleExcluded = useCallback((staffId: string) => {
     setStaff(prev => {
@@ -682,9 +683,34 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   const runAutoSchedule = useCallback(() => {
     const activeStaff = staffRef.current.filter(s => !s.excluded);
     const result = runScheduleAlgorithm(departmentsRef.current, activeStaff, pinnedRef.current);
+    // Don't apply yet — show confirmation modal first
+    setPendingScheduleResult(result);
+  }, []); // no deps — always reads latest via refs
+
+  const confirmSchedule = useCallback(async (result: ScheduleResult) => {
+    // Apply to local state
     setWeekSchedule(result.assignments);
     setScheduleResult(result);
-  }, []); // no deps — always reads latest via refs
+    setPendingScheduleResult(null);
+
+    // Persist to Firestore under shiftflow/savedSchedules/{weekStartISO}
+    const weekStartISO = weekStart.toISOString().split('T')[0];
+    const confirmedBy = auth.currentUser?.displayName ?? auth.currentUser?.email ?? 'Unknown';
+    await setDoc(
+      doc(db, 'shiftflow_schedules', weekStartISO),
+      {
+        weekStartISO,
+        weekEndISO: addDays(weekStart, 6).toISOString().split('T')[0],
+        assignments: result.assignments,
+        stats: result.stats,
+        substituteWarnings: result.substituteWarnings,
+        unassigned: result.unassigned,
+        confirmedBy,
+        confirmedAt: new Date().toISOString(),
+      }
+    ).catch(console.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
 
   const getAssignedStaff = (posId: string): Staff | undefined => {
     if (weekSchedule && Object.keys(weekSchedule).length > 0) return staff.find(s => s.id === weekSchedule[posId]);
@@ -1974,6 +2000,111 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
             </motion.div>
           );
         })()}
+      </AnimatePresence>
+
+      {/* ── Confirm Auto Schedule Modal ── */}
+      <AnimatePresence>
+        {pendingScheduleResult && (
+          <motion.div
+            key="confirm-schedule-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.93, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.93, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 260 }}
+              className="w-full max-w-md bg-[#0f0a1a] border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-white/[0.06]">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="p-2 rounded-xl bg-[#ff00ff]/10 border border-[#ff00ff]/20">
+                    <Sparkles size={16} className="text-[#ff00ff]" />
+                  </div>
+                  <h2 className="text-base font-bold text-white">Confirm Auto Schedule</h2>
+                </div>
+                <p className="text-xs text-slate-500 ml-11">
+                  {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {' – '}
+                  {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
+
+              {/* Stats */}
+              <div className="px-6 py-4 grid grid-cols-3 gap-3">
+                {[
+                  { label: 'Assigned', val: pendingScheduleResult.stats.primary + pendingScheduleResult.stats.pinned + pendingScheduleResult.stats.substitute, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-400/20' },
+                  { label: 'Substitutes', val: pendingScheduleResult.stats.substitute, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-400/20' },
+                  { label: 'Unassigned', val: pendingScheduleResult.stats.unassigned, color: 'text-rose-400', bg: 'bg-rose-500/10 border-rose-400/20' },
+                ].map(({ label, val, color, bg }) => (
+                  <div key={label} className={`rounded-2xl border px-3 py-3 text-center ${bg}`}>
+                    <div className={`text-xl font-black ${color}`}>{val}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5 font-semibold uppercase tracking-wide">{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Substitute warnings */}
+              {pendingScheduleResult.substituteWarnings.length > 0 && (
+                <div className="px-6 pb-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Substitutions Made</p>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                    {pendingScheduleResult.substituteWarnings.map((w, i) => (
+                      <div key={i} className="flex items-start gap-2 text-[11px]">
+                        <span className="text-sky-400 shrink-0 mt-0.5">↩</span>
+                        <span className="text-slate-400">
+                          <span className="text-white font-semibold">{w.staffName}</span>
+                          {' skipped for '}
+                          <span className="text-slate-300">{w.positionName}</span>
+                          {w.reason ? <span className="text-slate-600"> · {w.reason}</span> : null}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Unassigned positions */}
+              {pendingScheduleResult.unassigned.length > 0 && (
+                <div className="px-6 pb-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Open Positions</p>
+                  <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                    {pendingScheduleResult.unassigned.map((u, i) => (
+                      <div key={i} className="text-[11px] text-rose-400">
+                        · {u.positionName} <span className="text-slate-600">({u.departmentName})</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Confirmation note */}
+              <div className="px-6 py-3 bg-white/[0.02] border-t border-white/[0.06] text-[11px] text-slate-500">
+                Confirming will apply this schedule and save it to Firestore under your account.
+              </div>
+
+              {/* Actions */}
+              <div className="px-6 py-4 flex gap-3">
+                <button
+                  onClick={() => setPendingScheduleResult(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 text-sm font-semibold text-slate-400 hover:bg-white/[0.05] transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => confirmSchedule(pendingScheduleResult)}
+                  className="flex-1 py-2.5 rounded-xl bg-[#ff00ff]/20 border border-[#ff00ff]/30 text-sm font-bold text-[#ff00ff] hover:bg-[#ff00ff]/30 transition-all"
+                >
+                  Confirm & Save
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
