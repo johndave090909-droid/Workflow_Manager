@@ -616,7 +616,8 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist assignments + departments + weekSchedule to Firestore whenever they change (after initial load)
+  // Persist staff assignments + departments + pinned to Firestore whenever they change (after initial load).
+  // weekSchedule is intentionally excluded — it is only written when the user explicitly confirms.
   const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!rosterLoaded) return;
@@ -626,10 +627,10 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
       staff.forEach(s => {
         assignments[s.id] = { departmentId: s.departmentId, positionId: s.positionId, unavailability: s.unavailability, needsReview: s.needsReview ?? false, excluded: s.excluded ?? false, ...(s.scheduleImageUrl !== undefined ? { scheduleImageUrl: s.scheduleImageUrl } : {}) };
       });
-      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, pinnedAssignments, ...(weekSchedule && Object.keys(weekSchedule).length > 0 ? { weekSchedule } : { weekSchedule: null }) }, { merge: true }).catch(console.error);
+      setDoc(doc(db, 'shiftflow', 'config'), { departments, assignments, pinnedAssignments }, { merge: true }).catch(console.error);
     }, 1500);
     return () => { if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current); };
-  }, [staff, departments, weekSchedule, pinnedAssignments, rosterLoaded]);
+  }, [staff, departments, pinnedAssignments, rosterLoaded]);
 
   const [activeTab, setActiveTab] = useState<'schedule' | 'staff' | 'settings'>('schedule');
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
@@ -696,6 +697,8 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     const weekStartISO = weekStart.toISOString().split('T')[0];
     const confirmedBy = auth.currentUser?.displayName ?? auth.currentUser?.email ?? 'Unknown';
     try {
+      const confirmedAt = new Date().toISOString();
+      // Write the snapshot record to its own collection
       await setDoc(
         doc(db, 'shiftflow_schedules', weekStartISO),
         {
@@ -706,9 +709,15 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
           substituteWarnings: result.substituteWarnings,
           unassigned: result.unassigned,
           confirmedBy,
-          confirmedAt: new Date().toISOString(),
+          confirmedAt,
         }
       );
+      // Also persist weekSchedule into config so it survives a reload
+      await updateDoc(doc(db, 'shiftflow', 'config'), {
+        weekSchedule: result.assignments,
+        weekScheduleConfirmedBy: confirmedBy,
+        weekScheduleConfirmedAt: confirmedAt,
+      });
       setSaveToast({ type: 'success', msg: `Schedule saved · confirmed by ${confirmedBy}` });
     } catch (err) {
       console.error('confirmSchedule write failed:', err);
@@ -1055,7 +1064,12 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                     <div className="flex items-center gap-2">
                       {weekSchedule && !pendingScheduleResult && (
                         <button
-                          onClick={() => { setWeekSchedule(null); setScheduleResult(null); setPendingScheduleResult(null); }}
+                          onClick={() => {
+                            setWeekSchedule(null);
+                            setScheduleResult(null);
+                            setPendingScheduleResult(null);
+                            updateDoc(doc(db, 'shiftflow', 'config'), { weekSchedule: null, weekScheduleConfirmedBy: null, weekScheduleConfirmedAt: null }).catch(console.error);
+                          }}
                           className="text-xs font-bold px-3 py-1.5 rounded-lg border border-white/10 text-slate-500 hover:text-slate-300 hover:bg-white/10 transition-all"
                         >
                           Clear
