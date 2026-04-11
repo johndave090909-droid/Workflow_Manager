@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../firebase';
@@ -504,6 +504,11 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   const [weekSchedule, setWeekSchedule] = useState<Record<string, string> | null>(null);
   const [pinnedAssignments, setPinnedAssignments] = useState<Record<string, string>>({});
 
+  // Refs kept in sync with state so runAutoSchedule never closes over stale values
+  const staffRef = useRef<Staff[]>([]);
+  const departmentsRef = useRef<Department[]>([]);
+  const pinnedRef = useRef<Record<string, string>>({});
+
   const STAFF_COLORS = [
     '#6366f1','#ec4899','#14b8a6','#f97316','#84cc16','#06b6d4','#10b981',
     '#f59e0b','#8b5cf6','#3b82f6','#ef4444','#a855f7','#0ea5e9','#64748b',
@@ -669,13 +674,17 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     });
   }, []);
 
+  // Keep refs in sync so runAutoSchedule always sees the latest state
+  useEffect(() => { staffRef.current = staff; }, [staff]);
+  useEffect(() => { departmentsRef.current = departments; }, [departments]);
+  useEffect(() => { pinnedRef.current = pinnedAssignments; }, [pinnedAssignments]);
+
   const runAutoSchedule = useCallback(() => {
-    const activeStaff = staff.filter(s => !s.excluded);
-    const result = runScheduleAlgorithm(departments, activeStaff, pinnedAssignments);
+    const activeStaff = staffRef.current.filter(s => !s.excluded);
+    const result = runScheduleAlgorithm(departmentsRef.current, activeStaff, pinnedRef.current);
     setWeekSchedule(result.assignments);
     setScheduleResult(result);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departments, staff, pinnedAssignments]);
+  }, []); // no deps — always reads latest via refs
 
   const getAssignedStaff = (posId: string): Staff | undefined => {
     if (weekSchedule && Object.keys(weekSchedule).length > 0) return staff.find(s => s.id === weekSchedule[posId]);
