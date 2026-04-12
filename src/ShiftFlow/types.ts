@@ -7,8 +7,9 @@ export interface Position {
   name: string;
   shiftType: ShiftType;
   days: number[];      // 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-  startTime: string;
-  endTime: string;
+  /** Undefined means no time is set — position is excluded from auto-scheduling. */
+  startTime?: string;
+  endTime?: string;
 }
 
 export interface Department {

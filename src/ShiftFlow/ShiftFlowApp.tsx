@@ -30,6 +30,7 @@ import {
   ImageIcon,
   Upload,
   RefreshCw,
+  X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Staff, Semester, ShiftType, Department, Position } from './types';
@@ -531,6 +532,8 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   const [rosterMap, setRosterMap] = React.useState<Record<string, RosterRow>>({});
   // Staff detail modal
   const [selectedStaff, setSelectedStaff] = React.useState<Staff | null>(null);
+  // Clear schedule confirmation dialog
+  const [showClearConfirm, setShowClearConfirm] = React.useState(false);
   // Track whether the initial staff load is complete. After that, onSnapshot must NOT
   // overwrite departmentId/positionId (manager-set fields) — only update portal-driven
   // fields (needsReview, scheduleImageUrl, unavailability) to avoid clobbering in-flight
@@ -646,19 +649,28 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
   // Check if a member is unavailable for a position
   // — AI-extracted entries (dayOfWeek set) block only that specific day of the week
   // — Manual entries (no dayOfWeek) block all days semester-wide
-  const isStaffUnavailable = (member: Staff, pos: Position): boolean =>
-    member.unavailability.some(un => {
+  const isStaffUnavailable = (member: Staff, pos: Position): boolean => {
+    if (!pos.startTime || !pos.endTime) return false;
+    return member.unavailability.some(un => {
       if (!(!un.date || un.date === '')) return false;
       if (un.dayOfWeek !== undefined) {
-        return pos.days.includes(un.dayOfWeek) && timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+        return pos.days.includes(un.dayOfWeek) && timesOverlap(un.startTime, un.endTime, pos.startTime!, pos.endTime!);
       }
-      return timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+      return timesOverlap(un.startTime, un.endTime, pos.startTime!, pos.endTime!);
     });
+  };
 
   // Schedule state: positionId → staffId override (null = use static assignments)
   const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
   const [pendingScheduleResult, setPendingScheduleResult] = useState<ScheduleResult | null>(null);
   const [saveToast, setSaveToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
+  // Drag-and-drop state for the unscheduled panel
+  const [draggingStaffId, setDraggingStaffId]           = useState<string | null>(null);
+  const [draggingFromPosId, setDraggingFromPosId]       = useState<string | null>(null);
+  const [dragOverPosId, setDragOverPosId]               = useState<string | null>(null);
+  const [dragOverPanel, setDragOverPanel]               = useState(false);
+  const [validDropPositionIds, setValidDropPositionIds] = useState<Set<string>>(new Set());
 
   const toggleExcluded = useCallback((staffId: string) => {
     setStaff(prev => {
@@ -763,11 +775,12 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
           unassignedCount++;
         } else if (isStaffUnavailable(assigned, pos)) {
           const conflict = assigned.unavailability.find(un => {
+            if (!pos.startTime || !pos.endTime) return false;
             if (!(!un.date || un.date === '')) return false;
             if (un.dayOfWeek !== undefined) {
-              return pos.days.includes(un.dayOfWeek) && timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+              return pos.days.includes(un.dayOfWeek) && timesOverlap(un.startTime, un.endTime, pos.startTime!, pos.endTime!);
             }
-            return timesOverlap(un.startTime, un.endTime, pos.startTime, pos.endTime);
+            return timesOverlap(un.startTime, un.endTime, pos.startTime!, pos.endTime!);
           });
           const reason = conflict?.label
             ? conflict.label
@@ -795,6 +808,66 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
     return { totalPositions, filledPositions, coveragePct, needsReviewWorkers, unassignedWorkerCount, deptAlerts, totalAlerts };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments, staff, weekSchedule]);
+
+  // Staff NOT currently showing in the schedule grid (not assigned anywhere)
+  const unscheduledStaff = useMemo(() => {
+    const assignedIds = new Set<string>(
+      weekSchedule && Object.keys(weekSchedule).length > 0
+        ? Object.values(weekSchedule)
+        : departments.flatMap(dept =>
+            dept.positions
+              .map(pos => staff.find(s => s.positionId === pos.id)?.id)
+              .filter((id): id is string => !!id),
+          ),
+    );
+    return staff.filter(s => !assignedIds.has(s.id) && !s.excluded);
+  }, [staff, departments, weekSchedule]);
+
+  /** Pre-compute the set of position IDs a given staff member can fill. */
+  const computeValidPositions = useCallback((member: Staff): Set<string> => {
+    const valid = new Set<string>();
+    for (const dept of departments) {
+      for (const pos of dept.positions) {
+        if (pos.startTime && pos.endTime && isStaffBlocked(member, pos) === null) {
+          valid.add(pos.id);
+        }
+      }
+    }
+    return valid;
+  }, [departments]);
+
+  const startDrag = useCallback((e: React.DragEvent, member: Staff, fromPosId: string | null) => {
+    e.dataTransfer.setData('staffId', member.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingStaffId(member.id);
+    setDraggingFromPosId(fromPosId);
+    setValidDropPositionIds(computeValidPositions(member));
+  }, [computeValidPositions]);
+
+  const clearDrag = useCallback(() => {
+    setDraggingStaffId(null);
+    setDraggingFromPosId(null);
+    setDragOverPosId(null);
+    setDragOverPanel(false);
+    setValidDropPositionIds(new Set());
+  }, []);
+
+  /**
+   * When a drag-drop fires before any auto-schedule has been run (weekSchedule
+   * is null), seed the schedule from each position's designated primary so
+   * existing assignments are not lost when we add the first manual drop.
+   */
+  const seedWeekSchedule = useCallback((): Record<string, string> => {
+    if (weekSchedule && Object.keys(weekSchedule).length > 0) return weekSchedule;
+    const seeded: Record<string, string> = {};
+    for (const dept of departments) {
+      for (const pos of dept.positions) {
+        const primary = staff.find(s => s.positionId === pos.id);
+        if (primary) seeded[pos.id] = primary.id;
+      }
+    }
+    return seeded;
+  }, [weekSchedule, departments, staff]);
 
   const removeUnavailability = (staffId: string, unId: string) => {
     setStaff(prev => prev.map(s =>
@@ -1077,17 +1150,28 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                       )}
                       {pendingScheduleResult && (
                         <AnimatePresence mode="wait">
-                          <motion.button
-                            key="confirm-btn"
+                          <motion.div
+                            key="schedule-actions"
                             initial={{ opacity: 0, scale: 0.9 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.9 }}
-                            onClick={() => confirmSchedule(pendingScheduleResult)}
-                            className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all"
+                            className="flex items-center gap-2"
                           >
-                            <CheckCircle2 size={13} />
-                            Confirm Schedule
-                          </motion.button>
+                            <button
+                              onClick={() => setShowClearConfirm(true)}
+                              className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-all"
+                            >
+                              <Trash2 size={13} />
+                              Clear Schedule
+                            </button>
+                            <button
+                              onClick={() => confirmSchedule(pendingScheduleResult)}
+                              className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-all"
+                            >
+                              <CheckCircle2 size={13} />
+                              Confirm Schedule
+                            </button>
+                          </motion.div>
                         </AnimatePresence>
                       )}
                       <button
@@ -1123,7 +1207,12 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                 </div>
                               </td>
                             </tr>
-                            {dept.positions.map(pos => {
+                            {dept.positions.filter(pos => {
+                              if (pos.startTime && pos.endTime) return true;
+                              // No time set — only show if someone is actually assigned
+                              if (weekSchedule && Object.keys(weekSchedule).length > 0) return !!weekSchedule[pos.id];
+                              return staff.some(s => s.positionId === pos.id);
+                            }).map(pos => {
                               const assigned  = getAssignedStaff(pos.id);
                               const blockMsg  = assigned ? isStaffBlocked(assigned, pos) : null;
                               const unavail   = !!blockMsg;
@@ -1146,19 +1235,58 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                         </button>
                                       )}
                                     </div>
-                                    <div className="text-[10px] text-slate-600 mt-1 ml-1">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
+                                    {pos.startTime && pos.endTime && (
+                                      <div className="text-[10px] text-slate-600 mt-1 ml-1">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
+                                    )}
                                   </td>
                                   {weekDates.map((_, dayIdx) => {
-                                    const runs = pos.days.includes(dayIdx);
+                                    const runs        = pos.days.includes(dayIdx);
+                                    const isDragOver  = dragOverPosId === pos.id && runs;
+                                    const isValidDrop = runs && validDropPositionIds.has(pos.id);
                                     return (
-                                      <td key={dayIdx} className={`p-2 border-b border-white/[0.06] border-r border-white/[0.03] last:border-r-0 h-[72px] ${!runs ? 'bg-white/[0.01]' : ''}`}>
+                                      <td
+                                        key={dayIdx}
+                                        className={`p-2 border-b border-r border-white/[0.03] last:border-r-0 h-[72px] transition-all duration-150 ${
+                                          !runs
+                                            ? 'bg-white/[0.01] border-white/[0.06]'
+                                            : isDragOver
+                                              ? 'bg-white/20 border-white/60'
+                                              : isValidDrop
+                                                ? 'bg-white/[0.07] border-white/20 animate-pulse'
+                                                : 'border-white/[0.06]'
+                                        }`}
+                                        onDragOver={e => { if (!runs || !draggingStaffId) return; e.preventDefault(); setDragOverPosId(pos.id); }}
+                                        onDragLeave={() => setDragOverPosId(null)}
+                                        onDrop={e => {
+                                          e.preventDefault();
+                                          const staffId = e.dataTransfer.getData('staffId');
+                                          if (!staffId || !runs) return;
+                                          const fromPos = draggingFromPosId;
+                                          clearDrag();
+                                          const next = { ...seedWeekSchedule(), [pos.id]: staffId };
+                                          if (fromPos && fromPos !== pos.id) delete next[fromPos];
+                                          setWeekSchedule(next);
+                                        }}
+                                      >
                                         {runs ? (
-                                          assigned ? (
+                                          isDragOver ? (
+                                            <div className="h-full flex items-center justify-center rounded-xl border-2 border-white bg-white/10">
+                                              <UserPlus size={18} className="text-white" />
+                                            </div>
+                                          ) : isValidDrop && !assigned ? (
+                                            <div className="h-full flex items-center justify-center rounded-xl border-2 border-dashed border-white/60">
+                                              <UserPlus size={14} className="text-white/70" />
+                                            </div>
+                                          ) : assigned ? (
                                             <motion.div
                                               initial={{ scale: 0.9, opacity: 0 }}
                                               animate={{ scale: 1, opacity: 1 }}
+                                              draggable
+                                              onDragStart={e => startDrag(e, assigned, pos.id)}
+                                              onDragEnd={clearDrag}
                                               onClick={() => setSelectedStaff(assigned)}
-                                              className={`h-full p-2 rounded-xl border text-[10px] font-bold flex flex-col justify-between cursor-pointer hover:brightness-110 transition-all ${
+                                              className={`h-full p-2 rounded-xl border text-[10px] font-bold flex flex-col justify-between cursor-grab active:cursor-grabbing hover:brightness-110 transition-all ${
+                                                draggingStaffId === assigned.id ? 'opacity-40 scale-95' : ''} ${
                                                 unavail
                                                   ? 'bg-rose-500/10 border-rose-400/30 text-rose-300'
                                                   : isPinned
@@ -1176,7 +1304,9 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                                                 <span className="truncate">{assigned.name.split(' ')[0]}</span>
                                                 {isPinned && <Pin size={8} className="text-amber-400 shrink-0 ml-auto" />}
                                               </div>
-                                              <div className="text-[9px] opacity-60 mt-0.5 truncate">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
+                                              {pos.startTime && pos.endTime && (
+                                                <div className="text-[9px] opacity-60 mt-0.5 truncate">{fmt12(pos.startTime)}–{fmt12(pos.endTime)}</div>
+                                              )}
                                               {unavail   && <div className="text-[9px] mt-0.5 text-rose-300 truncate" title={blockMsg ?? ''}>⚠ Unavailable</div>}
                                               {!unavail && matchType === 'substitute' && <div className="text-[9px] mt-0.5 text-sky-400 opacity-80">↩ Substitute</div>}
                                               {!unavail && matchType === 'primary'    && <div className="text-[9px] mt-0.5 text-emerald-400 opacity-70">✓ Primary</div>}
@@ -1277,7 +1407,11 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <Briefcase size={10} className="text-slate-600" />
                                 <span className="text-[10px] text-slate-500 uppercase tracking-wide">
-                                  {memberPos ? `${memberPos.name} · ${fmt12(memberPos.startTime)}–${fmt12(memberPos.endTime)}` : 'Unassigned'}
+                                  {memberPos
+                                    ? memberPos.startTime && memberPos.endTime
+                                      ? `${memberPos.name} · ${fmt12(memberPos.startTime)}–${fmt12(memberPos.endTime)}`
+                                      : memberPos.name
+                                    : 'Unassigned'}
                                 </span>
                               </div>
                             </div>
@@ -1322,7 +1456,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                               className="hidden sm:block bg-white/5 border border-white/10 text-slate-400 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-white/25 shrink-0"
                             >
                               {departments.find(d => d.id === member.departmentId)?.positions.map(p => (
-                                <option key={p.id} value={p.id}>{p.name} ({fmt12(p.startTime)}–{fmt12(p.endTime)})</option>
+                                <option key={p.id} value={p.id}>{p.name}{p.startTime && p.endTime ? ` (${fmt12(p.startTime)}–${fmt12(p.endTime)})` : ''}</option>
                               ))}
                             </select>
 
@@ -1753,27 +1887,58 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
 
                             {/* Row 2: times + days-of-week toggles */}
                             <div className="flex flex-wrap items-center gap-3 pl-8">
-                              <div className="flex items-center gap-1.5">
-                                <label className="text-[9px] font-black uppercase text-slate-600">Start</label>
-                                <input type="time" value={pos.startTime}
-                                  onChange={e => {
-                                    const newDepts = [...departments];
-                                    newDepts[deptIdx].positions[posIdx] = { ...pos, startTime: e.target.value };
-                                    setDepartments(newDepts);
-                                  }}
-                                  className="bg-white/5 border border-white/10 text-slate-400 rounded-lg px-2 py-1 text-[11px] focus:outline-none focus:border-white/25" />
-                              </div>
-                              <span className="text-slate-600 text-xs">–</span>
-                              <div className="flex items-center gap-1.5">
-                                <label className="text-[9px] font-black uppercase text-slate-600">End</label>
-                                <input type="time" value={pos.endTime}
-                                  onChange={e => {
-                                    const newDepts = [...departments];
-                                    newDepts[deptIdx].positions[posIdx] = { ...pos, endTime: e.target.value };
-                                    setDepartments(newDepts);
-                                  }}
-                                  className="bg-white/5 border border-white/10 text-slate-400 rounded-lg px-2 py-1 text-[11px] focus:outline-none focus:border-white/25" />
-                              </div>
+                              {pos.startTime && pos.endTime ? (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-[9px] font-black uppercase text-slate-600">Start</label>
+                                    <input type="time" value={pos.startTime}
+                                      onChange={e => {
+                                        const newDepts = [...departments];
+                                        newDepts[deptIdx].positions[posIdx] = { ...pos, startTime: e.target.value };
+                                        setDepartments(newDepts);
+                                      }}
+                                      className="bg-white/5 border border-white/10 text-slate-400 rounded-lg px-2 py-1 text-[11px] focus:outline-none focus:border-white/25" />
+                                  </div>
+                                  <span className="text-slate-600 text-xs">–</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <label className="text-[9px] font-black uppercase text-slate-600">End</label>
+                                    <input type="time" value={pos.endTime}
+                                      onChange={e => {
+                                        const newDepts = [...departments];
+                                        newDepts[deptIdx].positions[posIdx] = { ...pos, endTime: e.target.value };
+                                        setDepartments(newDepts);
+                                      }}
+                                      className="bg-white/5 border border-white/10 text-slate-400 rounded-lg px-2 py-1 text-[11px] focus:outline-none focus:border-white/25" />
+                                  </div>
+                                  <button
+                                    title="Remove time — excludes this shift from auto-scheduling"
+                                    onClick={() => {
+                                      const newDepts = [...departments];
+                                      newDepts[deptIdx].positions[posIdx] = { ...pos, startTime: '', endTime: '' };
+                                      setDepartments(newDepts);
+                                    }}
+                                    className="p-1 rounded-md text-slate-600 hover:text-rose-400 hover:bg-rose-500/10 transition-all"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-400/20 text-amber-400">
+                                    No time set · excluded from auto-schedule
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const newDepts = [...departments];
+                                      newDepts[deptIdx].positions[posIdx] = { ...pos, startTime: '08:00', endTime: '16:00' };
+                                      setDepartments(newDepts);
+                                    }}
+                                    className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-all"
+                                  >
+                                    Set time
+                                  </button>
+                                </div>
+                              )}
                               <div className="flex items-center gap-1 ml-auto">
                                 {WEEK_DAYS.map((day, dayIdx) => (
                                   <button
@@ -1828,6 +1993,136 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
           )}
         </AnimatePresence>
       </main>
+
+      {/* ── Unscheduled Staff Panel (fixed right, schedule tab only) ── */}
+      <AnimatePresence>
+        {activeTab === 'schedule' && unscheduledStaff.length > 0 && (
+          <motion.div
+            key="unscheduled-panel"
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 40 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 28 }}
+            onDragOver={e => { if (!draggingFromPosId) return; e.preventDefault(); setDragOverPanel(true); }}
+            onDragLeave={() => setDragOverPanel(false)}
+            onDrop={e => {
+              e.preventDefault();
+              const fromPos = draggingFromPosId;
+              clearDrag();
+              if (!fromPos) return;
+              const next = { ...seedWeekSchedule() };
+              delete next[fromPos];
+              setWeekSchedule(Object.keys(next).length > 0 ? next : null);
+            }}
+            className={`fixed top-[72px] right-3 bottom-3 w-52 z-20 flex flex-col bg-[#0f0a1a]/90 border rounded-2xl backdrop-blur-md shadow-2xl overflow-hidden transition-all duration-150 ${
+              dragOverPanel ? 'border-white/60 bg-white/10 animate-pulse' : 'border-white/10'
+            }`}
+          >
+            {/* Header */}
+            <div className="px-3 py-3 border-b border-white/[0.07] shrink-0">
+              <div className="flex items-center gap-2">
+                <Users size={13} className="text-slate-400" />
+                <span className="text-[11px] font-black uppercase tracking-widest text-slate-300">Unscheduled</span>
+                <span className="ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-full bg-rose-500/10 border border-rose-400/20 text-rose-400">
+                  {unscheduledStaff.length}
+                </span>
+              </div>
+              <p className="text-[9px] text-slate-600 mt-1">
+                {draggingFromPosId ? 'Drop here to unschedule' : 'Drag to a position to assign'}
+              </p>
+            </div>
+
+            {/* Staff list */}
+            <div className="flex-1 overflow-y-auto py-2 space-y-1 px-2">
+              {unscheduledStaff.map(member => {
+                const dept = departments.find(d => d.id === member.departmentId);
+                const pos  = dept?.positions.find(p => p.id === member.positionId);
+                return (
+                  <div
+                    key={member.id}
+                    draggable
+                    onDragStart={e => startDrag(e, member, null)}
+                    onDragEnd={clearDrag}
+                    onClick={() => setSelectedStaff(member)}
+                    className={`flex items-center gap-2 px-2 py-2 rounded-xl border cursor-grab active:cursor-grabbing transition-all select-none ${
+                      draggingStaffId === member.id
+                        ? 'opacity-40 scale-95 border-white/10 bg-white/5'
+                        : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/15'
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-black text-[11px] shrink-0"
+                      style={{ backgroundColor: member.color }}
+                    >
+                      {member.name.charAt(0)}
+                    </div>
+                    {/* Info */}
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold text-slate-200 truncate">{member.name.split(' ')[0]}</p>
+                      <p className="text-[9px] text-slate-500 truncate">{pos?.name ?? dept?.name ?? 'No dept'}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Clear Schedule Confirmation Modal ── */}
+      <AnimatePresence>
+        {showClearConfirm && (
+          <motion.div
+            key="clear-confirm-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowClearConfirm(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 12 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="bg-[#1a1a2e] border border-white/10 rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-400/20">
+                  <Trash2 size={18} className="text-rose-400" />
+                </div>
+                <h3 className="text-white font-bold text-base">Clear Schedule?</h3>
+              </div>
+              <p className="text-slate-400 text-sm mb-5 leading-relaxed">
+                This will remove the current schedule from view. This action cannot be undone.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setShowClearConfirm(false)}
+                  className="text-xs font-bold px-4 py-2 rounded-lg border border-white/10 text-slate-400 hover:text-slate-200 hover:bg-white/10 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowClearConfirm(false);
+                    setWeekSchedule(null);
+                    setScheduleResult(null);
+                    setPendingScheduleResult(null);
+                    updateDoc(doc(db, 'shiftflow', 'config'), { weekSchedule: null, weekScheduleConfirmedBy: null, weekScheduleConfirmedAt: null }).catch(console.error);
+                  }}
+                  className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-lg bg-rose-500/20 border border-rose-400/30 text-rose-300 hover:bg-rose-500/30 transition-all"
+                >
+                  <Trash2 size={13} />
+                  Yes, Clear Schedule
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Staff Detail Modal ── */}
       <AnimatePresence>
@@ -1950,7 +2245,7 @@ export default function ShiftFlowApp({ onBackToHub }: { onBackToHub?: () => void
                       <div>
                         <p className="text-sm font-bold text-white">{pos.name}</p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          {fmt12(pos.startTime)} – {fmt12(pos.endTime)} · {DAY_SHORT.filter((_, i) => pos.days.includes(i)).join(', ')}
+                          {pos.startTime && pos.endTime ? `${fmt12(pos.startTime)} – ${fmt12(pos.endTime)} · ` : ''}{DAY_SHORT.filter((_, i) => pos.days.includes(i)).join(', ')}
                         </p>
                       </div>
                     </div>
